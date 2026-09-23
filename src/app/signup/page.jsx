@@ -6,10 +6,12 @@ import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 
 export default function SignupPage() {
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [passwordConfirm, setPasswordConfirm] = useState('');
   
+  const [nameError, setNameError] = useState('');
   const [emailError, setEmailError] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [generalError, setGeneralError] = useState('');
@@ -59,15 +61,24 @@ export default function SignupPage() {
 
   const handleSignup = async (e) => {
     e.preventDefault();
+    setNameError('');
     setEmailError('');
     setPasswordError('');
     setGeneralError('');
 
+    // 1. 이름 입력 확인
+    if (!name.trim()) {
+      setNameError('이름(닉네임)을 입력해 주세요.');
+      return;
+    }
+
+    // 2. 이메일 입력 확인
     if (!email.trim()) {
       setEmailError('이메일 주소를 입력해 주세요.');
       return;
     }
 
+    // 3. 비밀번호 검증
     if (!isPasswordValid) {
       setPasswordError('비밀번호는 영문, 숫자, 특수문자를 모두 포함하여 8자 이상 작성해야 합니다.');
       return;
@@ -78,13 +89,26 @@ export default function SignupPage() {
       return;
     }
 
+    // 4. 약관 동의 확인
     if (!agreeTerms || !agreePrivacy) {
       setGeneralError('이용약관 및 개인정보 처리방침에 모두 동의해 주세요.');
       return;
     }
 
     setLoading(true);
-    const { error } = await supabase.auth.signUp({ email, password });
+
+    // Supabase 회원가입 요청 (이름 metadata 추가)
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          full_name: name.trim(),
+          name: name.trim()
+        }
+      }
+    });
+
     setLoading(false);
 
     if (error) {
@@ -135,6 +159,26 @@ export default function SignupPage() {
               </div>
             )}
 
+            {/* 이름 입력 */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700">이름 (닉네임)</label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  setNameError('');
+                }}
+                placeholder="홍길동"
+                className={`mt-1 block w-full px-3 py-2 border ${
+                  nameError ? 'border-red-500' : 'border-gray-300'
+                } rounded-md shadow-sm text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500`}
+              />
+              {nameError && (
+                <p className="mt-1 text-xs text-red-600 font-medium">{nameError}</p>
+              )}
+            </div>
+
             {/* 이메일 입력 */}
             <div>
               <label className="block text-sm font-medium text-gray-700">이메일 주소</label>
@@ -171,7 +215,6 @@ export default function SignupPage() {
                 } rounded-md shadow-sm text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500`}
               />
 
-              {/* 연속 부드러운 게이지 바 */}
               {password.length > 0 && (
                 <div className="mt-2 space-y-1">
                   <div className="w-full bg-gray-200 h-2 rounded-full overflow-hidden">
@@ -253,7 +296,7 @@ export default function SignupPage() {
                 </div>
               </div>
 
-              {/* 2. 개인정보 처리방침 (법정 필수지침 반영) */}
+              {/* 2. 개인정보 처리방침 (이름 항목 추가) */}
               <div>
                 <label className="flex items-center text-sm font-bold text-gray-900 cursor-pointer mb-1.5">
                   <input
@@ -268,10 +311,10 @@ export default function SignupPage() {
                   {`[개인정보 처리방침]
 
 1. 개인정보의 수집 및 이용 목적
-- 회원가입 식별, 서비스 로그인, 회원제 서비스 제공, 부정 이용 방지 및 고충 처리.
+- 회원가입 식별, 서비스 로그인, 서비스 내 사용자 이름 표시, 회원제 서비스 제공, 부정 이용 방지 및 고충 처리.
 
 2. 수집하는 개인정보 항목
-- 필수 항목: 이메일 주소, 암호화된 비밀번호(Bcrypt)
+- 필수 항목: 이름(닉네임), 이메일 주소, 암호화된 비밀번호(Bcrypt)
 - 자동 수집 항목: IP 주소, 서비스 이용 기록, 접속 로그
 
 3. 개인정보의 보유 및 파기
