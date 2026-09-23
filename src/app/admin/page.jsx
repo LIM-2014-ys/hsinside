@@ -3,14 +3,11 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 
-// 허용된 어드민 계정 목록 (아이디는 소문자로 저장)
-// 원본 비밀번호: q1w2e3r4!
 const ADMIN_ACCOUNTS = {
   admin_lim: '9c43831b73c4d7d1e838e1e755fa631ee7e305e5d36e2f694e9f3bfa6144e135',
   admin_kim: '9c43831b73c4d7d1e838e1e755fa631ee7e305e5d36e2f694e9f3bfa6144e135'
 };
 
-// 비밀번호를 SHA-256 해시값으로 변환
 async function hashPassword(plainText) {
   const encoder = new TextEncoder();
   const data = encoder.encode(plainText);
@@ -39,11 +36,10 @@ export default function AdminPage() {
     e.preventDefault();
     setLoginError('');
 
-    const inputId = adminId.trim();
-    const inputIdLower = inputId.toLowerCase();
+    const inputId = adminId.trim().toLowerCase();
+    const inputPw = password.trim();
 
-    // 1. 아이디 존재 여부 확인 (대소문자 무관)
-    if (!ADMIN_ACCOUNTS[inputIdLower]) {
+    if (!ADMIN_ACCOUNTS[inputId]) {
       setLoginError('존재하지 않는 어드민 계정입니다.');
       return;
     }
@@ -51,17 +47,15 @@ export default function AdminPage() {
     setLoading(true);
 
     try {
-      // 2. 비밀번호 SHA-256 해싱 후 대조
-      const inputHash = await hashPassword(password.trim());
+      const inputHash = await hashPassword(inputPw);
       setLoading(false);
 
-      if (inputHash !== ADMIN_ACCOUNTS[inputIdLower]) {
+      if (inputHash !== ADMIN_ACCOUNTS[inputId]) {
         setLoginError('어드민 비밀번호가 일치하지 않습니다.');
         return;
       }
 
-      // 로그인 성공
-      const adminDisplayName = inputIdLower === 'admin_lim' ? 'admin_LIM' : 'admin_KIM';
+      const adminDisplayName = inputId === 'admin_lim' ? 'admin_LIM' : 'admin_KIM';
       localStorage.setItem('hsinside_admin_user', adminDisplayName);
       setCurrentAdmin(adminDisplayName);
       setIsLoggedIn(true);
@@ -69,7 +63,7 @@ export default function AdminPage() {
       setPassword('');
     } catch (err) {
       setLoading(false);
-      setLoginError('인증 과정 중 오류가 발생했습니다: ' + err.message);
+      setLoginError('인증 중 오류가 발생했습니다.');
     }
   };
 
