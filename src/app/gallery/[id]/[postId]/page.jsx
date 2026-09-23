@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 
 export default function PostDetailPage({ params }) {
@@ -11,6 +11,9 @@ export default function PostDetailPage({ params }) {
   const [likeCount, setLikeCount] = useState(0);
   const [dislikeCount, setDislikeCount] = useState(0);
   const [userVote, setUserVote] = useState(null); // 'like' | 'dislike' | null
+  
+  // 연타 방지를 위한 즉시 동기화 Ref & Loading State
+  const isVotingRef = useRef(false);
   const [voteLoading, setVoteLoading] = useState(false);
 
   useEffect(() => {
@@ -39,13 +42,11 @@ export default function PostDetailPage({ params }) {
         .eq('post_id', params.id);
 
       if (votes) {
-        // 추천 / 비추천 개수 집계
         const likes = votes.filter((v) => v.vote_type === 'like').length;
         const dislikes = votes.filter((v) => v.vote_type === 'dislike').length;
         setLikeCount(likes);
         setDislikeCount(dislikes);
 
-        // 현재 유저가 반응한 기록이 있는지 확인
         if (user) {
           const myVote = votes.find((v) => v.user_email === user.email);
           setUserVote(myVote ? myVote.vote_type : null);
@@ -54,27 +55,53 @@ export default function PostDetailPage({ params }) {
     }
   };
 
-  // 추천 or 비추천 버튼 클릭 핸들러
+  // 추천 or 비추천 버튼 클릭 핸들러 (연타 방지 포함)
   const handleVote = async (type) => {
     if (!user) {
       alert('로그인이 필요한 기능입니다.');
       return;
     }
 
-    if (voteLoading) return;
+    // 🛑 [연타 방지 1단계] 실행 중이면 즉시 리턴 (useRef를 통해 동기적으로 즉시 막음)
+    if (isVotingRef.current) return;
+    
+    isVotingRef.current = true;
     setVoteLoading(true);
 
+    // 현재 상태 백업 (에러 발생 시 복구용)
+    const prevVote = userVote;
+    const prevLikes = likeCount;
+    const prevDislikes = dislikeCount;
+
+    // 🚀 [연타 방지 2단계] Optimistic Update (화면 수치를 즉시 반영하여 클릭 중복 유도 최소화)
+    if (userVote === type) {
+      // 취소
+      setUserVote(null);
+      if (type === 'like') setLikeCount((prev) => Math.max(0, prev - 1));
+      if (type === 'dislike') setDislikeCount((prev) => Math.max(0, prev - 1));
+    } else {
+      // 신규 등록 또는 전환
+      if (userVote === 'like') setLikeCount((prev) => Math.max(0, prev - 1));
+      if (userVote === 'dislike') setDislikeCount((prev) => Math.max(0, prev - 1));
+
+      setUserVote(type);
+      if (type === 'like') setLikeCount((prev) => prev + 1);
+      if (type === 'dislike') setDislikeCount((prev) => prev + 1);
+    }
+
     try {
-      if (userVote === type) {
+      if (prevVote === type) {
         // 이미 추천/비추천을 누른 상태에서 같은 버튼을 누르면 '취소'
-        await supabase
+        const { error } = await supabase
           .from('post_likes')
           .delete()
           .eq('post_id', params.id)
           .eq('user_email', user.email);
+
+        if (error) throw error;
       } else {
         // 처음 누르거나, 추천 ↔ 비추천 간 변경 (UPSERT)
-        await supabase
+        const { error } = await supabase
           .from('post_likes')
           .upsert(
             {
@@ -84,15 +111,22 @@ export default function PostDetailPage({ params }) {
             },
             { onConflict: 'post_id, user_email' }
           );
-      }
 
-      // 최신 개수 및 내 투표 상태 다시 불러오기
-      await fetchPostAndVotes();
+        if (error) throw error;
+      }
     } catch (err) {
       console.error('투표 오류:', err);
-      alert('처리에 실패했습니다.');
+      // 에러 발생 시 원래 상태로 복구
+      setUserVote(prevVote);
+      setLikeCount(prevLikes);
+      setDislikeCount(prevDislikes);
+      alert('처리에 실패했습니다. 다시 시도해 주세요.');
     } finally {
-      setVoteLoading(false);
+      // 🛑 [연타 방지 3단계] 0.5초 디바운스 타임아웃을 주어 연타 클릭 유입 차단
+      setTimeout(() => {
+        isVotingRef.current = false;
+        setVoteLoading(false);
+      }, 500);
     }
   };
 
@@ -116,6 +150,8 @@ export default function PostDetailPage({ params }) {
           onClick={() => handleVote('like')}
           disabled={voteLoading}
           className={`px-4 py-2 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition ${
+            voteLoading ? 'cursor-not-allowed opacity-60' : ''
+          } ${
             userVote === 'like'
               ? 'bg-blue-600 text-white border-blue-600'
               : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
@@ -132,6 +168,8 @@ export default function PostDetailPage({ params }) {
           onClick={() => handleVote('dislike')}
           disabled={voteLoading}
           className={`px-4 py-2 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition ${
+            voteLoading ? 'cursor-not-allowed opacity-60' : ''
+          } ${
             userVote === 'dislike'
               ? 'bg-red-600 text-white border-red-600'
               : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
