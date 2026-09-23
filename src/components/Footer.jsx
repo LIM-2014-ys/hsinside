@@ -61,7 +61,7 @@ export default function Footer() {
 - 회원 탈퇴 시 즉시 파기합니다. 단, 관계 법령에 의해 보존할 필요가 있는 경우 해당 법정 기간 동안 보관됩니다.
 
 4. 개인정보 보호책임자
-- 담당: hsinside 관리자 (admin@hsinside.com)`
+- 담당자: hsinside 관리자 [임준서] (treetowood@naver.com)`}`
               )}
             </div>
 
