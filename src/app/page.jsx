@@ -3,43 +3,36 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
+import GalleryRequestModal from '@/components/GalleryRequestModal';
 
 export default function HomePage() {
   const [galleries, setGalleries] = useState([]);
+  const [user, setUser] = useState(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [errorMessage, setErrorMessage] = useState('');
-
-  const fetchGalleries = async () => {
-    setLoading(true);
-    setErrorMessage('');
-
-    try {
-      // galleries 테이블에서 목록 조회
-      const { data, error } = await supabase
-        .from('galleries')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        console.error('갤러리 로딩 에러:', error);
-        setErrorMessage(`데이터를 불러오지 못했습니다. (${error.message})`);
-      } else {
-        setGalleries(data || []);
-      }
-    } catch (err) {
-      console.error('네트워크 또는 시스템 오류:', err);
-      setErrorMessage('서버와 연결하는 중 오류가 발생했습니다.');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   useEffect(() => {
-    fetchGalleries();
+    fetchData();
   }, []);
 
+  const fetchData = async () => {
+    setLoading(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    setUser(user);
+
+    const { data, error } = await supabase
+      .from('galleries')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (!error && data) {
+      setGalleries(data);
+    }
+    setLoading(false);
+  };
+
   return (
-    <div className="space-y-8 min-h-[400px]">
+    <div className="space-y-8">
       {/* 상단 히어로 배너 */}
       <section className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 sm:p-8 flex flex-col sm:flex-row items-center justify-between gap-4">
         <div>
@@ -50,9 +43,15 @@ export default function HomePage() {
             다양한 주제의 갤러리에서 자유롭게 이야기를 나눠보세요.
           </p>
         </div>
+        <button
+          onClick={() => setIsModalOpen(true)}
+          className="w-full sm:w-auto px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg shadow transition whitespace-nowrap"
+        >
+          + 새 갤러리 신청
+        </button>
       </section>
 
-      {/* 갤러리 목록 구역 */}
+      {/* 갤러리 목록 */}
       <section className="space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
@@ -61,35 +60,21 @@ export default function HomePage() {
           <span className="text-xs text-gray-500">총 {galleries.length}개</span>
         </div>
 
-        {/* 로딩 중일 때 */}
         {loading ? (
-          <div className="bg-white rounded-xl border border-gray-200 p-12 text-center text-sm text-gray-500">
-            <div className="animate-pulse space-y-2">
-              <p className="font-medium text-gray-600">갤러리 목록을 불러오는 중입니다...</p>
-            </div>
-          </div>
-        ) : errorMessage ? (
-          /* 에러 발생 시 안내 표시 */
-          <div className="bg-red-50 rounded-xl border border-red-200 p-8 text-center space-y-3">
-            <p className="text-sm text-red-600 font-medium">{errorMessage}</p>
-            <p className="text-xs text-gray-500">
-              Supabase에 <code className="bg-red-100 px-1 py-0.5 rounded">galleries</code> 테이블이 존재하는지 확인해주세요.
-            </p>
-            <button
-              onClick={fetchGalleries}
-              className="px-4 py-2 bg-red-600 text-white text-xs font-semibold rounded-md hover:bg-red-700 transition"
-            >
-              다시 시도하기
-            </button>
+          <div className="bg-white rounded-xl border border-gray-200 p-8 text-center text-sm text-gray-500">
+            갤러리 목록을 불러오는 중입니다...
           </div>
         ) : galleries.length === 0 ? (
-          /* 갤러리가 하나도 없을 때 */
-          <div className="bg-white rounded-xl border border-gray-200 p-12 text-center space-y-3">
+          <div className="bg-white rounded-xl border border-gray-200 p-8 text-center space-y-3">
             <p className="text-sm text-gray-500">아직 개설된 갤러리가 없습니다.</p>
-            <p className="text-xs text-gray-400">어드민 대시보드에서 새 갤러리를 개설해 보세요.</p>
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="px-3 py-1.5 bg-blue-50 text-blue-600 text-xs font-semibold rounded hover:bg-blue-100 transition"
+            >
+              첫 갤러리 개설 신청하기
+            </button>
           </div>
         ) : (
-          /* 갤러리 카드 리스트 출력 */
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {galleries.map((gallery) => (
               <Link
@@ -118,6 +103,13 @@ export default function HomePage() {
           </div>
         )}
       </section>
+
+      {/* 갤러리 신청 모달 */}
+      <GalleryRequestModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        user={user}
+      />
     </div>
   );
 }
