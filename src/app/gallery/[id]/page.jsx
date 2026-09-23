@@ -1,12 +1,14 @@
 'use client';
 
-import { useEffect, useState, use } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
-import { supabase } from '../lib/supabaseClient';
+import { supabase } from '@/lib/supabaseClient';
 
-export default function GalleryPage({ params }) {
-  const { id: galleryId } = use(params);
+export default function GalleryPage() {
+  const params = useParams();
+  const galleryId = params?.id;
+
   const [user, setUser] = useState(null);
   const [galleryName, setGalleryName] = useState('');
   const [posts, setPosts] = useState([]);
@@ -17,7 +19,9 @@ export default function GalleryPage({ params }) {
   const router = useRouter();
 
   useEffect(() => {
-    checkAuthAndInit();
+    if (galleryId) {
+      checkAuthAndInit();
+    }
   }, [galleryId]);
 
   const checkAuthAndInit = async () => {
@@ -107,7 +111,7 @@ export default function GalleryPage({ params }) {
     router.push('/login');
   };
 
-  if (!user) return <p>로딩 중...</p>;
+  if (!user) return <p className="p-4 text-center">로딩 중...</p>;
 
   return (
     <div>
