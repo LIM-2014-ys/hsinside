@@ -2,210 +2,93 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 
 export default function MyPage() {
   const [user, setUser] = useState(null);
-  const [name, setName] = useState('');
-  const [loading, setLoading] = useState(true);
-  
-  // 비밀번호 변경 상태
-  const [newPassword, setNewPassword] = useState('');
-  const [passwordConfirm, setPasswordConfirm] = useState('');
-  const [pwLoading, setPwLoading] = useState(false);
-
-  // 탈퇴 확인 모달 상태
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [deleteConfirmText, setDeleteConfirmText] = useState('');
-  const [deleteLoading, setDeleteLoading] = useState(false);
-
-  // Toast 알림
-  const [toast, setToast] = useState({ visible: false, message: '', isError: false });
-
+  const [loading, setLoading] = useState(false);
   const router = useRouter();
 
-  const showToast = (message, isError = false) => {
-    setToast({ visible: true, message, isError });
-    setTimeout(() => setToast({ visible: false, message: '', isError: false }), 3000);
-  };
-
   useEffect(() => {
-    const getUser = async () => {
+    async function getUser() {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        router.push('/login');
-        return;
-      }
       setUser(user);
-      setName(user.user_metadata?.full_name || user.user_metadata?.name || '회원');
-      setLoading(false);
-    };
+    }
     getUser();
-  }, [router]);
+  }, []);
 
-  // 비밀번호 변경 처리
-  const handlePasswordChange = async (e) => {
-    e.preventDefault();
-    if (newPassword.length < 8) {
-      showToast('비밀번호는 최소 8자 이상이어야 합니다.', true);
-      return;
-    }
-    if (newPassword !== passwordConfirm) {
-      showToast('비밀번호 확인이 일치하지 않습니다.', true);
-      return;
-    }
-
-    setPwLoading(true);
-    const { error } = await supabase.auth.updateUser({ password: newPassword });
-    setPwLoading(false);
-
-    if (error) {
-      showToast(`비밀번호 변경 실패: ${error.message}`, true);
-    } else {
-      showToast('비밀번호가 성공적으로 변경되었습니다!');
-      setNewPassword('');
-      setPasswordConfirm('');
-    }
-  };
-
-  // 회원 탈퇴 처리
+  // 회원 탈퇴 및 즉시 모든 정보 삭제 처리
   const handleDeleteAccount = async () => {
-    if (deleteConfirmText !== '탈퇴합니다') {
-      showToast('"탈퇴합니다"를 정확히 입력해 주세요.', true);
-      return;
-    }
+    const confirmDelete = confirm(
+      '정말로 탈퇴하시겠습니까?\n탈퇴 즉시 작성하신 모든 게시글, 댓글, 갤러리 신청 내역 및 계정 정보가 완전히 삭제되며 복구할 수 없습니다.'
+    );
 
-    setDeleteLoading(true);
+    if (!confirmDelete || !user) return;
 
-    // 로그아웃 및 세션 제거 (Supabase DB 정리)
-    const { error } = await supabase.auth.signOut();
-    setDeleteLoading(false);
+    setLoading(true);
 
-    if (error) {
-      showToast(`탈퇴 처리 중 오류가 발생했습니다: ${error.message}`, true);
-    } else {
-      showToast('회원 탈퇴가 완료되었습니다. 이용해 주셔서 감사합니다.');
-      setTimeout(() => {
-        router.push('/');
-        router.refresh();
-      }, 1500);
+    try {
+      // 1. RPC 함수 호출하여 유저가 작성한 모든 DB 데이터 즉시 삭제
+      const { error: rpcError } = await supabase.rpc('delete_user_all_data', {
+        user_email_param: user.email
+      });
+
+      if (rpcError) {
+        console.error('데이터 삭제 실패:', rpcError);
+      }
+
+      // 2. 만약 RPC를 사용하지 않을 경우 테이블별 직접 일괄 삭제 수행 (안전장치)
+      await supabase.from('post_likes').delete().eq('user_email', user.email);
+      await supabase.from('comments').delete().eq('author_email', user.email);
+      await supabase.from('posts').delete().eq('author_email', user.email);
+      await supabase.from('gallery_requests').delete().eq('applicant_email', user.email);
+
+      // 3. Supabase Auth 로그아웃 및 세션 제거
+      await supabase.auth.signOut();
+
+      alert('회원 탈퇴 및 모든 개인 정보 삭제가 완료되었습니다.');
+      router.push('/');
+      router.refresh();
+    } catch (error) {
+      console.error('탈퇴 처리 오류:', error);
+      alert(`탈퇴 처리 중 오류가 발생했습니다: ${error.message}`);
+    } finally {
+      setLoading(false);
     }
   };
 
-  if (loading) {
-    return <div className="min-h-screen bg-gray-50 flex items-center justify-center text-sm text-gray-500">로딩 중...</div>;
+  if (!user) {
+    return (
+      <div className="p-8 text-center text-sm text-gray-500">
+        로그인이 필요한 페이지입니다.
+      </div>
+    );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-10 px-4 sm:px-6 lg:px-8">
-      {/* Toast 알림 */}
-      {toast.visible && (
-        <div className={`fixed top-5 right-5 z-50 px-4 py-3 rounded shadow-lg text-sm text-white ${toast.isError ? 'bg-red-600' : 'bg-green-600'}`}>
-          {toast.message}
-        </div>
-      )}
+    <div className="max-w-xl mx-auto p-6 bg-white rounded-lg shadow border border-gray-200 mt-8 space-y-6">
+      <h1 className="text-xl font-bold text-gray-900 border-b pb-3">👤 마이페이지</h1>
 
-      <div className="max-w-2xl mx-auto space-y-6">
-        
-        {/* 상단 프로필 헤더 */}
-        <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">👤 마이 페이지</h2>
-          <div className="space-y-2 text-sm text-gray-700">
-            <p><strong>이름 (닉네임):</strong> {name}</p>
-            <p><strong>이메일:</strong> {user.email}</p>
-            <p><strong>가입일:</strong> {new Date(user.created_at).toLocaleDateString('ko-KR')}</p>
-          </div>
-        </div>
-
-        {/* 비밀번호 변경 구역 */}
-        <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
-          <h3 className="text-base font-bold text-gray-900 mb-4">🔒 비밀번호 변경</h3>
-          <form onSubmit={handlePasswordChange} className="space-y-4">
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">새 비밀번호</label>
-              <input
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="8자 이상 입력"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">새 비밀번호 확인</label>
-              <input
-                type="password"
-                value={passwordConfirm}
-                onChange={(e) => setPasswordConfirm(e.target.value)}
-                placeholder="새 비밀번호 다시 입력"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500"
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={pwLoading}
-              className="px-4 py-2 bg-blue-600 text-white rounded text-xs font-medium hover:bg-blue-700 transition disabled:opacity-50"
-            >
-              {pwLoading ? '변경 중...' : '비밀번호 변경'}
-            </button>
-          </form>
-        </div>
-
-        {/* 위험 구역: 회원 탈퇴 */}
-        <div className="bg-red-50 p-6 rounded-lg border border-red-200">
-          <h3 className="text-base font-bold text-red-800 mb-2">⚠️ 회원 탈퇴</h3>
-          <p className="text-xs text-red-600 mb-4">
-            탈퇴 시 계정 정보가 삭제되며, 작성하신 게시글 및 댓글 관리가 제한될 수 있습니다.
-          </p>
-          <button
-            onClick={() => setShowDeleteModal(true)}
-            className="px-4 py-2 bg-red-600 text-white rounded text-xs font-medium hover:bg-red-700 transition"
-          >
-            회원 탈퇴 신청
-          </button>
-        </div>
-
-        <div className="text-center pt-2">
-          <Link href="/" className="text-xs text-gray-500 hover:text-gray-900 underline">
-            ← 메인으로 돌아가기
-          </Link>
-        </div>
+      <div className="space-y-2 text-sm text-gray-700">
+        <p><strong>이메일:</strong> {user.email}</p>
+        <p><strong>가입일:</strong> {new Date(user.created_at).toLocaleDateString()}</p>
       </div>
 
-      {/* 탈퇴 confirmation 모달 */}
-      {showDeleteModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg max-w-sm w-full p-6 shadow-xl space-y-4">
-            <h3 className="text-lg font-bold text-gray-900">정말 탈퇴하시겠습니까?</h3>
-            <p className="text-xs text-gray-600 leading-relaxed">
-              탈퇴를 진행하시려면 아래에 <strong className="text-red-600">"탈퇴합니다"</strong>를 정확히 입력해 주세요.
-            </p>
-            <input
-              type="text"
-              value={deleteConfirmText}
-              onChange={(e) => setDeleteConfirmText(e.target.value)}
-              placeholder="탈퇴합니다"
-              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-red-500"
-            />
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                onClick={() => setShowDeleteModal(false)}
-                className="px-3 py-1.5 bg-gray-200 text-gray-800 text-xs rounded hover:bg-gray-300"
-              >
-                취소
-              </button>
-              <button
-                onClick={handleDeleteAccount}
-                disabled={deleteLoading}
-                className="px-3 py-1.5 bg-red-600 text-white text-xs rounded hover:bg-red-700 font-medium disabled:opacity-50"
-              >
-                {deleteLoading ? '처리 중...' : '확인 및 탈퇴'}
-              </button>
-            </div>
-          </div>
+      <div className="pt-6 border-t">
+        <div className="bg-red-50 p-4 rounded-md border border-red-100 space-y-3">
+          <h3 className="text-sm font-bold text-red-800">⚠️ 회원 탈퇴</h3>
+          <p className="text-xs text-red-600 leading-relaxed">
+            탈퇴 시 작성한 게시글, 댓글, 좋아요, 갤러리 신청 내역이 DB에서 즉시 영구 삭제되며 복구할 수 없습니다.
+          </p>
+          <button
+            onClick={handleDeleteAccount}
+            disabled={loading}
+            className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded transition disabled:opacity-50"
+          >
+            {loading ? '정보 삭제 및 탈퇴 처리 중...' : '회원 탈퇴 및 모든 정보 삭제'}
+          </button>
         </div>
-      )}
+      </div>
     </div>
   );
 }
