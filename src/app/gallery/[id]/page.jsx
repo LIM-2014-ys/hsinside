@@ -17,8 +17,12 @@ export default function GalleryPage() {
   const [comments, setComments] = useState({});
   const [commentInputs, setCommentInputs] = useState({});
   
-  // alert 대신 사용할 토스트 메시지 상태
+  // Toast 알림
   const [toast, setToast] = useState({ visible: false, message: '', isError: false });
+  // 로그인 필요 안내 모달 팝업
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [loginModalNotice, setLoginModalNotice] = useState('');
+
   const router = useRouter();
 
   const showToast = (message, isError = false) => {
@@ -30,19 +34,18 @@ export default function GalleryPage() {
 
   useEffect(() => {
     if (galleryId) {
-      checkAuthAndInit();
+      checkAuthStatus();
+      loadGalleryInfo();
+      loadPosts();
     }
   }, [galleryId]);
 
-  const checkAuthAndInit = async () => {
+  // 접속 유저 상태 확인 (비로그인이어도 페이지 접근 차단 안 함)
+  const checkAuthStatus = async () => {
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
-      router.push('/login');
-      return;
+    if (session) {
+      setUser(session.user);
     }
-    setUser(session.user);
-    loadGalleryInfo();
-    loadPosts();
   };
 
   const loadGalleryInfo = async () => {
@@ -69,7 +72,18 @@ export default function GalleryPage() {
     }
   };
 
+  // 비로그인 사용자가 로그인 필요 기능 클릭 시 팝업 안내
+  const requireLogin = (actionName) => {
+    if (!user) {
+      setLoginModalNotice(`${actionName} 기능은 로그인이 필요합니다.`);
+      setShowLoginModal(true);
+      return true;
+    }
+    return false;
+  };
+
   const createPost = async () => {
+    if (requireLogin('게시글 작성')) return;
     if (!title.trim() || !content.trim()) {
       showToast('제목과 내용을 모두 입력해 주세요.', true);
       return;
@@ -105,6 +119,7 @@ export default function GalleryPage() {
   };
 
   const addComment = async (postId) => {
+    if (requireLogin('댓글 작성')) return;
     const text = commentInputs[postId]?.trim();
     if (!text) {
       showToast('댓글 내용을 입력해 주세요.', true);
@@ -126,12 +141,47 @@ export default function GalleryPage() {
     }
   };
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    router.push('/login');
+  // 좋아요 처리
+  const handleLike = async (post) => {
+    if (requireLogin('좋아요')) return;
+    const newLikes = (post.likes || 0) + 1;
+
+    const { error } = await supabase
+      .from('posts')
+      .update({ likes: newLikes })
+      .eq('id', post.id);
+
+    if (error) {
+      showToast('좋아요 처리 중 오류가 발생했습니다.', true);
+    } else {
+      showToast('게시글을 추천했습니다! 👍');
+      loadPosts();
+    }
   };
 
-  if (!user) return <p className="p-4 text-center text-sm text-gray-500">로딩 중...</p>;
+  // 싫어요 처리
+  const handleDislike = async (post) => {
+    if (requireLogin('싫어요')) return;
+    const newDislikes = (post.dislikes || 0) + 1;
+
+    const { error } = await supabase
+      .from('posts')
+      .update({ dislikes: newDislikes })
+      .eq('id', post.id);
+
+    if (error) {
+      showToast('싫어요 처리 중 오류가 발생했습니다.', true);
+    } else {
+      showToast('게시글을 비추천했습니다. 👎');
+      loadPosts();
+    }
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+    showToast('로그아웃 되었습니다.');
+  };
 
   return (
     <div className="max-w-4xl mx-auto p-4 relative">
@@ -144,31 +194,64 @@ export default function GalleryPage() {
         </div>
       )}
 
+      {/* 로그인 필요 모달 팝업 */}
+      {showLoginModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg max-w-sm w-full p-6 shadow-xl text-center space-y-4">
+            <h3 className="text-lg font-bold text-gray-900">로그인 안내 🔒</h3>
+            <p className="text-sm text-gray-600">{loginModalNotice}</p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowLoginModal(false)}
+                className="flex-1 py-2 bg-gray-200 text-gray-800 rounded text-sm hover:bg-gray-300 transition"
+              >
+                취소
+              </button>
+              <button
+                onClick={() => router.push('/login')}
+                className="flex-1 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 transition font-medium"
+              >
+                로그인하기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <header className="flex justify-between items-center pb-4 border-b-2 border-gray-200 mb-6">
         <h2 className="text-2xl font-bold">🎮 {galleryName}</h2>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
           <Link href="/" className="border border-gray-300 px-3 py-1 text-sm rounded-md hover:bg-gray-100 transition">
             전체 목록
           </Link>
-          <button onClick={handleLogout} className="border border-gray-300 px-3 py-1 text-sm rounded-md hover:bg-gray-100 transition">
-            로그아웃
-          </button>
+          {user ? (
+            <button onClick={handleLogout} className="border border-gray-300 px-3 py-1 text-sm rounded-md hover:bg-gray-100 transition">
+              로그아웃
+            </button>
+          ) : (
+            <Link href="/login" className="bg-blue-600 text-white px-3 py-1 text-sm rounded-md hover:bg-blue-700 transition font-medium">
+              로그인
+            </Link>
+          )}
         </div>
       </header>
 
+      {/* 글 쓰기 영역 (비로그인 상태일 때는 클릭 시 안내) */}
       <section className="bg-gray-50 border border-gray-200 rounded-lg p-5 mb-6">
         <h3 className="text-lg font-bold mb-3">✍️ 글 쓰기</h3>
         <input
           type="text"
-          placeholder="제목"
+          placeholder={user ? "제목" : "로그인 후 글 작성이 가능합니다."}
           value={title}
+          onClick={() => !user && requireLogin('게시글 작성')}
           onChange={(e) => setTitle(e.target.value)}
           className="w-full p-2.5 border border-gray-300 rounded-md mb-2 text-sm focus:outline-none focus:border-blue-500"
         />
         <textarea
           rows={4}
-          placeholder="내용을 입력하세요"
+          placeholder={user ? "내용을 입력하세요" : "로그인 후 글 작성이 가능합니다."}
           value={content}
+          onClick={() => !user && requireLogin('게시글 작성')}
           onChange={(e) => setContent(e.target.value)}
           className="w-full p-2.5 border border-gray-300 rounded-md mb-3 text-sm focus:outline-none focus:border-blue-500"
         />
@@ -180,6 +263,7 @@ export default function GalleryPage() {
         </button>
       </section>
 
+      {/* 게시글 목록 (모든 사용자 조회 가능) */}
       <section className="bg-gray-50 border border-gray-200 rounded-lg p-5">
         <h3 className="text-lg font-bold mb-4">📋 게시글 목록</h3>
         {posts.length === 0 ? (
@@ -193,6 +277,23 @@ export default function GalleryPage() {
               </div>
               <p className="text-sm text-gray-800 whitespace-pre-wrap break-words mb-4">{p.content}</p>
 
+              {/* 추천 / 비추천 버튼 */}
+              <div className="flex gap-2 mb-4">
+                <button
+                  onClick={() => handleLike(p)}
+                  className="flex items-center gap-1 border border-gray-300 px-3 py-1 rounded text-xs hover:bg-blue-50 hover:border-blue-300 transition text-gray-700"
+                >
+                  👍 추천 <span className="font-bold text-blue-600">{p.likes || 0}</span>
+                </button>
+                <button
+                  onClick={() => handleDislike(p)}
+                  className="flex items-center gap-1 border border-gray-300 px-3 py-1 rounded text-xs hover:bg-red-50 hover:border-red-300 transition text-gray-700"
+                >
+                  👎 비추천 <span className="font-bold text-red-600">{p.dislikes || 0}</span>
+                </button>
+              </div>
+
+              {/* 댓글 목록 & 작성 구역 */}
               <div className="border-t border-dashed border-gray-200 pt-3 mt-3">
                 <div className="space-y-1 mb-3">
                   {(comments[p.id] || []).map((c) => (
@@ -204,8 +305,9 @@ export default function GalleryPage() {
                 <div className="flex gap-2">
                   <input
                     type="text"
-                    placeholder="댓글 입력..."
+                    placeholder={user ? "댓글 입력..." : "댓글을 입력하려면 로그인해 주세요."}
                     value={commentInputs[p.id] || ''}
+                    onClick={() => !user && requireLogin('댓글 작성')}
                     onChange={(e) => setCommentInputs({ ...commentInputs, [p.id]: e.target.value })}
                     className="flex-1 p-2 border border-gray-300 rounded text-xs focus:outline-none focus:border-blue-500"
                   />
