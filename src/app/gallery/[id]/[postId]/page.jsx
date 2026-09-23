@@ -1,179 +1,146 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 
-export default function PostDetailPage() {
-  const { id: galleryId, postId } = useParams();
-  const router = useRouter();
-
+export default function PostDetailPage({ params }) {
   const [post, setPost] = useState(null);
   const [user, setUser] = useState(null);
-  const [hasLiked, setHasLiked] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [likeProcessing, setLikeProcessing] = useState(false);
+
+  // 추천/비추천 개수 및 나의 투표 상태
+  const [likeCount, setLikeCount] = useState(0);
+  const [dislikeCount, setDislikeCount] = useState(0);
+  const [userVote, setUserVote] = useState(null); // 'like' | 'dislike' | null
+  const [voteLoading, setVoteLoading] = useState(false);
 
   useEffect(() => {
-    fetchPostAndUser();
-  }, [postId]);
+    fetchPostAndVotes();
+  }, []);
 
-  const fetchPostAndUser = async () => {
-    setLoading(true);
+  const fetchPostAndVotes = async () => {
+    // 1. 유저 정보 조회
     const { data: { user } } = await supabase.auth.getUser();
     setUser(user);
 
-    // 고유번호(post_code) 또는 id로 게시글 조회
-    const isNumberCode = !isNaN(Number(postId)) && postId.length >= 10;
-    const query = supabase.from('posts').select('*');
-
-    if (isNumberCode) {
-      query.eq('post_code', parseInt(postId, 10));
-    } else {
-      query.eq('id', parseInt(postId, 10));
-    }
-
-    const { data: postData, error } = await query.single();
-
-    if (error || !postData) {
-      console.error('게시글 조회 실패:', error);
-      setLoading(false);
-      return;
-    }
+    // 2. 게시글 상세 정보 조회
+    const { data: postData } = await supabase
+      .from('posts')
+      .select('*')
+      .eq('id', params.id)
+      .single();
 
     setPost(postData);
 
-    // 유저가 이미 좋아요를 눌렀는지 확인
-    if (user) {
-      const { data: likeData } = await supabase
+    if (postData) {
+      // 3. 해당 게시글의 전체 추천/비추천 목록 조회
+      const { data: votes } = await supabase
         .from('post_likes')
-        .select('*')
-        .eq('post_id', postData.id)
-        .eq('user_email', user.email)
-        .maybeSingle();
+        .select('user_email, vote_type')
+        .eq('post_id', params.id);
 
-      if (likeData) {
-        setHasLiked(true);
+      if (votes) {
+        // 추천 / 비추천 개수 집계
+        const likes = votes.filter((v) => v.vote_type === 'like').length;
+        const dislikes = votes.filter((v) => v.vote_type === 'dislike').length;
+        setLikeCount(likes);
+        setDislikeCount(dislikes);
+
+        // 현재 유저가 반응한 기록이 있는지 확인
+        if (user) {
+          const myVote = votes.find((v) => v.user_email === user.email);
+          setUserVote(myVote ? myVote.vote_type : null);
+        }
       }
     }
-
-    setLoading(false);
   };
 
-  // 좋아요 토글 처리 (좋아요 추가 / 취소)
-  const handleLikeToggle = async () => {
+  // 추천 or 비추천 버튼 클릭 핸들러
+  const handleVote = async (type) => {
     if (!user) {
       alert('로그인이 필요한 기능입니다.');
       return;
     }
 
-    if (likeProcessing) return;
-    setLikeProcessing(true);
+    if (voteLoading) return;
+    setVoteLoading(true);
 
     try {
-      if (hasLiked) {
-        // 1. 좋아요 취소
+      if (userVote === type) {
+        // 이미 추천/비추천을 누른 상태에서 같은 버튼을 누르면 '취소'
         await supabase
           .from('post_likes')
           .delete()
-          .eq('post_id', post.id)
+          .eq('post_id', params.id)
           .eq('user_email', user.email);
-
-        const newLikesCount = Math.max(0, (post.likes || 1) - 1);
-
-        await supabase
-          .from('posts')
-          .update({ likes: newLikesCount })
-          .eq('id', post.id);
-
-        setPost((prev) => ({ ...prev, likes: newLikesCount }));
-        setHasLiked(false);
       } else {
-        // 2. 좋아요 추가
+        // 처음 누르거나, 추천 ↔ 비추천 간 변경 (UPSERT)
         await supabase
           .from('post_likes')
-          .insert([{ post_id: post.id, user_email: user.email }]);
-
-        const newLikesCount = (post.likes || 0) + 1;
-
-        await supabase
-          .from('posts')
-          .update({ likes: newLikesCount })
-          .eq('id', post.id);
-
-        setPost((prev) => ({ ...prev, likes: newLikesCount }));
-        setHasLiked(true);
+          .upsert(
+            {
+              post_id: params.id,
+              user_email: user.email,
+              vote_type: type,
+            },
+            { onConflict: 'post_id, user_email' }
+          );
       }
+
+      // 최신 개수 및 내 투표 상태 다시 불러오기
+      await fetchPostAndVotes();
     } catch (err) {
-      console.error('좋아요 토글 오류:', err);
-      alert('좋아요 처리 중 오류가 발생하였습니다.');
+      console.error('투표 오류:', err);
+      alert('처리에 실패했습니다.');
     } finally {
-      setLikeProcessing(false);
+      setVoteLoading(false);
     }
   };
 
-  if (loading) {
-    return (
-      <div className="max-w-3xl mx-auto p-12 text-center text-sm text-gray-500">
-        게시글을 불러오는 중입니다...
-      </div>
-    );
-  }
-
-  if (!post) {
-    return (
-      <div className="max-w-3xl mx-auto p-12 text-center space-y-4">
-        <p className="text-gray-600 text-sm">존재하지 않거나 삭제된 게시글입니다.</p>
-        <Link
-          href={`/gallery/${galleryId}`}
-          className="inline-block px-4 py-2 bg-blue-600 text-white text-xs rounded hover:bg-blue-700"
-        >
-          갤러리 목록으로 돌아가기
-        </Link>
-      </div>
-    );
-  }
+  if (!post) return <div className="p-8 text-center text-xs text-gray-500">로딩 중...</div>;
 
   return (
-    <div className="max-w-3xl mx-auto p-6 bg-white rounded-xl shadow-sm border border-gray-200 mt-6 space-y-6">
-      <div className="border-b pb-4 flex items-center justify-between">
-        <Link
-          href={`/gallery/${galleryId}`}
-          className="text-xs text-blue-600 hover:underline font-semibold"
-        >
-          ← 갤러리로 돌아가기
-        </Link>
-        <span className="text-[11px] text-gray-400">
-          고유번호: {post.post_code || post.id}
-        </span>
-      </div>
-
+    <div className="max-w-2xl mx-auto p-6 bg-white rounded-xl shadow-sm border border-gray-200 mt-8 space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 mb-3">{post.title}</h1>
-        <div className="flex items-center gap-3 text-xs text-gray-500 border-b pb-4">
-          <span>작성자: <strong>{post.author_name || post.author_email}</strong></span>
-          <span>•</span>
-          <span>{new Date(post.created_at).toLocaleString()}</span>
-        </div>
+        <h1 className="text-xl font-bold text-gray-900">{post.title}</h1>
+        <p className="text-xs text-gray-500 mt-1">작성자: {post.author_email}</p>
       </div>
 
-      <div className="text-sm text-gray-800 leading-relaxed min-h-[150px] whitespace-pre-wrap">
+      <div className="text-sm text-gray-800 leading-relaxed border-t border-b py-6 min-h-[150px]">
         {post.content}
       </div>
 
-      <div className="flex justify-center pt-6 border-t">
+      {/* 추천 / 비추천 버튼 영역 */}
+      <div className="flex justify-center items-center gap-4 pt-2">
+        {/* 추천 버튼 */}
         <button
-          onClick={handleLikeToggle}
-          disabled={likeProcessing}
-          className={`px-6 py-2.5 rounded-full text-xs font-bold transition flex items-center gap-2 border shadow-sm ${
-            hasLiked
-              ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100'
+          onClick={() => handleVote('like')}
+          disabled={voteLoading}
+          className={`px-4 py-2 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition ${
+            userVote === 'like'
+              ? 'bg-blue-600 text-white border-blue-600'
               : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
           }`}
         >
-          <span>{hasLiked ? '❤️' : '🤍'}</span>
-          <span>좋아요 {post.likes || 0}</span>
+          <span>👍 추천</span>
+          <span className="bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded-full text-[10px]">
+            {likeCount}
+          </span>
+        </button>
+
+        {/* 비추천 버튼 */}
+        <button
+          onClick={() => handleVote('dislike')}
+          disabled={voteLoading}
+          className={`px-4 py-2 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition ${
+            userVote === 'dislike'
+              ? 'bg-red-600 text-white border-red-600'
+              : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+          }`}
+        >
+          <span>👎 비추천</span>
+          <span className="bg-red-100 text-red-800 px-1.5 py-0.5 rounded-full text-[10px]">
+            {dislikeCount}
+          </span>
         </button>
       </div>
     </div>
