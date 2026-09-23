@@ -1,81 +1,78 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 
 export default function Footer() {
-  const [modalContent, setModalContent] = useState(null); // 'terms' | 'privacy' | null
+  const [activeTab, setActiveTab] = useState(null);
+
+  const toggleTab = (tabName) => {
+    setActiveTab(activeTab === tabName ? null : tabName);
+  };
 
   return (
-    <footer className="bg-gray-900 text-gray-400 py-8 mt-auto border-t border-gray-800">
-      <div className="max-w-6xl mx-auto px-4 text-center space-y-3 text-xs">
-        <div className="flex justify-center space-x-6 font-medium">
-          <button
-            onClick={() => setModalContent('terms')}
-            className="hover:text-white transition underline"
-          >
-            이용약관
-          </button>
-          <span className="text-gray-700">|</span>
-          <button
-            onClick={() => setModalContent('privacy')}
-            className="hover:text-white font-bold text-gray-300 transition underline"
-          >
-            개인정보 처리방침
-          </button>
-        </div>
+    <footer className="bg-gray-900 text-gray-400 text-xs py-8 border-t border-gray-800">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
+        
+        {/* 상단 링클 및 약관 버튼 */}
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-gray-800 pb-4">
+          <div className="flex items-center gap-4">
+            <span className="font-bold text-white text-sm">hsinside</span>
+            <button
+              onClick={() => toggleTab('terms')}
+              className={`hover:text-white transition ${
+                activeTab === 'terms' ? 'text-blue-400 font-bold' : ''
+              }`}
+            >
+              이용약관
+            </button>
+            <span className="text-gray-700">|</span>
+            <button
+              onClick={() => toggleTab('privacy')}
+              className={`hover:text-white transition ${
+                activeTab === 'privacy' ? 'text-blue-400 font-bold' : ''
+              }`}
+            >
+              개인정보 처리방침
+            </button>
+          </div>
 
-        <p className="text-gray-500">
-          © {new Date().getFullYear()} hsinside Community. All rights reserved.
-        </p>
-      </div>
-
-      {/* 약관 및 개인정보 처리방침 커스텀 모달 */}
-      {modalContent && (
-        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 z-50">
-          <div className="bg-white text-gray-900 rounded-lg max-w-lg w-full p-6 shadow-2xl space-y-4 max-h-[80vh] flex flex-col">
-            <h3 className="text-base font-bold border-b pb-2">
-              {modalContent === 'terms' ? '서비스 이용약관' : '개인정보 처리방침'}
-            </h3>
-
-            <div className="overflow-y-auto text-xs leading-relaxed text-gray-600 bg-gray-50 p-4 rounded border whitespace-pre-line flex-1">
-              {modalContent === 'terms' ? (
-                `[hsinside 서비스 이용약관]
-
-제1조 (목적)
-본 약관은 hsinside 커뮤니티가 제공하는 익명/회원 커뮤니티 서비스의 이용조건 및 절차를 규정합니다.
-
-제2조 (게시물 및 회원의 의무)
-1. 타인을 비방하거나 명예를 훼손하는 게시글, 음란성 콘텐츠는 사전 경고 없이 삭제될 수 있습니다.
-2. 부정한 방법으로 시스템을 공격하거나 타인의 계정을 도용할 경우 법적 책임을 물을 수 있습니다.`
-              ) : (
-                `[개인정보 처리방침]
-
-1. 개인정보 수집 및 이용 목적
-- 회원 식별, 서비스 운영 및 게시글 작성자 관리.
-
-2. 수집 항목
-- 필수: 이름(닉네임), 이메일, 암호화된 비밀번호(Bcrypt)
-- 자동 수집: IP 주소, 접속 로그
-
-3. 보유 및 이용 기간
-- 회원 탈퇴 시 즉시 파기합니다. 단, 관계 법령에 의해 보존할 필요가 있는 경우 해당 법정 기간 동안 보관됩니다.
-
-4. 개인정보 보호책임자
-- 담당자: hsinside 관리자 [임준서] (treetowood@naver.com)`}`
-              )}
-            </div>
-
-            <div className="flex justify-end pt-2">
-              <button
-                onClick={() => setModalContent(null)}
-                className="px-4 py-2 bg-gray-900 text-white text-xs rounded hover:bg-gray-800 transition"
-              >
-                닫기
-              </button>
-            </div>
+          <div className="flex items-center gap-3">
+            <Link className="hover:text-gray-200 transition" href="/admin">
+              관리자 로그인
+            </Link>
           </div>
         </div>
-      )}
+
+        {/* 약관 토글 펼침 영역 */}
+        {activeTab && (
+          <div className="bg-gray-800/80 p-4 rounded-lg border border-gray-700 text-gray-300 space-y-2 leading-relaxed">
+            {activeTab === 'terms' && (
+              <div>
+                <h4 className="font-bold text-white mb-2">[hsinside 서비스 이용약관]</h4>
+                <p>1. 본 서비스는 커뮤니티 정보 공유를 목적으로 제공됩니다.</p>
+                <p>2. 타인을 비방하거나 부적절한 게시물은 사전 통보 없이 삭제될 수 있습니다.</p>
+              </div>
+            )}
+            {activeTab === 'privacy' && (
+              <div>
+                <h4 className="font-bold text-white mb-2">[개인정보 처리방침]</h4>
+                <p>1. 수집 항목: 이름(닉네임), 이메일, 암호화된 비밀번호</p>
+                <p>2. 수집 목적: 회원 가입 식별 및 서비스 이용</p>
+                <p>3. 보유 기간: 회원 탈퇴 시 즉시 파기</p>
+                <p>4. 개인정보 보호책임자: hsinside 관리자 [임준서] (treetowood@naver.com)</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 하단 카피라이트 및 푸터 정보 */}
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-2 text-gray-500 text-[11px]">
+          <p>© {new Date().getFullYear()} hsinside. All rights reserved.</p>
+          <p>문의: treetowood@naver.com</p>
+        </div>
+
+      </div>
     </footer>
   );
 }
