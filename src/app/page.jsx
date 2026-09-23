@@ -1,130 +1,129 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
+import { useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 
-export default function HomePage() {
-  const [user, setUser] = useState(null);
-  const [galleries, setGalleries] = useState([]);
-  const [reqId, setReqId] = useState('');
-  const [reqName, setReqName] = useState('');
-  const router = useRouter();
+export default function GalleryRequestModal({ isOpen, onClose, user }) {
+  const [galleryName, setGalleryName] = useState('');
+  const [reason, setReason] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    checkAuth();
-    loadGalleries();
-  }, []);
+  // 커스텀 Toast 알림 상태
+  const [toast, setToast] = useState({ visible: false, message: '', isError: false });
 
-  const checkAuth = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
-      router.push('/login');
+  const showToast = (message, isError = false) => {
+    setToast({ visible: true, message, isError });
+    setTimeout(() => {
+      setToast({ visible: false, message: '', isError: false });
+    }, 3000);
+  };
+
+  if (!isOpen) return null;
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    if (!user) {
+      showToast('갤러리 신청은 로그인이 필요합니다.', true);
+      return;
+    }
+
+    if (!galleryName.trim() || !reason.trim()) {
+      showToast('갤러리 이름과 신청 사유를 모두 입력해 주세요.', true);
+      return;
+    }
+
+    setLoading(true);
+
+    const { error } = await supabase.from('gallery_requests').insert([
+      {
+        gallery_name: galleryName.trim(),
+        reason: reason.trim(),
+        applicant_email: user.email,
+        status: 'pending'
+      }
+    ]);
+
+    setLoading(false);
+
+    if (error) {
+      // Supabase RLS 오류를 한국어로 매핑
+      if (error.message.includes('row-level security policy')) {
+        showToast('데이터베이스 보안 권한(RLS) 설정으로 인해 신청에 실패했습니다.', true);
+      } else {
+        showToast(`신청 중 오류가 발생했습니다: ${error.message}`, true);
+      }
     } else {
-      setUser(session.user);
+      showToast('갤러리 생성 개설 신청이 정상적으로 접수되었습니다! 🎉');
+      setGalleryName('');
+      setReason('');
+      setTimeout(() => {
+        onClose();
+      }, 1500);
     }
   };
-
-  const loadGalleries = async () => {
-    const { data, error } = await supabase
-      .from('galleries')
-      .select('*')
-      .order('created_at', { ascending: true });
-    
-    if (!error && data) setGalleries(data);
-  };
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    router.push('/login');
-  };
-
-  const submitGalleryRequest = async () => {
-    const formattedId = reqId.trim().toLowerCase().replace(/\s+/g, '-');
-    const name = reqName.trim();
-
-    if (!formattedId || !name) return alert('ID와 이름을 입력해 주세요.');
-
-    const { error } = await supabase.from('gallery_requests').insert([{
-      gallery_id: formattedId,
-      gallery_name: name,
-      applicant_email: user.email
-    }]);
-
-    if (error) alert('신청 실패: ' + error.message);
-    else {
-      alert('갤러리 신청이 완료되었습니다! 어드민 승인 후 자동으로 개설됩니다.');
-      setReqId('');
-      setReqName('');
-    }
-  };
-
-  if (!user) return <p>로딩 중...</p>;
 
   return (
-    <div>
-      <header className="flex justify-between items-center pb-4 border-b-2 border-gray-200 mb-6">
-        <h2 className="text-2xl font-bold">🏫 hsinside</h2>
-        <div className="flex items-center gap-3 text-sm text-gray-600">
-          <span>{user.email}</span>
-          <button
-            onClick={handleLogout}
-            className="border border-gray-300 px-3 py-1 rounded-md text-gray-700 hover:bg-gray-100 transition"
-          >
-            로그아웃
-          </button>
-        </div>
-      </header>
-
-      <section className="bg-gray-50 border border-gray-200 rounded-lg p-5 mb-6">
-        <h3 className="text-lg font-bold mb-1">📌 갤러리 목록</h3>
-        <p className="text-gray-500 text-xs mb-4">이동할 갤러리를 선택하세요.</p>
-        
-        {galleries.length === 0 ? (
-          <p className="text-sm text-gray-500">개설된 갤러리가 없습니다.</p>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {galleries.map((g) => (
-              <div key={g.id} className="bg-white p-4 rounded-lg border border-gray-200 flex flex-col justify-between items-start gap-3">
-                <h4 className="font-semibold">{g.name}</h4>
-                <Link
-                  href={`/gallery/${g.id}`}
-                  className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-3 py-1.5 rounded-md font-medium transition"
-                >
-                  입장하기
-                </Link>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section className="bg-gray-50 border border-gray-200 rounded-lg p-5">
-        <h3 className="text-lg font-bold mb-1">📝 새 갤러리 개설 신청</h3>
-        <p className="text-gray-500 text-xs mb-4">신청 후 어드민이 승인하면 자동으로 갤러리가 생성됩니다.</p>
-        
-        <input
-          type="text"
-          placeholder="갤러리 ID (영문소문자, 예: game)"
-          value={reqId}
-          onChange={(e) => setReqId(e.target.value)}
-          className="w-full p-2.5 border border-gray-300 rounded-md mb-3 text-sm focus:outline-none focus:border-blue-500"
-        />
-        <input
-          type="text"
-          placeholder="갤러리 이름 (예: 게임 갤러리)"
-          value={reqName}
-          onChange={(e) => setReqName(e.target.value)}
-          className="w-full p-2.5 border border-gray-300 rounded-md mb-4 text-sm focus:outline-none focus:border-blue-500"
-        />
-        <button
-          onClick={submitGalleryRequest}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm px-4 py-2 rounded-md font-medium transition"
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      {/* 커스텀 Toast 알림 */}
+      {toast.visible && (
+        <div
+          className={`fixed top-5 right-5 z-50 px-4 py-3 rounded-md shadow-lg text-sm text-white transition-all transform ${
+            toast.isError ? 'bg-red-600' : 'bg-green-600'
+          }`}
         >
-          갤러리 신청하기
-        </button>
-      </section>
+          {toast.message}
+        </div>
+      )}
+
+      <div className="bg-white rounded-lg max-w-md w-full p-6 shadow-xl border border-gray-200">
+        <h3 className="text-lg font-bold text-gray-900 mb-4">📢 새 갤러리 개설 신청</h3>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">
+              신청할 갤러리 이름
+            </label>
+            <input
+              type="text"
+              value={galleryName}
+              onChange={(e) => setGalleryName(e.target.value)}
+              placeholder="예: 리그오브레전드, 요리"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">
+              개설 사유 및 설명
+            </label>
+            <textarea
+              rows={3}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="갤러리 개설 목적을 간단히 적어주세요."
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md text-xs hover:bg-gray-300 transition"
+            >
+              취소
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="px-4 py-2 bg-blue-600 text-white rounded-md text-xs hover:bg-blue-700 disabled:opacity-50 transition font-medium"
+            >
+              {loading ? '신청 중...' : '신청하기'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
