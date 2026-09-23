@@ -3,20 +3,20 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 
-// SHA-256으로 암호화된 어드민 계정 정보 (비밀번호 원문 노출 없음)
+// 허용된 어드민 계정 목록 (아이디는 소문자로 저장)
 // 원본 비밀번호: q1w2e3r4!
 const ADMIN_ACCOUNTS = {
-  admin_LIM: '9c43831b73c4d7d1e838e1e755fa631ee7e305e5d36e2f694e9f3bfa6144e135',
-  admin_KIM: '9c43831b73c4d7d1e838e1e755fa631ee7e305e5d36e2f694e9f3bfa6144e135'
+  admin_lim: '9c43831b73c4d7d1e838e1e755fa631ee7e305e5d36e2f694e9f3bfa6144e135',
+  admin_kim: '9c43831b73c4d7d1e838e1e755fa631ee7e305e5d36e2f694e9f3bfa6144e135'
 };
 
-// 비밀번호를 SHA-256 해시값으로 변환하는 함수 (브라우저 표준 Web Crypto API)
+// 비밀번호를 SHA-256 해시값으로 변환
 async function hashPassword(plainText) {
   const encoder = new TextEncoder();
   const data = encoder.encode(plainText);
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('').toLowerCase();
 }
 
 export default function AdminPage() {
@@ -39,31 +39,38 @@ export default function AdminPage() {
     e.preventDefault();
     setLoginError('');
 
-    const targetAdmin = adminId.trim();
+    const inputId = adminId.trim();
+    const inputIdLower = inputId.toLowerCase();
 
-    // 1. 아이디 검증
-    if (!ADMIN_ACCOUNTS[targetAdmin]) {
+    // 1. 아이디 존재 여부 확인 (대소문자 무관)
+    if (!ADMIN_ACCOUNTS[inputIdLower]) {
       setLoginError('존재하지 않는 어드민 계정입니다.');
       return;
     }
 
     setLoading(true);
 
-    // 2. 입력된 비밀번호를 SHA-256으로 해싱하여 비교
-    const inputHash = await hashPassword(password);
-    setLoading(false);
+    try {
+      // 2. 비밀번호 SHA-256 해싱 후 대조
+      const inputHash = await hashPassword(password.trim());
+      setLoading(false);
 
-    if (inputHash !== ADMIN_ACCOUNTS[targetAdmin]) {
-      setLoginError('어드민 비밀번호가 일치하지 않습니다.');
-      return;
+      if (inputHash !== ADMIN_ACCOUNTS[inputIdLower]) {
+        setLoginError('어드민 비밀번호가 일치하지 않습니다.');
+        return;
+      }
+
+      // 로그인 성공
+      const adminDisplayName = inputIdLower === 'admin_lim' ? 'admin_LIM' : 'admin_KIM';
+      localStorage.setItem('hsinside_admin_user', adminDisplayName);
+      setCurrentAdmin(adminDisplayName);
+      setIsLoggedIn(true);
+      setAdminId('');
+      setPassword('');
+    } catch (err) {
+      setLoading(false);
+      setLoginError('인증 과정 중 오류가 발생했습니다: ' + err.message);
     }
-
-    // 인증 성공
-    localStorage.setItem('hsinside_admin_user', targetAdmin);
-    setCurrentAdmin(targetAdmin);
-    setIsLoggedIn(true);
-    setAdminId('');
-    setPassword('');
   };
 
   const handleAdminLogout = () => {
