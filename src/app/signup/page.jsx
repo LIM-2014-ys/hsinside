@@ -66,13 +66,18 @@ export default function SignupPage() {
     setPasswordError('');
     setGeneralError('');
 
-    // 1. 이름 입력 확인
-    if (!name.trim()) {
-      setNameError('이름(닉네임)을 입력해 주세요.');
+    // 1. 이름(닉네임) 필수 입력 검증 (공백 차단)
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      setNameError('이름(닉네임)을 반드시 입력하셔야 회원가입이 가능합니다.');
+      return;
+    }
+    if (trimmedName.length < 2) {
+      setNameError('이름(닉네임)은 최소 2자 이상 입력해 주세요.');
       return;
     }
 
-    // 2. 이메일 입력 확인
+    // 2. 이메일 입력 검증
     if (!email.trim()) {
       setEmailError('이메일 주소를 입력해 주세요.');
       return;
@@ -89,7 +94,7 @@ export default function SignupPage() {
       return;
     }
 
-    // 4. 약관 동의 확인
+    // 4. 약관 동의 검증
     if (!agreeTerms || !agreePrivacy) {
       setGeneralError('이용약관 및 개인정보 처리방침에 모두 동의해 주세요.');
       return;
@@ -97,14 +102,14 @@ export default function SignupPage() {
 
     setLoading(true);
 
-    // Supabase 회원가입 요청 (이름 metadata 추가)
+    // Supabase Auth 회원가입 (이름 데이터 포함)
     const { error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         data: {
-          full_name: name.trim(),
-          name: name.trim()
+          full_name: trimmedName,
+          name: trimmedName
         }
       }
     });
@@ -121,7 +126,7 @@ export default function SignupPage() {
     } else {
       setPopupMessage({
         title: '회원가입 완료! 🎉',
-        desc: '회원가입이 정상적으로 완료되었습니다. 로그인 페이지로 이동합니다.',
+        desc: `${trimmedName}님, 회원가입이 완료되었습니다. 로그인 페이지로 이동합니다.`,
         visible: true,
         isSuccess: true
       });
@@ -159,9 +164,11 @@ export default function SignupPage() {
               </div>
             )}
 
-            {/* 이름 입력 */}
+            {/* 이름 입력 (필수) */}
             <div>
-              <label className="block text-sm font-medium text-gray-700">이름 (닉네임)</label>
+              <label className="block text-sm font-medium text-gray-700">
+                이름 (닉네임) <span className="text-red-500">*필수</span>
+              </label>
               <input
                 type="text"
                 value={name}
@@ -285,18 +292,15 @@ export default function SignupPage() {
                   {`[hsinside 서비스 이용약관]
 
 제1조 (목적)
-본 약관은 hsinside 커뮤니티(이하 "회사")가 제공하는 서비스의 이용조건 및 절차, 이용자와 회사의 권리, 의무 및 책임사항을 규정함을 목적으로 합니다.
+본 약관은 hsinside 커뮤니티가 제공하는 서비스의 이용조건 및 절차, 이용자와 회사의 권리, 의무 및 책임사항을 규정함을 목적으로 합니다.
 
 제2조 (회원의 의무 및 게시물 관리)
 1. 회원은 타인의 명예를 훼손하거나 불법, 음란, 비방 목적의 게시물을 작성해서는 안 됩니다.
-2. 부적절한 게시물은 운영 지침에 따라 사전 통보 없이 삭제되거나 이용이 제한될 수 있습니다.
-
-제3조 (서비스의 변경 및 중지)
-회사는 기술적 필요 또는 운영상 이유로 서비스를 변경하거나 중지할 수 있습니다.`}
+2. 부적절한 게시물은 운영 지침에 따라 사전 통보 없이 삭제되거나 이용이 제한될 수 있습니다.`}
                 </div>
               </div>
 
-              {/* 2. 개인정보 처리방침 (이름 항목 추가) */}
+              {/* 2. 개인정보 처리방침 */}
               <div>
                 <label className="flex items-center text-sm font-bold text-gray-900 cursor-pointer mb-1.5">
                   <input
@@ -311,20 +315,14 @@ export default function SignupPage() {
                   {`[개인정보 처리방침]
 
 1. 개인정보의 수집 및 이용 목적
-- 회원가입 식별, 서비스 로그인, 서비스 내 사용자 이름 표시, 회원제 서비스 제공, 부정 이용 방지 및 고충 처리.
+- 회원가입 식별, 서비스 로그인, 서비스 내 작성자 이름 표시, 부정 이용 방지.
 
 2. 수집하는 개인정보 항목
 - 필수 항목: 이름(닉네임), 이메일 주소, 암호화된 비밀번호(Bcrypt)
 - 자동 수집 항목: IP 주소, 서비스 이용 기록, 접속 로그
 
 3. 개인정보의 보유 및 파기
-- 회원 탈퇴 시 즉시 파기합니다. 단, 관계 법령에 따라 보존할 필요가 있는 경우 해당 법정 기간 동안 보관합니다.
-
-4. 정보주체의 권리
-- 이용자는 언제든지 자신의 개인정보 조회, 수정 및 탈퇴(삭제)를 요청할 수 있습니다.
-
-5. 개인정보 보호책임자
-- 담당자: hsinside 관리자 [임준서] (treetowood@naver.com)`}
+- 회원 탈퇴 시 즉시 파기합니다. 단, 관계 법령에 따라 보존할 필요가 있는 경우 해당 법정 기간 동안 보관합니다.`}
                 </div>
               </div>
 
