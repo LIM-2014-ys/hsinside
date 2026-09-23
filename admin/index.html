@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>어드민 - 갤러리 승인 관리</title>
+  <link rel="stylesheet" href="../css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <div class="page-container">
+    <header class="header">
+      <h2>⚙️ 어드민 대시보드</h2>
+      <a href="../index.html" class="btn-outline">메인으로 이동</a>
+    </header>
+
+    <main class="content">
+      <section>
+        <h3>⏳ 대기 중인 갤러리 신청 목록</h3>
+        <div id="request-list">불러오는 중...</div>
+      </section>
+    </main>
+  </div>
+
+  <script src="../js/config.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/gallery-request.js"></script>
+  <script>
+    window.addEventListener('DOMContentLoaded', async () => {
+      const user = await checkAuth('../login/');
+      // 필요 시 관리자 이메일 조건 추가
+      if (user) loadPendingRequests();
+    });
+  </script>
+</body>
+</html>
