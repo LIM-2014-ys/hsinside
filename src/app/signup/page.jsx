@@ -10,36 +10,91 @@ export default function SignupPage() {
   const [password, setPassword] = useState('');
   const [passwordConfirm, setPasswordConfirm] = useState('');
   
+  // 개별 에러 메시지 상태
+  const [emailError, setEmailError] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [generalError, setGeneralError] = useState('');
+
   // 약관 동의 상태
   const [agreeTerms, setAgreeTerms] = useState(false);
   const [agreePrivacy, setAgreePrivacy] = useState(false);
   
   // 약관 모달 팝업 상태
-  const [modalType, setModalType] = useState(null); // 'terms' | 'privacy' | null
+  const [modalType, setModalType] = useState(null);
 
-  // 알림 팝업 메시지 상태 (alert 대체)
+  // 알림 팝업 메시지 상태
   const [popupMessage, setPopupMessage] = useState({ title: '', desc: '', visible: false, isSuccess: false });
   const [loading, setLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState('');
 
   const router = useRouter();
 
+  // 비밀번호 유효성 검사 (영문, 숫자, 특수문자 조합)
+  const hasLetter = /[a-zA-Z]/.test(password);
+  const hasNumber = /[0-9]/.test(password);
+  const hasSpecial = /[!@#$%^&*(),.?":{}|<>]/.test(password);
+  const isPasswordValid = password.length >= 8 && hasLetter && hasNumber && hasSpecial;
+
+  // 비밀번호 강도 계산 (0 ~ 4)
+  const getPasswordStrength = () => {
+    let score = 0;
+    if (password.length >= 8) score++;
+    if (hasLetter) score++;
+    if (hasNumber) score++;
+    if (hasSpecial) score++;
+    return score;
+  };
+
+  const strength = getPasswordStrength();
+
+  // Supabase 영문 에러 메시지를 친절한 한국어로 번역
+  const translateError = (message) => {
+    if (!message) return '';
+    const lower = message.toLowerCase();
+    
+    if (lower.includes('email signups are disabled')) {
+      return '현재 이메일 회원가입이 비활성화되어 있습니다. (Supabase 설정 확인 필요)';
+    }
+    if (lower.includes('user already registered') || lower.includes('already exists')) {
+      return '이미 가입된 이메일 주소입니다.';
+    }
+    if (lower.includes('invalid email') || lower.includes('unable to validate email')) {
+      return '올바른 이메일 형식이 아닙니다.';
+    }
+    if (lower.includes('password should be at least')) {
+      return '비밀번호는 최소 8자 이상이어야 합니다.';
+    }
+    return '회원가입 처리 중 오류가 발생했습니다: ' + message;
+  };
+
   const handleSignup = async (e) => {
     e.preventDefault();
-    setErrorMessage('');
+    
+    // 에러 메시지 초기화
+    setEmailError('');
+    setPasswordError('');
+    setGeneralError('');
 
-    if (!agreeTerms || !agreePrivacy) {
-      setErrorMessage('이용약관 및 개인정보 처리방침에 모두 동의해 주세요.');
+    // 1. 이메일 입력 검증
+    if (!email.trim()) {
+      setEmailError('이메일 주소를 입력해 주세요.');
       return;
     }
 
+    // 2. 비밀번호 강도 검증
+    if (!isPasswordValid) {
+      setPasswordError('비밀번호는 영문, 숫자, 특수문자를 모두 포함하여 8자 이상 작성해야 합니다.');
+      return;
+    }
+
+    // 3. 비밀번호 일치 확인
     if (password !== passwordConfirm) {
-      setErrorMessage('비밀번호가 일치하지 않습니다.');
+      setPasswordError('비밀번호가 일치하지 않습니다.');
       return;
     }
 
-    if (password.length < 6) {
-      setErrorMessage('비밀번호는 최소 6자 이상이어야 합니다.');
+    // 4. 약관 동의 검증
+    if (!agreeTerms || !agreePrivacy) {
+      setGeneralError('이용약관 및 개인정보 처리방침에 모두 동의해 주세요.');
       return;
     }
 
@@ -48,11 +103,17 @@ export default function SignupPage() {
     setLoading(false);
 
     if (error) {
-      setErrorMessage(error.message);
+      const translated = translateError(error.message);
+      // 이메일 관련 에러인지 구별
+      if (translated.includes('이메일')) {
+        setEmailError(translated);
+      } else {
+        setGeneralError(translated);
+      }
     } else {
       setPopupMessage({
         title: '회원가입 완료! 🎉',
-        desc: '가입하신 이메일로 인증 메일이 발송되었거나 회원가입이 정상 완료되었습니다. 로그인 페이지로 이동합니다.',
+        desc: '회원가입이 정상적으로 완료되었습니다. 로그인 페이지로 이동합니다.',
         visible: true,
         isSuccess: true
       });
@@ -83,52 +144,98 @@ export default function SignupPage() {
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10 border border-gray-200">
           <form className="space-y-5" onSubmit={handleSignup}>
-            {errorMessage && (
+            
+            {/* 전체 상단 에러 (약관 등) */}
+            {generalError && (
               <div className="bg-red-50 border-l-4 border-red-500 p-3 rounded text-sm text-red-700">
-                {errorMessage}
+                {generalError}
               </div>
             )}
 
+            {/* 이메일 입력 칸 */}
             <div>
               <label className="block text-sm font-medium text-gray-700">이메일 주소</label>
               <input
                 type="email"
-                required
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  setEmailError('');
+                }}
                 placeholder="example@email.com"
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                className={`mt-1 block w-full px-3 py-2 border ${
+                  emailError ? 'border-red-500' : 'border-gray-300'
+                } rounded-md shadow-sm text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500`}
               />
+              {/* 이메일 전용 에러 메시지 */}
+              {emailError && (
+                <p className="mt-1 text-xs text-red-600 font-medium">{emailError}</p>
+              )}
             </div>
 
+            {/* 비밀번호 입력 칸 */}
             <div>
-              <label className="block text-sm font-medium text-gray-700">비밀번호 (6자 이상)</label>
+              <label className="block text-sm font-medium text-gray-700">비밀번호</label>
               <input
                 type="password"
-                required
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  setPasswordError('');
+                }}
+                placeholder="8자 이상, 영문+숫자+특수문자 조합"
+                className={`mt-1 block w-full px-3 py-2 border ${
+                  passwordError ? 'border-red-500' : 'border-gray-300'
+                } rounded-md shadow-sm text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500`}
               />
+
+              {/* 비밀번호 안전성 게이지 바 */}
+              {password.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  <div className="flex gap-1 h-1.5">
+                    <div className={`flex-1 rounded ${strength >= 1 ? 'bg-red-500' : 'bg-gray-200'}`} />
+                    <div className={`flex-1 rounded ${strength >= 2 ? 'bg-orange-500' : 'bg-gray-200'}`} />
+                    <div className={`flex-1 rounded ${strength >= 3 ? 'bg-yellow-500' : 'bg-gray-200'}`} />
+                    <div className={`flex-1 rounded ${strength >= 4 ? 'bg-green-500' : 'bg-gray-200'}`} />
+                  </div>
+                  <div className="flex justify-between text-[11px] text-gray-500">
+                    <span>보안 강도: {
+                      strength === 4 ? <strong className="text-green-600">강력 (가입 가능)</strong> :
+                      strength === 3 ? <span className="text-yellow-600">양호</span> :
+                      strength === 2 ? <span className="text-orange-600">보통</span> :
+                      <span className="text-red-500">약함</span>
+                    }</span>
+                    <span>8자+ / 영문 / 숫자 / 특수문자</span>
+                  </div>
+                </div>
+              )}
             </div>
 
+            {/* 비밀번호 확인 입력 칸 */}
             <div>
               <label className="block text-sm font-medium text-gray-700">비밀번호 확인</label>
               <input
                 type="password"
-                required
                 value={passwordConfirm}
-                onChange={(e) => setPasswordConfirm(e.target.value)}
-                placeholder="••••••••"
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                onChange={(e) => {
+                  setPasswordConfirm(e.target.value);
+                  setPasswordError('');
+                }}
+                placeholder="비밀번호를 한번 더 입력해 주세요"
+                className={`mt-1 block w-full px-3 py-2 border ${
+                  passwordError ? 'border-red-500' : 'border-gray-300'
+                } rounded-md shadow-sm text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500`}
               />
+              {/* 비밀번호 전용 에러 메시지 */}
+              {passwordError && (
+                <p className="mt-1 text-xs text-red-600 font-medium">{passwordError}</p>
+              )}
             </div>
 
             {/* 약관 동의 구역 */}
             <div className="pt-2 border-t border-gray-200 space-y-3">
               <div className="flex items-center justify-between text-sm">
-                <label className="flex items-center text-gray-700">
+                <label className="flex items-center text-gray-700 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={agreeTerms}
@@ -147,7 +254,7 @@ export default function SignupPage() {
               </div>
 
               <div className="flex items-center justify-between text-sm">
-                <label className="flex items-center text-gray-700">
+                <label className="flex items-center text-gray-700 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={agreePrivacy}
@@ -214,7 +321,7 @@ export default function SignupPage() {
         </div>
       )}
 
-      {/* 안내 알림 팝업 모달 (alert 대체) */}
+      {/* 안내 알림 팝업 모달 */}
       {popupMessage.visible && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg max-w-sm w-full p-6 shadow-xl text-center space-y-4">
