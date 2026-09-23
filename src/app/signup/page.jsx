@@ -281,7 +281,7 @@ export default function SignupPage() {
 - 이용자는 언제든지 자신의 개인정보 조회, 수정 및 탈퇴(삭제)를 요청할 수 있습니다.
 
 5. 개인정보 보호책임자
-- 담당자: hsinside 관리자 (admin@hsinside.com)`}
+- 담당자: hsinside 관리자 [임준서] (treetowood@naver.com)`}
                 </div>
               </div>
 
