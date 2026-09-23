@@ -16,7 +16,17 @@ export default function GalleryPage() {
   const [content, setContent] = useState('');
   const [comments, setComments] = useState({});
   const [commentInputs, setCommentInputs] = useState({});
+  
+  // alert 대신 사용할 토스트 메시지 상태
+  const [toast, setToast] = useState({ visible: false, message: '', isError: false });
   const router = useRouter();
+
+  const showToast = (message, isError = false) => {
+    setToast({ visible: true, message, isError });
+    setTimeout(() => {
+      setToast({ visible: false, message: '', isError: false });
+    }, 3000);
+  };
 
   useEffect(() => {
     if (galleryId) {
@@ -60,7 +70,10 @@ export default function GalleryPage() {
   };
 
   const createPost = async () => {
-    if (!title.trim() || !content.trim()) return alert('제목과 내용을 모두 입력해 주세요.');
+    if (!title.trim() || !content.trim()) {
+      showToast('제목과 내용을 모두 입력해 주세요.', true);
+      return;
+    }
 
     const { error } = await supabase.from('posts').insert([{
       gallery_id: galleryId,
@@ -69,10 +82,12 @@ export default function GalleryPage() {
       author_email: user.email
     }]);
 
-    if (error) alert('글 작성 실패: ' + error.message);
-    else {
+    if (error) {
+      showToast('글 작성 실패: ' + error.message, true);
+    } else {
       setTitle('');
       setContent('');
+      showToast('게시글이 등록되었습니다!');
       loadPosts();
     }
   };
@@ -91,7 +106,10 @@ export default function GalleryPage() {
 
   const addComment = async (postId) => {
     const text = commentInputs[postId]?.trim();
-    if (!text) return alert('댓글 내용을 입력해 주세요.');
+    if (!text) {
+      showToast('댓글 내용을 입력해 주세요.', true);
+      return;
+    }
 
     const { error } = await supabase.from('comments').insert([{
       post_id: postId,
@@ -99,9 +117,11 @@ export default function GalleryPage() {
       author_email: user.email
     }]);
 
-    if (error) alert('댓글 작성 실패: ' + error.message);
-    else {
+    if (error) {
+      showToast('댓글 작성 실패: ' + error.message, true);
+    } else {
       setCommentInputs((prev) => ({ ...prev, [postId]: '' }));
+      showToast('댓글이 작성되었습니다.');
       loadComments(postId);
     }
   };
@@ -111,10 +131,19 @@ export default function GalleryPage() {
     router.push('/login');
   };
 
-  if (!user) return <p className="p-4 text-center">로딩 중...</p>;
+  if (!user) return <p className="p-4 text-center text-sm text-gray-500">로딩 중...</p>;
 
   return (
-    <div>
+    <div className="max-w-4xl mx-auto p-4 relative">
+      {/* Toast 알림 팝업 */}
+      {toast.visible && (
+        <div className={`fixed top-5 right-5 z-50 px-4 py-3 rounded-md shadow-lg text-sm text-white transition-all transform ${
+          toast.isError ? 'bg-red-600' : 'bg-green-600'
+        }`}>
+          {toast.message}
+        </div>
+      )}
+
       <header className="flex justify-between items-center pb-4 border-b-2 border-gray-200 mb-6">
         <h2 className="text-2xl font-bold">🎮 {galleryName}</h2>
         <div className="flex gap-2">
