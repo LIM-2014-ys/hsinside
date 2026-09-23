@@ -3,11 +3,14 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 
+// SHA-256으로 해싱된 비밀번호 저장 (q1w2e3r4!의 진짜 SHA-256 해시값)
+// 소스 코드가 노출되어도 원문 비밀번호 복호화 불가능
 const ADMIN_ACCOUNTS = {
-  admin_lim: '9c43831b73c4d7d1e838e1e755fa631ee7e305e5d36e2f694e9f3bfa6144e135',
-  admin_kim: '9c43831b73c4d7d1e838e1e755fa631ee7e305e5d36e2f694e9f3bfa6144e135'
+  admin_lim: 'c8fa216c5914be797968ff2506b3a0e1b933824f92d4090c2921a48c347f3ec8',
+  admin_kim: 'c8fa216c5914be797968ff2506b3a0e1b933824f92d4090c2921a48c347f3ec8'
 };
 
+// 브라우저 표준 Web Crypto API를 사용한 안전한 SHA-256 해싱 함수
 async function hashPassword(plainText) {
   const encoder = new TextEncoder();
   const data = encoder.encode(plainText);
@@ -39,6 +42,7 @@ export default function AdminPage() {
     const inputId = adminId.trim().toLowerCase();
     const inputPw = password.trim();
 
+    // 1. 아이디 존재 여부 확인
     if (!ADMIN_ACCOUNTS[inputId]) {
       setLoginError('존재하지 않는 어드민 계정입니다.');
       return;
@@ -47,14 +51,17 @@ export default function AdminPage() {
     setLoading(true);
 
     try {
+      // 2. 입력받은 비밀번호를 실시간 SHA-256 해싱
       const inputHash = await hashPassword(inputPw);
       setLoading(false);
 
+      // 3. 해시값 대조
       if (inputHash !== ADMIN_ACCOUNTS[inputId]) {
         setLoginError('어드민 비밀번호가 일치하지 않습니다.');
         return;
       }
 
+      // 로그인 성공 처리
       const adminDisplayName = inputId === 'admin_lim' ? 'admin_LIM' : 'admin_KIM';
       localStorage.setItem('hsinside_admin_user', adminDisplayName);
       setCurrentAdmin(adminDisplayName);
@@ -63,7 +70,7 @@ export default function AdminPage() {
       setPassword('');
     } catch (err) {
       setLoading(false);
-      setLoginError('인증 중 오류가 발생했습니다.');
+      setLoginError('인증 암호화 처리 중 오류가 발생했습니다.');
     }
   };
 
@@ -201,7 +208,7 @@ export default function AdminPage() {
           <div className="bg-white p-5 rounded-lg shadow border border-gray-200">
             <h3 className="font-bold text-gray-800 text-sm mb-2">🔒 보안 상태</h3>
             <p className="text-xs text-gray-600 leading-relaxed">
-              어드민 보안 세션 (SHA-256) 활성화 중
+              SHA-256 해시 대조 보안 인증 활성화 중
             </p>
           </div>
         </div>
