@@ -1,1 +1,52 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>우리반 커뮤니티 - 메인</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <div class="page-container">
+    <header class="header">
+      <h2>🏫 우리반 커뮤니티</h2>
+      <div class="user-info">
+        <span id="user-email-display">로딩 중...</span>
+        <button class="btn-outline" onclick="handleLogout()">로그아웃</button>
+      </div>
+    </header>
 
+    <main class="content">
+      <!-- 승인된 갤러리 이동 목록 -->
+      <section>
+        <h3>📌 갤러리 목록</h3>
+        <p class="subtitle">이동할 갤러리를 선택하세요.</p>
+        <div id="gallery-list" class="gallery-grid">로딩 중...</div>
+      </section>
+
+      <!-- 갤러리 개설 신청 폼 -->
+      <section class="modal-box">
+        <h3>📝 새 갤러리 개설 신청</h3>
+        <p class="subtitle">신청 후 관리자(Admin)가 승인하면 갤러리가 목록에 추가됩니다.</p>
+        <input type="text" id="req-id" placeholder="갤러리 ID (영문소문자, 예: game)">
+        <input type="text" id="req-name" placeholder="갤러리 이름 (예: 게임 갤러리)">
+        <button class="btn-secondary" onclick="submitGalleryRequest()">갤러리 신청하기</button>
+      </section>
+    </main>
+  </div>
+
+  <script src="js/config.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/gallery-request.js"></script>
+  <script>
+    window.addEventListener('DOMContentLoaded', async () => {
+      const user = await checkAuth('../login/');
+      if (user) {
+        document.getElementById('user-email-display').innerText = user.email;
+        loadApprovedGalleries();
+      }
+    });
+  </script>
+</body>
+</html>
