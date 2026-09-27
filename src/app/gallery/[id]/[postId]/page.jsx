@@ -143,37 +143,33 @@ export default function PostDetailPage() {
           ← 갤러리로 돌아가기
         </Link>
 
-        <div className="flex items-center gap-3">
-          <span className="text-[11px] text-gray-400">고유번호: {post.post_code || post.id}</span>
-          <div className="relative">
-            <button
-              onClick={() => setShowMenu(!showMenu)}
-              className="p-1 hover:bg-gray-100 rounded-full text-gray-600 text-lg font-bold px-2"
-            >
-              ⋮
-            </button>
-            {showMenu && (
-              <div className="absolute right-0 mt-1 w-32 bg-white border rounded-lg shadow-lg z-20 py-1 text-xs">
-                {isAuthor && (
-                  <button onClick={() => { setShowMenu(false); handleDeletePost(); }} className="w-full text-left px-4 py-2 hover:bg-red-50 text-red-600 font-semibold">
-                    🗑️ 게시글 삭제
-                  </button>
-                )}
-                <button onClick={() => { setShowMenu(false); setShowReportModal(true); }} className="w-full text-left px-4 py-2 hover:bg-gray-100 text-gray-700">
-                  🚨 게시글 신고
+        <div className="relative">
+          <button
+            onClick={() => setShowMenu(!showMenu)}
+            className="p-1 hover:bg-gray-100 rounded-full text-gray-600 text-lg font-bold px-2"
+          >
+            ⋮
+          </button>
+          {showMenu && (
+            <div className="absolute right-0 mt-1 w-32 bg-white border rounded-lg shadow-lg z-20 py-1 text-xs">
+              {isAuthor && (
+                <button onClick={() => { setShowMenu(false); handleDeletePost(); }} className="w-full text-left px-4 py-2 hover:bg-red-50 text-red-600 font-semibold">
+                  🗑️ 게시글 삭제
                 </button>
-              </div>
-            )}
-          </div>
+              )}
+              <button onClick={() => { setShowMenu(false); setShowReportModal(true); }} className="w-full text-left px-4 py-2 hover:bg-gray-100 text-gray-700">
+                🚨 게시글 신고
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 mb-4">{post.title}</h1>
+        <h1 className="text-2xl font-bold text-gray-900 mb-4 break-all">{post.title}</h1>
         
-        {/* 작성자 프사 & 닉네임 영역 */}
         <div className="flex items-center gap-3 border-b pb-4">
-          <div className="w-9 h-9 rounded-full overflow-hidden bg-gray-100 border border-gray-200 flex items-center justify-center text-xs font-bold text-gray-500">
+          <div className="w-9 h-9 rounded-full overflow-hidden bg-gray-100 border border-gray-200 flex items-center justify-center text-xs font-bold text-gray-500 shrink-0">
             {post.author_avatar ? (
               <img src={post.author_avatar} alt="프사" className="w-full h-full object-cover" />
             ) : (
@@ -181,7 +177,7 @@ export default function PostDetailPage() {
             )}
           </div>
           <div>
-            <div className="text-xs font-bold text-gray-900">{authorDisplayName}</div>
+            <div className="text-xs font-bold text-gray-900 break-all">{authorDisplayName}</div>
             <div className="flex items-center gap-2 text-[11px] text-gray-400 mt-0.5">
               <span>{formatDetailDate(post.created_at)}</span>
               <span>•</span>
@@ -191,12 +187,11 @@ export default function PostDetailPage() {
         </div>
       </div>
 
-      {/* 게시글 본문 */}
-      <div className="text-sm text-gray-800 leading-relaxed min-h-[80px] whitespace-pre-wrap">
+      <div className="text-sm text-gray-800 leading-relaxed min-h-[80px] whitespace-pre-wrap break-all">
         {post.content}
       </div>
 
-      {/* 신규 미디어 (사진 & 동영상) 바로보기 */}
+      {/* 첨부 미디어 (사진 & 동영상) */}
       {post.media_files && post.media_files.length > 0 && (
         <div className="space-y-4 pt-4 border-t">
           <h3 className="text-xs font-bold text-gray-700">🎬 첨부 미디어 ({post.media_files.length})</h3>
@@ -214,7 +209,7 @@ export default function PostDetailPage() {
         </div>
       )}
 
-      {/* 기존에 작성된 이미지 데이터 호환 보장 */}
+      {/* 기존 이미지 호환 */}
       {(!post.media_files || post.media_files.length === 0) && post.image_urls && post.image_urls.length > 0 && (
         <div className="space-y-3 pt-4 border-t">
           <h3 className="text-xs font-bold text-gray-700">📷 첨부 사진 ({post.image_urls.length})</h3>
@@ -228,7 +223,7 @@ export default function PostDetailPage() {
         </div>
       )}
 
-      {/* 첨부 문서 다운로드 목록 */}
+      {/* 첨부 문서 목록 */}
       {post.doc_files && post.doc_files.length > 0 && (
         <div className="space-y-2 pt-4 border-t">
           <h3 className="text-xs font-bold text-gray-700">📎 첨부 문서 파일 ({post.doc_files.length})</h3>
@@ -243,15 +238,15 @@ export default function PostDetailPage() {
                 className="flex items-center gap-2 p-2.5 bg-gray-50 border rounded-lg text-xs text-blue-600 hover:bg-blue-50 transition"
               >
                 <span>📄</span>
-                <span className="font-medium underline truncate">{doc.name || `첨부문서_${idx + 1}`}</span>
-                <span className="text-[10px] text-gray-400 ml-auto font-normal">다운로드</span>
+                <span className="font-medium underline break-all">{doc.name || `첨부문서_${idx + 1}`}</span>
+                <span className="text-[10px] text-gray-400 ml-auto font-normal shrink-0">다운로드</span>
               </a>
             ))}
           </div>
         </div>
       )}
 
-      {/* 추천 / 비추천 버튼 */}
+      {/* 추천/비추천 */}
       <div className="flex justify-center items-center gap-4 pt-6 border-t">
         <button
           onClick={() => handleVote('like')}
