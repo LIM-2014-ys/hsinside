@@ -77,11 +77,7 @@ export default function PostDetailPage() {
   };
 
   const handleVote = async (type) => {
-    if (!user) {
-      alert('로그인이 필요합니다.');
-      return;
-    }
-
+    if (!user) return alert('로그인이 필요합니다.');
     if (isVotingRef.current) return;
     isVotingRef.current = true;
 
@@ -96,7 +92,7 @@ export default function PostDetailPage() {
       }
       await fetchPostAndVotes();
     } catch (err) {
-      alert('처리 중 오류가 발생하였습니다.');
+      alert('처리 중 오류가 발생했습니다.');
     } finally {
       setTimeout(() => { isVotingRef.current = false; }, 300);
     }
@@ -138,6 +134,7 @@ export default function PostDetailPage() {
   if (!post) return <div className="max-w-3xl mx-auto p-12 text-center text-xs text-gray-500">존재하지 않거나 삭제된 게시글입니다.</div>;
 
   const isAuthor = user && user.email === post.author_email;
+  const authorDisplayName = post.author_name || post.author_email?.split('@')[0] || '익명';
 
   return (
     <div className="max-w-3xl mx-auto p-6 bg-white rounded-xl shadow-sm border border-gray-200 mt-6 space-y-6 relative">
@@ -172,31 +169,82 @@ export default function PostDetailPage() {
       </div>
 
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 mb-3">{post.title}</h1>
-        <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 border-b pb-4">
-          <span>작성자: <strong>{post.author_name || post.author_email}</strong></span>
-          <span>•</span>
-          <span>{formatDetailDate(post.created_at)}</span>
-          <span>•</span>
-          <span className="bg-blue-50 text-blue-700 border border-blue-100 px-2 py-0.5 rounded text-[11px] font-medium">
-            📍 {post.location || 'Seoul'}
-          </span>
+        <h1 className="text-2xl font-bold text-gray-900 mb-4">{post.title}</h1>
+        
+        {/* 작성자 프사 & 닉네임 영역 */}
+        <div className="flex items-center gap-3 border-b pb-4">
+          <div className="w-9 h-9 rounded-full overflow-hidden bg-gray-100 border border-gray-200 flex items-center justify-center text-xs font-bold text-gray-500">
+            {post.author_avatar ? (
+              <img src={post.author_avatar} alt="프사" className="w-full h-full object-cover" />
+            ) : (
+              <span>{authorDisplayName.charAt(0)}</span>
+            )}
+          </div>
+          <div>
+            <div className="text-xs font-bold text-gray-900">{authorDisplayName}</div>
+            <div className="flex items-center gap-2 text-[11px] text-gray-400 mt-0.5">
+              <span>{formatDetailDate(post.created_at)}</span>
+              <span>•</span>
+              <span className="text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100 font-medium">📍 {post.location || 'Seoul'}</span>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* 게시글 본문 텍스트 */}
-      <div className="text-sm text-gray-800 leading-relaxed min-h-[100px] whitespace-pre-wrap">
+      {/* 게시글 본문 */}
+      <div className="text-sm text-gray-800 leading-relaxed min-h-[80px] whitespace-pre-wrap">
         {post.content}
       </div>
 
-      {/* 첨부된 사진 이미지 갤러리 표시 */}
-      {post.image_urls && post.image_urls.length > 0 && (
+      {/* 신규 미디어 (사진 & 동영상) 바로보기 */}
+      {post.media_files && post.media_files.length > 0 && (
+        <div className="space-y-4 pt-4 border-t">
+          <h3 className="text-xs font-bold text-gray-700">🎬 첨부 미디어 ({post.media_files.length})</h3>
+          <div className="space-y-3">
+            {post.media_files.map((item, idx) => (
+              <div key={idx} className="rounded-xl overflow-hidden border bg-black flex justify-center">
+                {item.type === 'image' ? (
+                  <img src={item.url} alt={`첨부 사진 ${idx + 1}`} className="max-h-[500px] w-auto object-contain" />
+                ) : (
+                  <video src={item.url} controls className="max-h-[450px] w-full" />
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 기존에 작성된 이미지 데이터 호환 보장 */}
+      {(!post.media_files || post.media_files.length === 0) && post.image_urls && post.image_urls.length > 0 && (
         <div className="space-y-3 pt-4 border-t">
-          <h3 className="text-xs font-bold text-gray-600">📷 첨부 사진 ({post.image_urls.length})</h3>
+          <h3 className="text-xs font-bold text-gray-700">📷 첨부 사진 ({post.image_urls.length})</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {post.image_urls.map((url, idx) => (
               <a key={idx} href={url} target="_blank" rel="noopener noreferrer" className="block overflow-hidden rounded-xl border bg-gray-50">
                 <img src={url} alt={`첨부 이미지 ${idx + 1}`} className="w-full h-auto max-h-[400px] object-cover rounded-xl" />
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 첨부 문서 다운로드 목록 */}
+      {post.doc_files && post.doc_files.length > 0 && (
+        <div className="space-y-2 pt-4 border-t">
+          <h3 className="text-xs font-bold text-gray-700">📎 첨부 문서 파일 ({post.doc_files.length})</h3>
+          <div className="space-y-1">
+            {post.doc_files.map((doc, idx) => (
+              <a
+                key={idx}
+                href={doc.url}
+                download
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 p-2.5 bg-gray-50 border rounded-lg text-xs text-blue-600 hover:bg-blue-50 transition"
+              >
+                <span>📄</span>
+                <span className="font-medium underline truncate">{doc.name || `첨부문서_${idx + 1}`}</span>
+                <span className="text-[10px] text-gray-400 ml-auto font-normal">다운로드</span>
               </a>
             ))}
           </div>
