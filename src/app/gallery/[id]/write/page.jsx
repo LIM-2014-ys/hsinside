@@ -26,6 +26,51 @@ export default function PostWritePage() {
     });
   }, []);
 
+  // 실제 사용자 위치(도시명) 가져오기
+  const getCurrentLocation = (): Promise<string> => {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) {
+        return resolve('Seoul');
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          try {
+            const { latitude, longitude } = position.coords;
+            // OpenStreetMap Nominatim API를 사용한 역지오코딩
+            const res = await fetch(
+              `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&accept-language=ko`
+            );
+            const data = await res.json();
+            
+            // 도시, 시/군/구 명칭 추출
+            const city =
+              data.address?.city ||
+              data.address?.county ||
+              data.address?.district ||
+              data.address?.province ||
+              'Seoul';
+            
+            resolve(city);
+          } catch {
+            resolve('Seoul');
+          }
+        },
+        async () => {
+          // GPS 권한 거부 시 IP기반 서브 위치 추적
+          try {
+            const ipRes = await fetch('https://ipapi.co/json/');
+            const ipData = await ipRes.json();
+            resolve(ipData.city || 'Seoul');
+          } catch {
+            resolve('Seoul');
+          }
+        },
+        { timeout: 5000 }
+      );
+    });
+  };
+
   const handleFileChange = (e) => {
     const selectedFiles = Array.from(e.target.files);
     if (files.length + selectedFiles.length > 5) {
@@ -65,7 +110,6 @@ export default function PostWritePage() {
       const mediaFiles = [];
       const docFiles = [];
 
-      // 기존에 존재하는 'post_images' 버킷에 업로드
       for (const file of files) {
         const fileExt = file.name.split('.').pop();
         const filePath = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
@@ -85,12 +129,8 @@ export default function PostWritePage() {
         }
       }
 
-      let location = 'Seoul';
-      try {
-        const ipRes = await fetch('https://ipapi.co/json/');
-        const ipData = await ipRes.json();
-        if (ipData.city) location = ipData.city;
-      } catch (err) {}
+      // 실제 실시간 위치 가져오기
+      const location = await getCurrentLocation();
 
       const authorNickname = user.user_metadata?.display_name || user.email.split('@')[0];
       const authorAvatar = user.user_metadata?.avatar_url || '';
@@ -201,7 +241,7 @@ export default function PostWritePage() {
           disabled={loading}
           className="w-full py-2.5 bg-blue-600 text-white text-xs font-bold rounded-md hover:bg-blue-700 transition"
         >
-          {loading ? '업로드 중...' : '게시글 등록'}
+          {loading ? '위치 확인 및 업로드 중...' : '게시글 등록'}
         </button>
       </form>
     </div>
