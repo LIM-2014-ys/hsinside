@@ -65,17 +65,18 @@ export default function PostWritePage() {
       const mediaFiles = [];
       const docFiles = [];
 
+      // 기존에 존재하는 'post_images' 버킷에 업로드
       for (const file of files) {
         const fileExt = file.name.split('.').pop();
         const filePath = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
 
         const { error: uploadError } = await supabase.storage
-          .from('post_media')
+          .from('post_images')
           .upload(filePath, file);
 
         if (uploadError) throw uploadError;
 
-        const { data: { publicUrl } } = supabase.storage.from('post_media').getPublicUrl(filePath);
+        const { data: { publicUrl } } = supabase.storage.from('post_images').getPublicUrl(filePath);
 
         if (file.type.startsWith('image/') || file.type.startsWith('video/')) {
           mediaFiles.push({ url: publicUrl, type: file.type.startsWith('image/') ? 'image' : 'video' });
@@ -186,7 +187,7 @@ export default function PostWritePage() {
                   {item.type === 'document' && (
                     <div className="h-24 flex flex-col items-center justify-center text-center p-2">
                       <span className="text-2xl">📄</span>
-                      <span className="text-[10px] text-gray-600 truncate w-full mt-1">{item.name}</span>
+                      <span className="text-[10px] text-gray-600 break-all w-full mt-1">{item.name}</span>
                     </div>
                   )}
                 </div>
