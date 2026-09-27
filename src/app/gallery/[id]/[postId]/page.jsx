@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
@@ -10,285 +10,314 @@ export default function PostDetailPage() {
   const router = useRouter();
 
   const [post, setPost] = useState(null);
+  const [comments, setComments] = useState([]);
+  const [newComment, setNewComment] = useState('');
+  const [replyTo, setReplyTo] = useState(null); // 답글(대댓글) 대상 ID
+  const [replyContent, setReplyContent] = useState('');
+
   const [user, setUser] = useState(null);
-
-  const [likeCount, setLikeCount] = useState(0);
-  const [dislikeCount, setDislikeCount] = useState(0);
-  const [userVote, setUserVote] = useState(null);
-  const isVotingRef = useRef(false);
-
-  const [showMenu, setShowMenu] = useState(false);
-  const [showReportModal, setShowReportModal] = useState(false);
-  const [reportReason, setReportReason] = useState('');
-  const [reportLoading, setReportLoading] = useState(false);
-
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
 
+  // 사용자 정보 및 게시글/댓글 데이터 불러오기
   useEffect(() => {
-    fetchPostAndVotes();
-  }, [postId]);
+    async function fetchData() {
+      const { data: { user } } = await supabase.auth.getUser();
+      setUser(user);
 
-  const fetchPostAndVotes = async () => {
-    setLoading(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    setUser(user);
+      // 1. 게시글 가져오기
+      const { data: postData, error: postError } = await supabase
+        .from('posts')
+        .select('*')
+        .eq('id', postId)
+        .single();
 
-    const isNumberCode = !isNaN(Number(postId)) && postId.length >= 10;
-    const query = supabase.from('posts').select('*');
+      if (postError || !postData) {
+        alert('존재하지 않거나 삭제된 게시글입니다.');
+        router.push(`/gallery/${galleryId}`);
+        return;
+      }
+      setPost(postData);
 
-    if (isNumberCode) {
-      query.eq('post_code', parseInt(postId, 10));
-    } else {
-      query.eq('id', parseInt(postId, 10));
-    }
-
-    const { data: postData, error } = await query.single();
-
-    if (error || !postData) {
+      // 2. 댓글 목록 가져오기
+      fetchComments();
       setLoading(false);
-      return;
     }
 
-    setPost(postData);
+    fetchData();
+  }, [galleryId, postId, router]);
 
-    const { data: votes } = await supabase
-      .from('post_likes')
-      .select('user_email, vote_type')
-      .eq('post_id', postData.id);
+  // 댓글 목록 조회 함수
+  const fetchComments = async () => {
+    const { data, error } = await supabase
+      .from('comments')
+      .select('*')
+      .eq('post_id', postId)
+      .order('created_at', { ascending: true });
 
-    if (votes) {
-      setLikeCount(votes.filter((v) => v.vote_type === 'like').length);
-      setDislikeCount(votes.filter((v) => v.vote_type === 'dislike').length);
-
-      if (user) {
-        const myVote = votes.find((v) => v.user_email === user.email);
-        setUserVote(myVote ? myVote.vote_type : null);
-      }
-    }
-
-    setLoading(false);
-  };
-
-  const formatDetailDate = (dateString) => {
-    if (!dateString) return '';
-    const date = new Date(dateString);
-    const pad = (n) => String(n).padStart(2, '0');
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-  };
-
-  const handleVote = async (type) => {
-    if (!user) return alert('로그인이 필요합니다.');
-    if (isVotingRef.current) return;
-    isVotingRef.current = true;
-
-    try {
-      if (userVote === type) {
-        await supabase.from('post_likes').delete().eq('post_id', post.id).eq('user_email', user.email);
-      } else {
-        await supabase.from('post_likes').upsert(
-          { post_id: post.id, user_email: user.email, vote_type: type },
-          { onConflict: 'post_id, user_email' }
-        );
-      }
-      await fetchPostAndVotes();
-    } catch (err) {
-      alert('처리 중 오류가 발생했습니다.');
-    } finally {
-      setTimeout(() => { isVotingRef.current = false; }, 300);
+    if (!error && data) {
+      setComments(data);
     }
   };
 
-  const handleReportSubmit = async (e) => {
+  // 댓글 등록
+  const handleCommentSubmit = async (e) => {
     e.preventDefault();
     if (!user) return alert('로그인이 필요합니다.');
-    if (!reportReason.trim()) return alert('신고 사유를 입력해 주세요.');
+    if (!newComment.trim()) return alert('댓글 내용을 입력해 주세요.');
 
-    setReportLoading(true);
-    const { error } = await supabase.from('reports').insert([
-      { post_id: post.id, reporter_email: user.email, reason: reportReason.trim() },
+    setSubmitting(true);
+
+    const authorNickname = user.user_metadata?.display_name || user.email.split('@')[0];
+
+    const { error } = await supabase.from('comments').insert([
+      {
+        post_id: postId,
+        author_email: user.email,
+        author_name: authorNickname,
+        content: newComment.trim(),
+        parent_id: null,
+      },
     ]);
-    setReportLoading(false);
+
+    setSubmitting(false);
 
     if (error) {
-      alert(`신고 실패: ${error.message}`);
+      alert(`댓글 작성 실패: ${error.message}`);
     } else {
-      alert('신고 접수가 완료되었습니다.');
-      setShowReportModal(false);
-      setReportReason('');
+      setNewComment('');
+      fetchComments();
     }
   };
 
-  const handleDeletePost = async () => {
-    if (!confirm('정말로 게시글을 삭제하시겠습니까?')) return;
-    const { error } = await supabase.from('posts').delete().eq('id', post.id);
+  // 대댓글 등록
+  const handleReplySubmit = async (parentId) => {
+    if (!user) return alert('로그인이 필요합니다.');
+    if (!replyContent.trim()) return alert('답글 내용을 입력해 주세요.');
+
+    setSubmitting(true);
+
+    const authorNickname = user.user_metadata?.display_name || user.email.split('@')[0];
+
+    const { error } = await supabase.from('comments').insert([
+      {
+        post_id: postId,
+        author_email: user.email,
+        author_name: authorNickname,
+        content: replyContent.trim(),
+        parent_id: parentId,
+      },
+    ]);
+
+    setSubmitting(false);
+
+    if (error) {
+      alert(`답글 작성 실패: ${error.message}`);
+    } else {
+      setReplyContent('');
+      setReplyTo(null);
+      fetchComments();
+    }
+  };
+
+  // 댓글 삭제
+  const handleDeleteComment = async (commentId) => {
+    if (!confirm('정말 삭제하시겠습니까?')) return;
+
+    const { error } = await supabase.from('comments').delete().eq('id', commentId);
 
     if (error) {
       alert(`삭제 실패: ${error.message}`);
     } else {
-      alert('게시글이 삭제되었습니다.');
-      router.push(`/gallery/${galleryId}`);
+      fetchComments();
     }
   };
 
-  if (loading) return <div className="max-w-3xl mx-auto p-12 text-center text-xs text-gray-500">로딩 중...</div>;
-  if (!post) return <div className="max-w-3xl mx-auto p-12 text-center text-xs text-gray-500">존재하지 않거나 삭제된 게시글입니다.</div>;
+  if (loading) {
+    return <div className="max-w-2xl mx-auto my-12 text-center text-xs text-gray-500">로딩 중...</div>;
+  }
 
-  const isAuthor = user && user.email === post.author_email;
-  const authorDisplayName = post.author_name || post.author_email?.split('@')[0] || '익명';
+  // 부모 댓글만 필터링
+  const rootComments = comments.filter((c) => !c.parent_id);
 
   return (
-    <div className="max-w-3xl mx-auto p-6 bg-white rounded-xl shadow-sm border border-gray-200 mt-6 space-y-6 relative">
-      <div className="border-b pb-4 flex items-center justify-between relative">
-        <Link href={`/gallery/${galleryId}`} className="text-xs text-blue-600 hover:underline font-semibold">
-          ← 갤러리로 돌아가기
+    <div className="max-w-2xl mx-auto my-6 p-6 bg-white border rounded-xl shadow-sm space-y-6">
+      {/* 상단 버튼 */}
+      <div className="flex justify-between items-center border-b pb-3">
+        <Link
+          href={`/gallery/${galleryId}`}
+          className="text-xs font-bold text-gray-600 hover:text-black flex items-center gap-1"
+        >
+          ← 목록으로 돌아가기
         </Link>
-
-        <div className="relative">
-          <button
-            onClick={() => setShowMenu(!showMenu)}
-            className="p-1 hover:bg-gray-100 rounded-full text-gray-600 text-lg font-bold px-2"
-          >
-            ⋮
-          </button>
-          {showMenu && (
-            <div className="absolute right-0 mt-1 w-32 bg-white border rounded-lg shadow-lg z-20 py-1 text-xs">
-              {isAuthor && (
-                <button onClick={() => { setShowMenu(false); handleDeletePost(); }} className="w-full text-left px-4 py-2 hover:bg-red-50 text-red-600 font-semibold">
-                  🗑️ 게시글 삭제
-                </button>
-              )}
-              <button onClick={() => { setShowMenu(false); setShowReportModal(true); }} className="w-full text-left px-4 py-2 hover:bg-gray-100 text-gray-700">
-                🚨 게시글 신고
-              </button>
-            </div>
-          )}
-        </div>
       </div>
 
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 mb-4 break-all">{post.title}</h1>
-        
-        <div className="flex items-center gap-3 border-b pb-4">
-          <div className="w-9 h-9 rounded-full overflow-hidden bg-gray-100 border border-gray-200 flex items-center justify-center text-xs font-bold text-gray-500 shrink-0">
-            {post.author_avatar ? (
-              <img src={post.author_avatar} alt="프사" className="w-full h-full object-cover" />
-            ) : (
-              <span>{authorDisplayName.charAt(0)}</span>
-            )}
+      {/* 게시글 영역 */}
+      <div className="space-y-4">
+        <h1 className="text-lg font-bold text-gray-900">{post.title}</h1>
+        <div className="flex justify-between items-center text-xs text-gray-500 border-b pb-3">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-gray-800">{post.author_name}</span>
+            <span>•</span>
+            <span>{new Date(post.created_at).toLocaleDateString()}</span>
           </div>
-          <div>
-            <div className="text-xs font-bold text-gray-900 break-all">{authorDisplayName}</div>
-            <div className="flex items-center gap-2 text-[11px] text-gray-400 mt-0.5">
-              <span>{formatDetailDate(post.created_at)}</span>
-              <span>•</span>
-              <span className="text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100 font-medium">📍 {post.location || 'Seoul'}</span>
-            </div>
-          </div>
+          {post.location && <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded text-[11px]">📍 {post.location}</span>}
         </div>
-      </div>
 
-      <div className="text-sm text-gray-800 leading-relaxed min-h-[80px] whitespace-pre-wrap break-all">
-        {post.content}
-      </div>
+        {/* 게시글 본문 */}
+        <div className="text-xs leading-relaxed text-gray-800 whitespace-pre-wrap py-2">
+          {post.content}
+        </div>
 
-      {/* 첨부 미디어 (사진 & 동영상) */}
-      {post.media_files && post.media_files.length > 0 && (
-        <div className="space-y-4 pt-4 border-t">
-          <h3 className="text-xs font-bold text-gray-700">🎬 첨부 미디어 ({post.media_files.length})</h3>
-          <div className="space-y-3">
+        {/* 미디어 첨부파일 */}
+        {post.media_files && post.media_files.length > 0 && (
+          <div className="space-y-2 pt-2">
             {post.media_files.map((item, idx) => (
-              <div key={idx} className="rounded-xl overflow-hidden border bg-black flex justify-center">
+              <div key={idx} className="rounded-lg overflow-hidden border">
                 {item.type === 'image' ? (
-                  <img src={item.url} alt={`첨부 사진 ${idx + 1}`} className="max-h-[500px] w-auto object-contain" />
+                  <img src={item.url} alt="첨부 이미지" className="w-full object-cover max-h-96" />
                 ) : (
-                  <video src={item.url} controls className="max-h-[450px] w-full" />
+                  <video src={item.url} controls className="w-full max-h-96" />
                 )}
               </div>
             ))}
           </div>
-        </div>
-      )}
+        )}
 
-      {/* 기존 이미지 호환 */}
-      {(!post.media_files || post.media_files.length === 0) && post.image_urls && post.image_urls.length > 0 && (
-        <div className="space-y-3 pt-4 border-t">
-          <h3 className="text-xs font-bold text-gray-700">📷 첨부 사진 ({post.image_urls.length})</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {post.image_urls.map((url, idx) => (
-              <a key={idx} href={url} target="_blank" rel="noopener noreferrer" className="block overflow-hidden rounded-xl border bg-gray-50">
-                <img src={url} alt={`첨부 이미지 ${idx + 1}`} className="w-full h-auto max-h-[400px] object-cover rounded-xl" />
-              </a>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* 첨부 문서 목록 */}
-      {post.doc_files && post.doc_files.length > 0 && (
-        <div className="space-y-2 pt-4 border-t">
-          <h3 className="text-xs font-bold text-gray-700">📎 첨부 문서 파일 ({post.doc_files.length})</h3>
-          <div className="space-y-1">
+        {/* 문서 첨부파일 */}
+        {post.doc_files && post.doc_files.length > 0 && (
+          <div className="pt-2 space-y-1">
+            <p className="text-[11px] font-bold text-gray-600">첨부문서</p>
             {post.doc_files.map((doc, idx) => (
               <a
                 key={idx}
                 href={doc.url}
-                download
                 target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-2 p-2.5 bg-gray-50 border rounded-lg text-xs text-blue-600 hover:bg-blue-50 transition"
+                rel="noreferrer"
+                className="block text-xs text-blue-600 hover:underline bg-blue-50 p-2 rounded border border-blue-100"
               >
-                <span>📄</span>
-                <span className="font-medium underline break-all">{doc.name || `첨부문서_${idx + 1}`}</span>
-                <span className="text-[10px] text-gray-400 ml-auto font-normal shrink-0">다운로드</span>
+                📄 {doc.name || '첨부파일 다운로드'}
               </a>
             ))}
           </div>
-        </div>
-      )}
-
-      {/* 추천/비추천 */}
-      <div className="flex justify-center items-center gap-4 pt-6 border-t">
-        <button
-          onClick={() => handleVote('like')}
-          className={`px-5 py-2.5 rounded-full text-xs font-bold border flex items-center gap-2 ${
-            userVote === 'like' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300'
-          }`}
-        >
-          👍 추천 <span className="px-2 py-0.5 rounded-full text-[10px] bg-blue-100 text-blue-800">{likeCount}</span>
-        </button>
-        <button
-          onClick={() => handleVote('dislike')}
-          className={`px-5 py-2.5 rounded-full text-xs font-bold border flex items-center gap-2 ${
-            userVote === 'dislike' ? 'bg-red-600 text-white border-red-600' : 'bg-white text-gray-700 border-gray-300'
-          }`}
-        >
-          👎 비추천 <span className="px-2 py-0.5 rounded-full text-[10px] bg-red-100 text-red-800">{dislikeCount}</span>
-        </button>
+        )}
       </div>
 
-      {/* 신고 모달 */}
-      {showReportModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-xl space-y-4">
-            <h3 className="text-base font-bold text-gray-900 border-b pb-2">🚨 게시글 신고하기</h3>
-            <form onSubmit={handleReportSubmit} className="space-y-4">
-              <textarea
-                rows={4}
-                value={reportReason}
-                onChange={(e) => setReportReason(e.target.value)}
-                placeholder="신고 사유를 작성해 주세요."
-                className="w-full p-2.5 border rounded-md text-xs focus:outline-none"
-              />
-              <div className="flex justify-end gap-2">
-                <button type="button" onClick={() => setShowReportModal(false)} className="px-4 py-2 bg-gray-100 text-xs rounded">취소</button>
-                <button type="submit" disabled={reportLoading} className="px-4 py-2 bg-red-600 text-white text-xs font-bold rounded">
-                  {reportLoading ? '접수 중...' : '신고 제출'}
-                </button>
-              </div>
-            </form>
+      {/* 댓글 영역 */}
+      <div className="pt-6 border-t space-y-4">
+        <h2 className="text-xs font-bold text-gray-900">💬 댓글 ({comments.length})</h2>
+
+        {/* 댓글 작성 폼 */}
+        <form onSubmit={handleCommentSubmit} className="space-y-2">
+          <textarea
+            rows={3}
+            value={newComment}
+            onChange={(e) => setNewComment(e.target.value)}
+            placeholder={user ? '댓글을 입력해 주세요...' : '로그인 후 댓글을 작성할 수 있습니다.'}
+            disabled={!user || submitting}
+            className="w-full p-3 border rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50"
+          />
+          <div className="flex justify-end">
+            <button
+              type="submit"
+              disabled={!user || submitting || !newComment.trim()}
+              className="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-md hover:bg-blue-700 transition disabled:bg-gray-300"
+            >
+              {submitting ? '등록 중...' : '댓글 작성'}
+            </button>
           </div>
+        </form>
+
+        {/* 댓글 목록 */}
+        <div className="space-y-3 pt-2">
+          {rootComments.length === 0 ? (
+            <p className="text-center text-xs text-gray-400 py-6">첫 번째 댓글을 작성해 보세요!</p>
+          ) : (
+            rootComments.map((comment) => {
+              const replies = comments.filter((c) => c.parent_id === comment.id);
+              const isMyComment = user && user.email === comment.author_email;
+
+              return (
+                <div key={comment.id} className="border-b pb-3 text-xs space-y-1.5">
+                  <div className="flex justify-between items-center">
+                    <span className="font-bold text-gray-800">{comment.author_name}</span>
+                    <div className="flex items-center gap-2 text-[11px] text-gray-400">
+                      <span>{new Date(comment.created_at).toLocaleString()}</span>
+                      {isMyComment && (
+                        <button
+                          onClick={() => handleDeleteComment(comment.id)}
+                          className="text-red-500 hover:underline"
+                        >
+                          삭제
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <p className="text-gray-700 leading-relaxed">{comment.content}</p>
+
+                  <button
+                    onClick={() => setReplyTo(replyTo === comment.id ? null : comment.id)}
+                    className="text-[11px] text-blue-600 font-semibold hover:underline pt-1"
+                  >
+                    {replyTo === comment.id ? '취소' : '↳ 답글 달기'}
+                  </button>
+
+                  {/* 대댓글 입력폼 */}
+                  {replyTo === comment.id && (
+                    <div className="pl-4 mt-2 space-y-2 border-l-2 border-blue-200">
+                      <textarea
+                        rows={2}
+                        value={replyContent}
+                        onChange={(e) => setReplyContent(e.target.value)}
+                        placeholder="답글을 입력해 주세요..."
+                        className="w-full p-2 border rounded-md text-xs focus:outline-none"
+                      />
+                      <div className="flex justify-end">
+                        <button
+                          onClick={() => handleReplySubmit(comment.id)}
+                          disabled={submitting || !replyContent.trim()}
+                          className="px-3 py-1.5 bg-gray-800 text-white text-[11px] font-bold rounded-md hover:bg-black transition"
+                        >
+                          답글 등록
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 대댓글 목록 */}
+                  {replies.length > 0 && (
+                    <div className="pl-4 mt-2 space-y-2 border-l-2 border-gray-100 bg-gray-50/50 p-2 rounded">
+                      {replies.map((reply) => {
+                        const isMyReply = user && user.email === reply.author_email;
+                        return (
+                          <div key={reply.id} className="text-xs space-y-1 border-b border-gray-100 last:border-0 pb-1.5 last:pb-0">
+                            <div className="flex justify-between items-center">
+                              <span className="font-bold text-gray-800">↳ {reply.author_name}</span>
+                              <div className="flex items-center gap-2 text-[10px] text-gray-400">
+                                <span>{new Date(reply.created_at).toLocaleString()}</span>
+                                {isMyReply && (
+                                  <button
+                                    onClick={() => handleDeleteComment(reply.id)}
+                                    className="text-red-500 hover:underline"
+                                  >
+                                    삭제
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                            <p className="text-gray-700 pl-3">{reply.content}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }
