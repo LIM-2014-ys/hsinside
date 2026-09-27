@@ -46,68 +46,67 @@ export default function GalleryDetailPage() {
   if (loading) return <div className="max-w-4xl mx-auto p-8 text-center text-xs text-gray-500">로딩 중...</div>;
 
   return (
-    <div className="max-w-4xl mx-auto p-4 space-y-4">
+    <div className="max-w-4xl mx-auto p-3 sm:p-4 space-y-4">
+      {/* 갤러리 상단 헤더 */}
       <div className="flex items-center justify-between border-b pb-3">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">{gallery ? gallery.name : '갤러리'}</h1>
+          <h1 className="text-lg sm:text-xl font-bold text-gray-900">{gallery ? gallery.name : '갤러리'}</h1>
           <p className="text-xs text-gray-500 mt-0.5">{gallery?.description || '커뮤니티 게시판'}</p>
         </div>
         <Link
           href={`/gallery/${galleryId}/write`}
-          className="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 transition"
+          className="px-3.5 py-1.5 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 transition shrink-0"
         >
           ✏️ 글쓰기
         </Link>
       </div>
 
-      <div className="bg-white border rounded-xl overflow-hidden shadow-sm">
-        <table className="w-full text-left text-xs">
-          <thead className="bg-gray-50 border-b text-gray-600 font-semibold">
-            <tr>
-              <th className="p-3">제목</th>
-              <th className="p-3 w-40">작성자</th>
-              <th className="p-3 w-24 text-center">작성일</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y text-gray-700">
-            {posts.length === 0 ? (
-              <tr>
-                <td colSpan={3} className="p-8 text-center text-gray-400">게시글이 없습니다. 첫 글을 작성해 보세요!</td>
-              </tr>
-            ) : (
-              posts.map((post) => {
-                const authorDisplayName = post.author_name || post.author_email?.split('@')[0] || '익명';
-                const hasMedia = (post.media_files && post.media_files.length > 0) || (post.image_urls && post.image_urls.length > 0);
-                const hasDocs = post.doc_files && post.doc_files.length > 0;
+      {/* 게시글 목록 */}
+      <div className="bg-white border rounded-xl overflow-hidden shadow-sm divide-y">
+        {posts.length === 0 ? (
+          <div className="p-8 text-center text-xs text-gray-400">게시글이 없습니다. 첫 글을 작성해 보세요!</div>
+        ) : (
+          posts.map((post) => {
+            const authorDisplayName = post.author_name || post.author_email?.split('@')[0] || '익명';
+            const hasMedia = (post.media_files && post.media_files.length > 0) || (post.image_urls && post.image_urls.length > 0);
+            const hasDocs = post.doc_files && post.doc_files.length > 0;
 
-                return (
-                  <tr key={post.id} className="hover:bg-gray-50 transition">
-                    <td className="p-3 font-medium text-gray-900 leading-normal break-all">
-                      <Link href={`/gallery/${galleryId}/${post.post_code || post.id}`} className="hover:underline inline-flex items-center gap-1.5 flex-wrap">
-                        <span>{post.title}</span>
-                        {hasMedia && <span className="text-[10px]">🎬</span>}
-                        {hasDocs && <span className="text-[10px]">📎</span>}
-                      </Link>
-                    </td>
-                    <td className="p-3">
-                      <div className="flex items-center gap-1.5">
-                        <div className="w-5 h-5 rounded-full bg-gray-100 border overflow-hidden flex items-center justify-center text-[9px] font-bold text-gray-500 shrink-0">
-                          {post.author_avatar ? (
-                            <img src={post.author_avatar} alt="프사" className="w-full h-full object-cover" />
-                          ) : (
-                            <span>{authorDisplayName.charAt(0)}</span>
-                          )}
-                        </div>
-                        <span className="text-gray-800 break-all leading-snug">{authorDisplayName}</span>
+            return (
+              <div key={post.id} className="p-3 hover:bg-gray-50 transition">
+                <Link
+                  href={`/gallery/${galleryId}/${post.post_code || post.id}`}
+                  className="flex items-center justify-between gap-2 w-full text-xs"
+                >
+                  {/* 좌측: 제목 (한 줄로 최대한 길게 표시) */}
+                  <div className="flex items-center gap-1.5 min-w-0 flex-1 whitespace-nowrap overflow-hidden">
+                    <span className="font-medium text-gray-900 text-xs sm:text-sm truncate sm:whitespace-normal">
+                      {post.title}
+                    </span>
+                    {hasMedia && <span className="text-[10px] shrink-0">🎬</span>}
+                    {hasDocs && <span className="text-[10px] shrink-0">📎</span>}
+                  </div>
+
+                  {/* 우측: 닉네임 & 작성일 (소형 배치, 줄바꿈 방지) */}
+                  <div className="flex items-center gap-2 shrink-0 text-[10px] text-gray-400">
+                    <div className="flex items-center gap-1 max-w-[80px] sm:max-w-[120px] truncate text-gray-500">
+                      <div className="w-4 h-4 rounded-full bg-gray-100 border overflow-hidden flex items-center justify-center text-[8px] font-bold shrink-0">
+                        {post.author_avatar ? (
+                          <img src={post.author_avatar} alt="프사" className="w-full h-full object-cover" />
+                        ) : (
+                          <span>{authorDisplayName.charAt(0)}</span>
+                        )}
                       </div>
-                    </td>
-                    <td className="p-3 text-center text-gray-400 text-[11px] whitespace-nowrap">{formatDate(post.created_at)}</td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
+                      <span className="truncate">{authorDisplayName}</span>
+                    </div>
+
+                    <span className="text-gray-300">|</span>
+                    <span className="whitespace-nowrap">{formatDate(post.created_at)}</span>
+                  </div>
+                </Link>
+              </div>
+            );
+          })
+        )}
       </div>
     </div>
   );
