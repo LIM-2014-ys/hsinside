@@ -64,16 +64,15 @@ export default function GalleryDetailPage() {
         <table className="w-full text-left text-xs">
           <thead className="bg-gray-50 border-b text-gray-600 font-semibold">
             <tr>
-              <th className="p-3 w-16 text-center">번호</th>
               <th className="p-3">제목</th>
-              <th className="p-3 w-36">작성자</th>
+              <th className="p-3 w-40">작성자</th>
               <th className="p-3 w-24 text-center">작성일</th>
             </tr>
           </thead>
           <tbody className="divide-y text-gray-700">
             {posts.length === 0 ? (
               <tr>
-                <td colSpan={4} className="p-8 text-center text-gray-400">게시글이 없습니다. 첫 글을 작성해 보세요!</td>
+                <td colSpan={3} className="p-8 text-center text-gray-400">게시글이 없습니다. 첫 글을 작성해 보세요!</td>
               </tr>
             ) : (
               posts.map((post) => {
@@ -83,10 +82,9 @@ export default function GalleryDetailPage() {
 
                 return (
                   <tr key={post.id} className="hover:bg-gray-50 transition">
-                    <td className="p-3 text-center text-gray-400 text-[11px]">{post.post_code || post.id}</td>
-                    <td className="p-3 font-medium text-gray-900">
-                      <Link href={`/gallery/${galleryId}/${post.post_code || post.id}`} className="hover:underline flex items-center gap-1.5">
-                        <span className="truncate">{post.title}</span>
+                    <td className="p-3 font-medium text-gray-900 leading-normal break-all">
+                      <Link href={`/gallery/${galleryId}/${post.post_code || post.id}`} className="hover:underline inline-flex items-center gap-1.5 flex-wrap">
+                        <span>{post.title}</span>
                         {hasMedia && <span className="text-[10px]">🎬</span>}
                         {hasDocs && <span className="text-[10px]">📎</span>}
                       </Link>
@@ -100,10 +98,10 @@ export default function GalleryDetailPage() {
                             <span>{authorDisplayName.charAt(0)}</span>
                           )}
                         </div>
-                        <span className="truncate max-w-[100px] text-gray-800">{authorDisplayName}</span>
+                        <span className="text-gray-800 break-all leading-snug">{authorDisplayName}</span>
                       </div>
                     </td>
-                    <td className="p-3 text-center text-gray-400 text-[11px]">{formatDate(post.created_at)}</td>
+                    <td className="p-3 text-center text-gray-400 text-[11px] whitespace-nowrap">{formatDate(post.created_at)}</td>
                   </tr>
                 );
               })
