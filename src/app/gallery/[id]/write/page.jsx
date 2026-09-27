@@ -26,30 +26,38 @@ export default function PostWritePage() {
     });
   }, []);
 
+  // 실제 사용자 위치(도시명) 가져오기
   const getCurrentLocation = () => {
     return new Promise((resolve) => {
-      if (!navigator.geolocation) return resolve('Seoul');
+      if (!navigator.geolocation) {
+        return resolve('Seoul');
+      }
 
       navigator.geolocation.getCurrentPosition(
         async (position) => {
           try {
             const { latitude, longitude } = position.coords;
+            // OpenStreetMap Nominatim API를 사용한 역지오코딩
             const res = await fetch(
               `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&accept-language=ko`
             );
             const data = await res.json();
+
+            // 도시, 시/군/구 명칭 추출
             const city =
               data.address?.city ||
               data.address?.county ||
               data.address?.district ||
               data.address?.province ||
               'Seoul';
+
             resolve(city);
           } catch {
             resolve('Seoul');
           }
         },
         async () => {
+          // GPS 권한 거부 시 IP기반 서브 위치 추적
           try {
             const ipRes = await fetch('https://ipapi.co/json/');
             const ipData = await ipRes.json();
@@ -80,7 +88,7 @@ export default function PostWritePage() {
         file,
         url: URL.createObjectURL(file),
         type: isImage ? 'image' : isVideo ? 'video' : 'document',
-        name: file.name,
+        name: file.name
       };
     });
 
@@ -121,7 +129,9 @@ export default function PostWritePage() {
         }
       }
 
+      // 실제 실시간 위치 가져오기
       const location = await getCurrentLocation();
+
       const authorNickname = user.user_metadata?.display_name || user.email.split('@')[0];
       const authorAvatar = user.user_metadata?.avatar_url || '';
       const postCode = Number(Date.now().toString() + Math.floor(Math.random() * 90 + 10));
@@ -137,8 +147,8 @@ export default function PostWritePage() {
           location,
           post_code: postCode,
           media_files: mediaFiles,
-          doc_files: docFiles,
-        },
+          doc_files: docFiles
+        }
       ]);
 
       if (insertError) throw insertError;
