@@ -26,7 +26,6 @@ export default function SignUpPage() {
 
 /* ==============================================================================
    [기존 회원가입 원본 코드] 
-   - 회원가입 재개 시 상단의 SignUpPage 컴포넌트 부분을 아래 주석 해제 후 대체하세요.
    ==============================================================================
 
 import { useState } from 'react';
@@ -41,14 +40,12 @@ export default function OriginalSignUpPage() {
   const [isNicknameChecked, setIsNicknameChecked] = useState(false);
   const [nicknameMessage, setNicknameMessage] = useState('');
   
-  // 동의 항목
   const [agreeTerms, setAgreeTerms] = useState(false);
   const [agreePrivacy, setAgreePrivacy] = useState(false);
   const [agreeForeignTransfer, setAgreeForeignTransfer] = useState(false);
 
   const [loading, setLoading] = useState(false);
 
-  // 닉네임 중복 확인
   const handleCheckNickname = async () => {
     if (!nickname.trim() || nickname.length < 2) {
       alert('닉네임은 최소 2자 이상 입력해 주세요.');
@@ -74,7 +71,6 @@ export default function OriginalSignUpPage() {
     }
   };
 
-  // 회원가입 제출
   const handleSignUp = async (e) => {
     e.preventDefault();
 
