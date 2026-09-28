@@ -49,7 +49,6 @@ export default function WritePage() {
     setLoading(true);
 
     try {
-      // 로그인된 최신 유저 정보 확인
       const { data: { user: currentUser }, error: userError } = await supabase.auth.getUser();
 
       if (userError || !currentUser) {
@@ -58,18 +57,16 @@ export default function WritePage() {
         return;
       }
 
-      // DB insert: author_email에 currentUser.email 전달 (NOT NULL 오류 해결)
-      const { error } = await supabase
-        .from('posts')
-        .insert([
-          {
-            title: title.trim(),
-            content: content.trim(),
-            author_email: currentUser.email, // 👈 NOT NULL 컬럼 값 필수 전달
-            author_name: currentUser.user_metadata?.display_name || currentUser.email.split('@')[0],
-            user_id: currentUser.id,
-          },
-        ]);
+      // DB insert 데이터 구성
+      const postData = {
+        title: title.trim(),
+        content: content.trim(),
+        author_email: currentUser.email,
+        author_name: currentUser.user_metadata?.display_name || currentUser.email.split('@')[0],
+        user_id: currentUser.id,
+      };
+
+      const { error } = await supabase.from('posts').insert([postData]);
 
       if (error) {
         showToast('글 등록 실패: ' + error.message, 'error');
