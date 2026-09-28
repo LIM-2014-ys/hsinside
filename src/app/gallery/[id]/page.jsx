@@ -1,140 +1,103 @@
-'use client';
-
-import { useState, useEffect } from 'react';
-import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 
-export default function GalleryDetailPage() {
-  const { id: rawGalleryId } = useParams();
-  const galleryId = decodeURIComponent(rawGalleryId);
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
-  const [galleryInfo, setGalleryInfo] = useState({ id: galleryId, name: galleryId });
-  const [posts, setPosts] = useState([]);
-  const [loading, setLoading] = useState(true);
+export default async function GalleryListPage({ params }) {
+  const { id } = await params;
 
-  useEffect(() => {
-    async function fetchData() {
-      setLoading(true);
-
-      try {
-        const isNumeric = !isNaN(galleryId) && galleryId.trim() !== '';
-
-        // 1. galleries 테이블에서 갤러리 데이터 조회
-        let galleryData = null;
-
-        if (isNumeric) {
-          const { data } = await supabase
-            .from('galleries')
-            .select('*')
-            .eq('id', Number(galleryId))
-            .maybeSingle();
-          galleryData = data;
-        }
-
-        if (!galleryData) {
-          const { data } = await supabase
-            .from('galleries')
-            .select('*')
-            .eq('name', galleryId)
-            .maybeSingle();
-          galleryData = data;
-        }
-
-        const actualId = galleryData ? galleryData.id : (isNumeric ? Number(galleryId) : galleryId);
-        const actualName = galleryData ? galleryData.name : galleryId;
-
-        setGalleryInfo({
-          id: actualId,
-          name: actualName,
-        });
-
-        // 2. posts 테이블 조회
-        let postsList = [];
-
-        if (galleryData?.id || isNumeric) {
-          const searchTargetId = galleryData ? galleryData.id : Number(galleryId);
-          const { data: dataById } = await supabase
-            .from('posts')
-            .select('*')
-            .eq('gallery_id', searchTargetId)
-            .order('created_at', { ascending: false });
-
-          if (dataById && dataById.length > 0) {
-            postsList = dataById;
-          }
-        }
-
-        if (postsList.length === 0 && actualName) {
-          const { data: dataByName } = await supabase
-            .from('posts')
-            .select('*')
-            .eq('gallery_id', String(actualName))
-            .order('created_at', { ascending: false });
-
-          if (dataByName && dataByName.length > 0) {
-            postsList = dataByName;
-          }
-        }
-
-        setPosts(postsList);
-      } catch (error) {
-        console.error('갤러리 데이터를 불러오는 중 오류 발생:', error);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    fetchData();
-  }, [galleryId]);
-
-  if (loading) {
-    return <div className="max-w-4xl mx-auto my-12 text-center text-xs text-gray-500">목록 불러오는 중...</div>;
-  }
+  // gallery_id가 일치하는 게시글만 최신순 조회
+  const { data: posts, error } = await supabase
+    .from('posts')
+    .select('*')
+    .eq('gallery_id', id)
+    .order('created_at', { ascending: false });
 
   return (
-    <div className="max-w-4xl mx-auto my-8 p-6 bg-white border rounded-xl shadow-sm space-y-6">
-      {/* 헤더 */}
-      <div className="flex justify-between items-center border-b pb-4">
-        <h1 className="text-lg font-bold text-gray-900">📌 {galleryInfo.name} 갤러리</h1>
+    <div className="max-w-4xl mx-auto my-10 p-6 sm:p-8 bg-white border border-gray-100 rounded-3xl shadow-2xl space-y-6 text-xs font-sans">
+      {/* 헤더 영역 */}
+      <div className="flex items-center justify-between border-b pb-5">
+        <div>
+          <h1 className="text-2xl font-black text-gray-900 tracking-tight">
+            📌 {id} 갤러리
+          </h1>
+          <p className="text-gray-400 mt-1 text-[11px]">
+            {id} 갤러리의 실시간 게시글 목록입니다.
+          </p>
+        </div>
         <Link
-          href={`/gallery/${encodeURIComponent(galleryId)}/write`}
-          className="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 transition"
+          href={`/gallery/${id}/write`}
+          className="px-4 py-2.5 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition shadow-md shadow-blue-500/20 text-xs"
         >
-          ✏️ 글쓰기
+          ✏️ 글 작성하기
         </Link>
       </div>
 
-      {/* 게시글 목록 (위치 표시 제거됨) */}
-      <div className="divide-y text-xs">
-        {posts.length === 0 ? (
-          <p className="text-center text-gray-400 py-10">등록된 게시글이 없습니다. 첫 글을 작성해 보세요!</p>
-        ) : (
-          posts.map((post) => (
-            <Link
-              key={post.id}
-              href={`/gallery/${encodeURIComponent(galleryId)}/${post.id}`}
-              className="flex justify-between items-center py-3 px-2 hover:bg-gray-50 transition rounded-md group"
-            >
-              <div className="flex items-center gap-3">
-                <span className="font-mono text-gray-400 text-[11px] w-8">#{post.id}</span>
-                <span className="font-medium text-gray-800 group-hover:text-blue-600 transition">
-                  {post.title}
-                </span>
-                {/* 파일이 첨부되어 있다면 표시 */}
-                {post.media_files && post.media_files.length > 0 && (
-                  <span className="text-[11px] text-gray-400">📎 {post.media_files.length}</span>
-                )}
-              </div>
+      {/* 에러 발생 시 */}
+      {error && (
+        <div className="p-4 bg-rose-50 border border-rose-100 text-rose-600 rounded-2xl text-xs font-semibold">
+          게시글을 불러오는 중 오류가 발생했습니다: {error.message}
+        </div>
+      )}
 
-              <div className="flex items-center gap-4 text-gray-400 text-[11px]">
-                <span>{post.author_name || '익명'}</span>
-                <span>{new Date(post.created_at).toLocaleDateString()}</span>
+      {/* 게시글 목록 (#n 번호 표시 제거됨) */}
+      {!error && posts && posts.length === 0 ? (
+        <div className="text-center py-12 text-gray-400 font-medium">
+          등록된 게시글이 없습니다. 첫 번째 글을 작성해 보세요!
+        </div>
+      ) : (
+        <div className="divide-y divide-gray-100">
+          {posts?.map((post) => {
+            // 타임스탬프+난수 기반 고유 URL (slug가 없으면 id 대체)
+            const postLink = `/gallery/${id}/${post.slug || post.id}`;
+
+            return (
+              <div key={post.id} className="py-4 space-y-2 hover:bg-gray-50/50 p-3 rounded-2xl transition">
+                <div className="flex items-center justify-between">
+                  <Link href={postLink} className="group">
+                    <h2 className="text-base font-bold text-gray-900 tracking-tight group-hover:text-blue-600 transition">
+                      {post.title}
+                    </h2>
+                  </Link>
+                  <span className="text-[10px] text-gray-400">
+                    {new Date(post.created_at).toLocaleDateString('ko-KR', {
+                      year: 'numeric',
+                      month: '2-digit',
+                      day: '2-digit',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </span>
+                </div>
+
+                <p className="text-gray-600 text-xs leading-relaxed whitespace-pre-wrap line-clamp-2">
+                  {post.content}
+                </p>
+
+                {/* 첨부파일 다운로드 */}
+                {post.file_url && (
+                  <div className="pt-1">
+                    <a
+                      href={post.file_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-lg text-[11px] transition"
+                    >
+                      📎 첨부파일 보기 / 다운로드
+                    </a>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between pt-1 text-[11px] text-gray-400">
+                  <span>작성자: <strong className="text-gray-700">{post.author_name || '익명'}</strong></span>
+                  {post.author_email && <span>({post.author_email})</span>}
+                </div>
               </div>
-            </Link>
-          ))
-        )}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
