@@ -6,7 +6,8 @@ import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 
 export default function PostWritePage() {
-  const { id: galleryId } = useParams();
+  const { id: rawGalleryId } = useParams();
+  const galleryId = decodeURIComponent(rawGalleryId);
   const router = useRouter();
 
   const [title, setTitle] = useState('');
@@ -29,7 +30,6 @@ export default function PostWritePage() {
     checkUser();
   }, [router]);
 
-  // HTML5 Geolocation API로 실제 GPS/네트워크 위치 가져오기
   const handleFetchLocation = () => {
     if (!navigator.geolocation) {
       alert('이 브라우저는 위치 서비스를 지원하지 않습니다.');
@@ -43,7 +43,6 @@ export default function PostWritePage() {
         const { latitude, longitude } = position.coords;
 
         try {
-          // OpenStreetMap Nominatim 역지오코딩 (위도/경도 -> 주소 변환)
           const res = await fetch(
             `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&accept-language=ko`
           );
@@ -51,7 +50,6 @@ export default function PostWritePage() {
 
           if (data && data.address) {
             const addr = data.address;
-            // 시/도 + 구/군/동 조합하여 깔끔하게 표기
             const city = addr.city || addr.province || addr.state || '';
             const district = addr.borough || addr.suburb || addr.city_district || addr.county || addr.town || '';
             const formattedLoc = `${city} ${district}`.trim() || '현재 위치';
@@ -68,29 +66,15 @@ export default function PostWritePage() {
       },
       (error) => {
         setIsLocLoading(false);
-        switch (error.code) {
-          case error.PERMISSION_DENIED:
-            alert('위치 권한 허용이 거부되었습니다. 브라우저 설정에서 위치 권한을 확인해 주세요.');
-            break;
-          case error.POSITION_UNAVAILABLE:
-            alert('위치 정보를 사용할 수 없습니다.');
-            break;
-          case error.TIMEOUT:
-            alert('위치 요청 시간이 초과되었습니다.');
-            break;
-          default:
-            alert('위치 정보를 가져오는 중 오류가 발생했습니다.');
-            break;
-        }
+        alert('위치 정보를 가져오는 데 실패했습니다.');
       },
       { enableHighAccuracy: true, timeout: 10000 }
     );
   };
 
-  // 게시글 저장
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!title.trim() || !content.trim()) return alert('제목과 내용을 모두 입력해 주세요.');
+    if (!title.trim() || !content.trim()) return alert('제목과 내용을 입력해 주세요.');
 
     setSubmitting(true);
     const authorNickname = user.user_metadata?.display_name || user.email.split('@')[0];
@@ -115,7 +99,6 @@ export default function PostWritePage() {
     if (error) {
       alert(`글 작성 실패: ${error.message}`);
     } else {
-      // 올바른 상세페이지 경로로 이동 (/gallery/[galleryId]/[postId])
       router.push(`/gallery/${galleryId}/${data.id}`);
     }
   };
@@ -130,7 +113,6 @@ export default function PostWritePage() {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4 text-xs">
-        {/* 위치 입력 및 자동 감지 버튼 */}
         <div>
           <label className="block font-semibold text-gray-700 mb-1">📍 작성 위치</label>
           <div className="flex gap-2">
@@ -152,7 +134,6 @@ export default function PostWritePage() {
           </div>
         </div>
 
-        {/* 제목 */}
         <div>
           <label className="block font-semibold text-gray-700 mb-1">제목</label>
           <input
@@ -165,7 +146,6 @@ export default function PostWritePage() {
           />
         </div>
 
-        {/* 본문 */}
         <div>
           <label className="block font-semibold text-gray-700 mb-1">내용</label>
           <textarea
@@ -178,7 +158,6 @@ export default function PostWritePage() {
           />
         </div>
 
-        {/* 제출 버튼 */}
         <div className="flex justify-end gap-2 pt-2 border-t">
           <button
             type="submit"
