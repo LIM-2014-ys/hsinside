@@ -6,7 +6,10 @@ import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 
 export default function GalleryDetailPage() {
-  const { id: galleryId } = useParams();
+  const { id: rawGalleryId } = useParams();
+  // 한글 갤러리 이름 디코딩 처리 (예: %EC%9E%84... -> '임준서')
+  const galleryId = decodeURIComponent(rawGalleryId);
+
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -28,7 +31,9 @@ export default function GalleryDetailPage() {
     fetchPosts();
   }, [galleryId]);
 
-  if (loading) return <div className="max-w-4xl mx-auto my-12 text-center text-xs text-gray-500">목록 불러오는 중...</div>;
+  if (loading) {
+    return <div className="max-w-4xl mx-auto my-12 text-center text-xs text-gray-500">목록 불러오는 중...</div>;
+  }
 
   return (
     <div className="max-w-4xl mx-auto my-8 p-6 bg-white border rounded-xl shadow-sm space-y-6">
@@ -47,7 +52,6 @@ export default function GalleryDetailPage() {
           <p className="text-center text-gray-400 py-10">등록된 게시글이 없습니다. 첫 글을 작성해 보세요!</p>
         ) : (
           posts.map((post) => (
-            /* 핵심 수정 위치: post.id를 사용하여 올바른 상세 페이지 경로로 연결 */
             <Link
               key={post.id}
               href={`/gallery/${galleryId}/${post.id}`}
