@@ -8,7 +8,7 @@ export const revalidate = 0;
 export default async function GalleryPostDetailPage({ params }) {
   const { id, slug } = await params;
 
-  // gallery_id 및 slug 컬럼으로 검색
+  // gallery_id 및 slug(고유 난수 링크)로 검색
   let { data: post, error } = await supabase
     .from('posts')
     .select('*')
@@ -16,7 +16,7 @@ export default async function GalleryPostDetailPage({ params }) {
     .eq('slug', slug)
     .single();
 
-  // 기존 id로 들어온 경우 예외 처리
+  // 이전 게시글 호환성을 위해 id 검색 예외 처리
   if (!post) {
     const { data: fallbackPost } = await supabase
       .from('posts')
@@ -71,7 +71,7 @@ export default async function GalleryPostDetailPage({ params }) {
             href={post.file_url}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-block px-4 py-2 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition text-white"
+            className="inline-block px-4 py-2 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition"
           >
             다운로드 / 파일 열기
           </a>
