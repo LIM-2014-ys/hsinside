@@ -10,37 +10,42 @@ export default function WritePostPage() {
   const galleryId = decodeURIComponent(rawGalleryId);
   const router = useRouter();
 
+  const [currentUser, setCurrentUser] = useState(null);
   const [title, setTitle] = useState('');
-  const [authorName, setAuthorName] = useState('');
   const [content, setContent] = useState('');
   const [files, setFiles] = useState([]);
   const [autoLocation, setAutoLocation] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  // 1. 접속 시 브라우저 GPS 위치 자동 수집 (사용자 입력 X)
+  // 1. 로그인 유저 정보 및 GPS 위치 자동 수집
   useEffect(() => {
-    if ('geolocation' in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const lat = position.coords.latitude.toFixed(4);
-          const lng = position.coords.longitude.toFixed(4);
-          setAutoLocation(`${lat}, ${lng}`);
-        },
-        (error) => {
-          console.warn('위치 권한 거부 또는 실패:', error.message);
-        }
-      );
+    async function init() {
+      // 현재 로그인 유저 가져오기
+      const { data: { user } } = await supabase.auth.getUser();
+      setCurrentUser(user);
+
+      // 브라우저 GPS 위치 가져오기
+      if ('geolocation' in navigator) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const lat = position.coords.latitude.toFixed(4);
+            const lng = position.coords.longitude.toFixed(4);
+            setAutoLocation(`${lat}, ${lng}`);
+          },
+          (error) => console.warn('위치 수집 실패:', error.message)
+        );
+      }
     }
+    init();
   }, []);
 
-  // 파일 선택 변경 핸들러
   const handleFileChange = (e) => {
     if (e.target.files) {
       setFiles(Array.from(e.target.files));
     }
   };
 
-  // 2. 글 저장 핸들러
+  // 2. 글 저장
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -54,7 +59,7 @@ export default function WritePostPage() {
     try {
       const uploadedFileUrls = [];
 
-      // 3. 첨부파일 Supabase Storage('attachments')에 업로드
+      // 파일 업로드
       if (files.length > 0) {
         for (const file of files) {
           const fileExt = file.name.split('.').pop();
@@ -64,30 +69,28 @@ export default function WritePostPage() {
             .from('attachments')
             .upload(fileName, file);
 
-          if (uploadError) {
-            console.error('파일 업로드 에러:', uploadError);
-            continue;
-          }
-
-          const { data: publicUrlData } = supabase.storage
-            .from('attachments')
-            .getPublicUrl(fileName);
-
-          if (publicUrlData?.publicUrl) {
-            uploadedFileUrls.push(publicUrlData.publicUrl);
+          if (!uploadError) {
+            const { data: publicUrlData } = supabase.storage
+              .from('attachments')
+              .getPublicUrl(fileName);
+            if (publicUrlData?.publicUrl) uploadedFileUrls.push(publicUrlData.publicUrl);
           }
         }
       }
 
-      // 4. posts 테이블에 저장 (gallery_id, title, content, author_name, location, media_files)
+      // 작성자 닉네임 자동 추출 (1순위: display_name, 2순위: 이메일 ID, 3순위: 익명)
+      const authorName = currentUser?.user_metadata?.display_name || 
+                         currentUser?.email?.split('@')[0] || 
+                         '익명';
+
       const { error: insertError } = await supabase.from('posts').insert([
         {
           gallery_id: galleryId,
           title: title.trim(),
           content: content.trim(),
-          author_name: authorName.trim() || '익명',
-          location: autoLocation, // 자동으로 가져온 위치 저장
-          media_files: uploadedFileUrls, // 업로드된 파일 URL 배열 저장
+          author_name: authorName, // 자동으로 세팅된 닉네임 저장
+          location: autoLocation,
+          media_files: uploadedFileUrls,
         },
       ]);
 
@@ -119,17 +122,6 @@ export default function WritePostPage() {
 
       <form onSubmit={handleSubmit} className="space-y-4 text-xs">
         <div>
-          <label className="block font-semibold text-gray-700 mb-1">작성자</label>
-          <input
-            type="text"
-            value={authorName}
-            onChange={(e) => setAuthorName(e.target.value)}
-            placeholder="닉네임 (미입력 시 익명)"
-            className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
-          />
-        </div>
-
-        <div>
           <label className="block font-semibold text-gray-700 mb-1">제목 *</label>
           <input
             type="text"
@@ -153,7 +145,6 @@ export default function WritePostPage() {
           />
         </div>
 
-        {/* 파일 첨부 영역 */}
         <div>
           <label className="block font-semibold text-gray-700 mb-1">파일 첨부</label>
           <input
