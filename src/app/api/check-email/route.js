@@ -1,13 +1,18 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
-
 export async function POST(req) {
   try {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl || !serviceRoleKey) {
+      return NextResponse.json(
+        { error: '서버 환경변수(SUPABASE_SERVICE_ROLE_KEY)가 설정되지 않았습니다.' },
+        { status: 500 }
+      );
+    }
+
     const { email } = await req.json();
 
     if (!email || !email.trim()) {
@@ -15,20 +20,21 @@ export async function POST(req) {
     }
 
     const targetEmail = email.trim().toLowerCase();
+    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
-    // 전체 가입자 데이터에서 이메일 중복 여부 체크
-    const { data: { users }, error } = await supabaseAdmin.auth.admin.listUsers();
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers();
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ error: `Supabase 오류: ${error.message}` }, { status: 500 });
     }
 
-    const isExist = users.some(
-      (u) => u.email?.trim().toLowerCase() === targetEmail
+    // ⭐ 핵심: 실제 이메일 인증(email_confirmed_at)을 완료한 유저만 중복으로 처리
+    const isConfirmedUserExist = data?.users?.some(
+      (user) => user.email?.trim().toLowerCase() === targetEmail && user.email_confirmed_at !== null
     );
 
-    return NextResponse.json({ isAvailable: !isExist });
+    return NextResponse.json({ isAvailable: !isConfirmedUserExist });
   } catch (err) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ error: `서버 오류: ${err.message}` }, { status: 500 });
   }
 }
