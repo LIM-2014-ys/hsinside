@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 
 export default function PostWritePage() {
@@ -10,239 +11,183 @@ export default function PostWritePage() {
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
-  const [files, setFiles] = useState([]);
-  const [previews, setPreviews] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [location, setLocation] = useState('');
+  const [isLocLoading, setIsLocLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [user, setUser] = useState(null);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
+    async function checkUser() {
+      const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        alert('로그인이 필요합니다.');
+        alert('로그인이 필요한 서비스입니다.');
         router.push('/login');
-      } else {
-        setUser(user);
+        return;
       }
-    });
-  }, []);
+      setUser(user);
+    }
+    checkUser();
+  }, [router]);
 
-  // 실제 사용자 위치(도시명) 가져오기
-  const getCurrentLocation = () => {
-    return new Promise((resolve) => {
-      if (!navigator.geolocation) {
-        return resolve('Seoul');
-      }
-
-      navigator.geolocation.getCurrentPosition(
-        async (position) => {
-          try {
-            const { latitude, longitude } = position.coords;
-            // OpenStreetMap Nominatim API를 사용한 역지오코딩
-            const res = await fetch(
-              `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&accept-language=ko`
-            );
-            const data = await res.json();
-
-            // 도시, 시/군/구 명칭 추출
-            const city =
-              data.address?.city ||
-              data.address?.county ||
-              data.address?.district ||
-              data.address?.province ||
-              'Seoul';
-
-            resolve(city);
-          } catch {
-            resolve('Seoul');
-          }
-        },
-        async () => {
-          // GPS 권한 거부 시 IP기반 서브 위치 추적
-          try {
-            const ipRes = await fetch('https://ipapi.co/json/');
-            const ipData = await ipRes.json();
-            resolve(ipData.city || 'Seoul');
-          } catch {
-            resolve('Seoul');
-          }
-        },
-        { timeout: 5000 }
-      );
-    });
-  };
-
-  const handleFileChange = (e) => {
-    const selectedFiles = Array.from(e.target.files);
-    if (files.length + selectedFiles.length > 5) {
-      alert('파일은 최대 5개까지 첨부할 수 있습니다.');
+  // HTML5 Geolocation API로 실제 GPS/네트워크 위치 가져오기
+  const handleFetchLocation = () => {
+    if (!navigator.geolocation) {
+      alert('이 브라우저는 위치 서비스를 지원하지 않습니다.');
       return;
     }
 
-    const newFiles = [...files, ...selectedFiles];
-    setFiles(newFiles);
+    setIsLocLoading(true);
 
-    const newPreviews = selectedFiles.map((file) => {
-      const isImage = file.type.startsWith('image/');
-      const isVideo = file.type.startsWith('video/');
-      return {
-        file,
-        url: URL.createObjectURL(file),
-        type: isImage ? 'image' : isVideo ? 'video' : 'document',
-        name: file.name
-      };
-    });
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords;
 
-    setPreviews([...previews, ...newPreviews]);
+        try {
+          // OpenStreetMap Nominatim 역지오코딩 (위도/경도 -> 주소 변환)
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&accept-language=ko`
+          );
+          const data = await res.json();
+
+          if (data && data.address) {
+            const addr = data.address;
+            // 시/도 + 구/군/동 조합하여 깔끔하게 표기
+            const city = addr.city || addr.province || addr.state || '';
+            const district = addr.borough || addr.suburb || addr.city_district || addr.county || addr.town || '';
+            const formattedLoc = `${city} ${district}`.trim() || '현재 위치';
+            
+            setLocation(formattedLoc);
+          } else {
+            setLocation(`${latitude.toFixed(2)}, ${longitude.toFixed(2)}`);
+          }
+        } catch (error) {
+          alert('위치명을 불러오지 못했습니다.');
+        } finally {
+          setIsLocLoading(false);
+        }
+      },
+      (error) => {
+        setIsLocLoading(false);
+        switch (error.code) {
+          case error.PERMISSION_DENIED:
+            alert('위치 권한 허용이 거부되었습니다. 브라우저 설정에서 위치 권한을 확인해 주세요.');
+            break;
+          case error.POSITION_UNAVAILABLE:
+            alert('위치 정보를 사용할 수 없습니다.');
+            break;
+          case error.TIMEOUT:
+            alert('위치 요청 시간이 초과되었습니다.');
+            break;
+          default:
+            alert('위치 정보를 가져오는 중 오류가 발생했습니다.');
+            break;
+        }
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
   };
 
-  const removeFile = (index) => {
-    setFiles(files.filter((_, i) => i !== index));
-    setPreviews(previews.filter((_, i) => i !== index));
-  };
-
+  // 게시글 저장
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!title.trim() || !content.trim()) return alert('제목과 내용을 입력해 주세요.');
+    if (!title.trim() || !content.trim()) return alert('제목과 내용을 모두 입력해 주세요.');
 
-    setLoading(true);
+    setSubmitting(true);
+    const authorNickname = user.user_metadata?.display_name || user.email.split('@')[0];
 
-    try {
-      const mediaFiles = [];
-      const docFiles = [];
-
-      for (const file of files) {
-        const fileExt = file.name.split('.').pop();
-        const filePath = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
-
-        const { error: uploadError } = await supabase.storage
-          .from('post_images')
-          .upload(filePath, file);
-
-        if (uploadError) throw uploadError;
-
-        const { data: { publicUrl } } = supabase.storage.from('post_images').getPublicUrl(filePath);
-
-        if (file.type.startsWith('image/') || file.type.startsWith('video/')) {
-          mediaFiles.push({ url: publicUrl, type: file.type.startsWith('image/') ? 'image' : 'video' });
-        } else {
-          docFiles.push({ url: publicUrl, name: file.name });
-        }
-      }
-
-      // 실제 실시간 위치 가져오기
-      const location = await getCurrentLocation();
-
-      const authorNickname = user.user_metadata?.display_name || user.email.split('@')[0];
-      const authorAvatar = user.user_metadata?.avatar_url || '';
-      const postCode = Number(Date.now().toString() + Math.floor(Math.random() * 90 + 10));
-
-      const { error: insertError } = await supabase.from('posts').insert([
+    const { data, error } = await supabase
+      .from('posts')
+      .insert([
         {
           gallery_id: galleryId,
-          title,
-          content,
           author_email: user.email,
           author_name: authorNickname,
-          author_avatar: authorAvatar,
-          location,
-          post_code: postCode,
-          media_files: mediaFiles,
-          doc_files: docFiles
-        }
-      ]);
+          title: title.trim(),
+          content: content.trim(),
+          location: location || null,
+        },
+      ])
+      .select()
+      .single();
 
-      if (insertError) throw insertError;
+    setSubmitting(false);
 
-      alert('게시글이 성공적으로 등록되었습니다.');
-      router.push(`/gallery/${galleryId}`);
-    } catch (err) {
-      alert(`등록 실패: ${err.message}`);
-    } finally {
-      setLoading(false);
+    if (error) {
+      alert(`글 작성 실패: ${error.message}`);
+    } else {
+      // 올바른 상세페이지 경로로 이동 (/gallery/[galleryId]/[postId])
+      router.push(`/gallery/${galleryId}/${data.id}`);
     }
   };
 
   return (
-    <div className="max-w-2xl mx-auto mt-6 p-6 bg-white border rounded-xl shadow-sm space-y-4">
-      <h1 className="text-base font-bold border-b pb-3 text-gray-900">✍️ 게시글 작성</h1>
+    <div className="max-w-2xl mx-auto my-8 p-6 bg-white border rounded-xl shadow-sm space-y-6">
+      <div className="flex justify-between items-center border-b pb-3">
+        <h1 className="text-base font-bold text-gray-900">✏️ {galleryId} 갤러리 글쓰기</h1>
+        <Link href={`/gallery/${galleryId}`} className="text-xs text-gray-500 hover:text-black">
+          취소
+        </Link>
+      </div>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+        {/* 위치 입력 및 자동 감지 버튼 */}
         <div>
-          <label className="block text-xs font-semibold text-gray-700 mb-1">제목</label>
+          <label className="block font-semibold text-gray-700 mb-1">📍 작성 위치</label>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+              placeholder="예: 서울특별시 마포구 (선택 사항)"
+              className="flex-1 px-3 py-2 border rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+            <button
+              type="button"
+              onClick={handleFetchLocation}
+              disabled={isLocLoading}
+              className="px-3 py-2 bg-gray-100 border text-gray-700 font-semibold rounded-md hover:bg-gray-200 transition disabled:opacity-50"
+            >
+              {isLocLoading ? '위치 찾는 중...' : '🎯 내 위치 감지'}
+            </button>
+          </div>
+        </div>
+
+        {/* 제목 */}
+        <div>
+          <label className="block font-semibold text-gray-700 mb-1">제목</label>
           <input
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            className="w-full px-3 py-2 border rounded-md text-xs focus:outline-none"
-            placeholder="제목을 입력해 주세요."
+            placeholder="제목을 입력해 주세요"
+            className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
             required
           />
         </div>
 
+        {/* 본문 */}
         <div>
-          <label className="block text-xs font-semibold text-gray-700 mb-1">내용</label>
+          <label className="block font-semibold text-gray-700 mb-1">내용</label>
           <textarea
-            rows={8}
+            rows={10}
             value={content}
             onChange={(e) => setContent(e.target.value)}
-            className="w-full p-3 border rounded-md text-xs leading-relaxed focus:outline-none"
-            placeholder="내용을 작성해 주세요."
+            placeholder="내용을 작성해 주세요..."
+            className="w-full p-3 border rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
             required
           />
         </div>
 
-        <div>
-          <label className="block text-xs font-semibold text-gray-700 mb-1">파일 첨부 (사진, 동영상, 문서)</label>
-          <input
-            type="file"
-            multiple
-            accept="image/*,video/*,.pdf,.doc,.docx,.zip,.txt,.xlsx"
-            onChange={handleFileChange}
-            className="text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-          />
+        {/* 제출 버튼 */}
+        <div className="flex justify-end gap-2 pt-2 border-t">
+          <button
+            type="submit"
+            disabled={submitting}
+            className="px-5 py-2.5 bg-blue-600 text-white font-bold rounded-md hover:bg-blue-700 transition disabled:bg-gray-300"
+          >
+            {submitting ? '등록 중...' : '작성 완료'}
+          </button>
         </div>
-
-        {previews.length > 0 && (
-          <div className="space-y-2 border-t pt-3">
-            <p className="text-xs font-bold text-gray-600">첨부 파일 미리보기 ({previews.length}/5)</p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {previews.map((item, idx) => (
-                <div key={idx} className="relative border rounded-lg p-2 bg-gray-50 flex flex-col items-center justify-center">
-                  <button
-                    type="button"
-                    onClick={() => removeFile(idx)}
-                    className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 text-[10px] flex items-center justify-center font-bold z-10"
-                  >
-                    ✕
-                  </button>
-
-                  {item.type === 'image' && (
-                    <img src={item.url} alt="미리보기" className="w-full h-24 object-cover rounded-md" />
-                  )}
-
-                  {item.type === 'video' && (
-                    <video src={item.url} controls className="w-full h-24 object-cover rounded-md" />
-                  )}
-
-                  {item.type === 'document' && (
-                    <div className="h-24 flex flex-col items-center justify-center text-center p-2">
-                      <span className="text-2xl">📄</span>
-                      <span className="text-[10px] text-gray-600 break-all w-full mt-1">{item.name}</span>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full py-2.5 bg-blue-600 text-white text-xs font-bold rounded-md hover:bg-blue-700 transition"
-        >
-          {loading ? '위치 확인 및 업로드 중...' : '게시글 등록'}
-        </button>
       </form>
     </div>
   );
