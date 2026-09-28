@@ -6,7 +6,8 @@ import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 
 export default function PostDetailPage() {
-  const { id: galleryId, postId } = useParams();
+  const { id: rawGalleryId, postId } = useParams();
+  const galleryId = decodeURIComponent(rawGalleryId);
   const router = useRouter();
 
   const [post, setPost] = useState(null);
@@ -19,11 +20,10 @@ export default function PostDetailPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  // 점 3개 더보기 메뉴 열림 상태
+  // 더보기 메뉴 참조 및 상태
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const menuRef = useRef(null);
 
-  // 메뉴 바깥 영역 클릭 시 닫기
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (menuRef.current && !menuRef.current.contains(e.target)) {
@@ -34,13 +34,11 @@ export default function PostDetailPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // 사용자 정보 및 게시글/댓글 데이터 불러오기
   useEffect(() => {
     async function fetchData() {
       const { data: { user } } = await supabase.auth.getUser();
       setUser(user);
 
-      // 게시글 불러오기
       const { data: postData, error: postError } = await supabase
         .from('posts')
         .select('*')
@@ -52,6 +50,7 @@ export default function PostDetailPage() {
         router.push(`/gallery/${galleryId}`);
         return;
       }
+
       setPost(postData);
       fetchComments();
       setLoading(false);
@@ -60,7 +59,6 @@ export default function PostDetailPage() {
     fetchData();
   }, [galleryId, postId, router]);
 
-  // 댓글 목록 불러오기
   const fetchComments = async () => {
     const { data, error } = await supabase
       .from('comments')
@@ -71,7 +69,6 @@ export default function PostDetailPage() {
     if (!error && data) setComments(data);
   };
 
-  // 게시글 삭제
   const handleDeletePost = async () => {
     setIsMenuOpen(false);
     if (!confirm('정말 이 게시글을 삭제하시겠습니까?')) return;
@@ -86,18 +83,16 @@ export default function PostDetailPage() {
     }
   };
 
-  // 게시글 수정 페이지 이동
   const handleEditPost = () => {
     setIsMenuOpen(false);
     router.push(`/gallery/${galleryId}/${postId}/edit`);
   };
 
-  // 신고 제출 공통 함수
   const handleReport = async (targetType, targetId) => {
     setIsMenuOpen(false);
     if (!user) return alert('로그인 후 신고가 가능합니다.');
 
-    const reason = prompt('신고 사유를 입력해 주세요 (예: 스팸, 욕설, 타인 비방 등):');
+    const reason = prompt('신고 사유를 입력해 주세요:');
     if (!reason || !reason.trim()) return;
 
     const { error } = await supabase.from('reports').insert([
@@ -112,11 +107,10 @@ export default function PostDetailPage() {
     if (error) {
       alert(`신고 접수 실패: ${error.message}`);
     } else {
-      alert('신고가 접수되었습니다. 관리자 검토 후 조치됩니다.');
+      alert('신고가 접수되었습니다.');
     }
   };
 
-  // 댓글 등록
   const handleCommentSubmit = async (e) => {
     e.preventDefault();
     if (!user) return alert('로그인이 필요합니다.');
@@ -145,7 +139,6 @@ export default function PostDetailPage() {
     }
   };
 
-  // 대댓글 등록
   const handleReplySubmit = async (parentId) => {
     if (!user) return alert('로그인이 필요합니다.');
     if (!replyContent.trim()) return alert('답글 내용을 입력해 주세요.');
@@ -174,37 +167,34 @@ export default function PostDetailPage() {
     }
   };
 
-  // 댓글 삭제
   const handleDeleteComment = async (commentId) => {
     if (!confirm('정말 삭제하시겠습니까?')) return;
     const { error } = await supabase.from('comments').delete().eq('id', commentId);
     if (!error) fetchComments();
   };
 
-  if (loading) return <div className="max-w-2xl mx-auto my-12 text-center text-xs text-gray-500">로딩 중...</div>;
+  if (loading) {
+    return <div className="max-w-2xl mx-auto my-12 text-center text-xs text-gray-500">로딩 중...</div>;
+  }
 
   const rootComments = comments.filter((c) => !c.parent_id);
   const isMyPost = user && post && user.email === post.author_email;
 
   return (
     <div className="max-w-2xl mx-auto my-6 p-6 bg-white border rounded-xl shadow-sm space-y-6">
-      {/* 상단 헤더 영역 */}
       <div className="flex justify-between items-center border-b pb-3 relative">
         <Link href={`/gallery/${galleryId}`} className="text-xs font-bold text-gray-600 hover:text-black">
           ← 목록으로 돌아가기
         </Link>
 
-        {/* 점 세 개 더보기 메뉴 */}
         <div className="relative" ref={menuRef}>
           <button
             onClick={() => setIsMenuOpen(!isMenuOpen)}
             className="p-1 text-gray-500 hover:text-black rounded hover:bg-gray-100 transition text-base leading-none"
-            title="더보기"
           >
             ⋮
           </button>
 
-          {/* 더보기 드롭다운 메뉴 */}
           {isMenuOpen && (
             <div className="absolute right-0 mt-1 w-28 bg-white border rounded-md shadow-lg py-1 z-20 text-xs">
               {isMyPost ? (
@@ -235,7 +225,6 @@ export default function PostDetailPage() {
         </div>
       </div>
 
-      {/* 게시글 영역 */}
       <div className="space-y-4">
         <h1 className="text-lg font-bold text-gray-900">{post.title}</h1>
         <div className="flex justify-between items-center text-xs text-gray-500 border-b pb-3">
@@ -247,10 +236,8 @@ export default function PostDetailPage() {
           {post.location && <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded text-[11px]">📍 {post.location}</span>}
         </div>
 
-        {/* 본문 */}
         <div className="text-xs leading-relaxed text-gray-800 whitespace-pre-wrap py-2">{post.content}</div>
 
-        {/* 미디어 첨부파일 */}
         {post.media_files && post.media_files.length > 0 && (
           <div className="space-y-2 pt-2">
             {post.media_files.map((item, idx) => (
@@ -264,31 +251,11 @@ export default function PostDetailPage() {
             ))}
           </div>
         )}
-
-        {/* 문서 첨부파일 */}
-        {post.doc_files && post.doc_files.length > 0 && (
-          <div className="pt-2 space-y-1">
-            <p className="text-[11px] font-bold text-gray-600">첨부문서</p>
-            {post.doc_files.map((doc, idx) => (
-              <a
-                key={idx}
-                href={doc.url}
-                target="_blank"
-                rel="noreferrer"
-                className="block text-xs text-blue-600 hover:underline bg-blue-50 p-2 rounded border border-blue-100"
-              >
-                📄 {doc.name || '첨부파일 다운로드'}
-              </a>
-            ))}
-          </div>
-        )}
       </div>
 
-      {/* 댓글 영역 */}
       <div className="pt-6 border-t space-y-4">
         <h2 className="text-xs font-bold text-gray-900">💬 댓글 ({comments.length})</h2>
 
-        {/* 댓글 입력 */}
         <form onSubmit={handleCommentSubmit} className="space-y-2">
           <textarea
             rows={3}
@@ -309,7 +276,6 @@ export default function PostDetailPage() {
           </div>
         </form>
 
-        {/* 댓글 목록 */}
         <div className="space-y-3 pt-2">
           {rootComments.length === 0 ? (
             <p className="text-center text-xs text-gray-400 py-6">첫 번째 댓글을 작성해 보세요!</p>
@@ -345,7 +311,6 @@ export default function PostDetailPage() {
                     {replyTo === comment.id ? '취소' : '↳ 답글 달기'}
                   </button>
 
-                  {/* 대댓글 입력폼 */}
                   {replyTo === comment.id && (
                     <div className="pl-4 mt-2 space-y-2 border-l-2 border-blue-200">
                       <textarea
@@ -367,7 +332,6 @@ export default function PostDetailPage() {
                     </div>
                   )}
 
-                  {/* 대댓글 목록 */}
                   {replies.length > 0 && (
                     <div className="pl-4 mt-2 space-y-2 border-l-2 border-gray-100 bg-gray-50/50 p-2 rounded">
                       {replies.map((reply) => {
