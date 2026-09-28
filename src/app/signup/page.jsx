@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
@@ -8,7 +8,7 @@ import { supabase } from '@/lib/supabaseClient';
 export default function SignUpPage() {
   const router = useRouter();
 
-  // 1. 프리미엄 토스트 상태
+  // 1. 토스트 알림 상태
   const [toast, setToast] = useState({ show: false, message: '', type: 'info' });
 
   const showToast = (message, type = 'info') => {
@@ -18,13 +18,8 @@ export default function SignUpPage() {
     }, 3500);
   };
 
-  // 2. 약관 동의 상태 및 세부 펼침 상태
+  // 2. 약관 동의 상태
   const [terms, setTerms] = useState({
-    service: false,
-    privacy: false,
-    overseas: false,
-  });
-  const [expandedTerms, setExpandedTerms] = useState({
     service: false,
     privacy: false,
     overseas: false,
@@ -36,68 +31,24 @@ export default function SignUpPage() {
     setTerms({ service: checked, privacy: checked, overseas: checked });
   };
 
-  const toggleTermDetail = (key) => {
-    setExpandedTerms((prev) => ({ ...prev, [key]: !prev[key] }));
-  };
-
-  // 3. 입력 데이터
+  // 3. 입력 데이터 State
   const [nickname, setNickname] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
-  // 4. 검증 상태
+  // 4. 검증 State
   const [isNicknameChecked, setIsNicknameChecked] = useState(false);
   const [nicknameStatus, setNicknameStatus] = useState({ message: '', isSuccess: false });
   const [checkingNickname, setCheckingNickname] = useState(false);
 
-  // 5. 자체 Captcha (로봇이 아닙니다) 상태
+  // 5. 슬라이드 보안 인증 State
+  const [sliderValue, setSliderValue] = useState(0);
   const [isCaptchaVerified, setIsCaptchaVerified] = useState(false);
-  const [captchaLoading, setCaptchaLoading] = useState(false);
-  const [captchaMath, setCaptchaMath] = useState({ num1: 0, num2: 0, answer: 0 });
-  const [userMathInput, setUserMathInput] = useState('');
-  const [showMathChallenge, setShowMathChallenge] = useState(false);
 
   const [loading, setLoading] = useState(false);
 
-  // 로봇 방지용 랜덤 수학 문제 생성
-  const generateMathQuestion = () => {
-    const n1 = Math.floor(Math.random() * 8) + 1;
-    const n2 = Math.floor(Math.random() * 8) + 1;
-    setCaptchaMath({ num1: n1, num2: n2, answer: n1 + n2 });
-    setUserMathInput('');
-  };
-
-  useEffect(() => {
-    generateMathQuestion();
-  }, []);
-
-  // Captcha 클릭 핸들러
-  const handleCaptchaClick = () => {
-    if (isCaptchaVerified) return;
-
-    if (!showMathChallenge) {
-      setShowMathChallenge(true);
-    }
-  };
-
-  // Captcha 정답 검증
-  const handleVerifyMath = () => {
-    if (parseInt(userMathInput, 10) === captchaMath.answer) {
-      setCaptchaLoading(true);
-      setTimeout(() => {
-        setCaptchaLoading(false);
-        setIsCaptchaVerified(true);
-        setShowMathChallenge(false);
-        showToast('보안 검증이 완료되었습니다.', 'success');
-      }, 600);
-    } else {
-      showToast('정답이 올바르지 않습니다. 다시 시도해 주세요.', 'error');
-      generateMathQuestion();
-    }
-  };
-
-  // 닉네임 중복 확인
+  // 닉네임 중복 확인 API 호출
   const handleCheckNickname = async () => {
     const trimmed = nickname.trim();
     if (!trimmed || trimmed.length < 2) {
@@ -141,12 +92,12 @@ export default function SignUpPage() {
     if (!email.trim()) return showToast('이메일을 입력해 주세요.', 'error');
     if (password.length < 6) return showToast('비밀번호는 최소 6자리 이상이어야 합니다.', 'error');
     if (password !== confirmPassword) return showToast('비밀번호가 일치하지 않습니다.', 'error');
-    if (!isCaptchaVerified) return showToast('로봇이 아닙니다 검증을 완료해 주세요.', 'error');
+    if (!isCaptchaVerified) return showToast('슬라이드를 밀어 보안 인증을 완료해 주세요.', 'error');
 
     setLoading(true);
 
     try {
-      // 1. 이메일 중복 확인
+      // 1. 이메일 중복 확인 API
       const checkRes = await fetch('/api/check-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -160,7 +111,7 @@ export default function SignUpPage() {
         return;
       }
 
-      // 2. Supabase 가입
+      // 2. Supabase 가입 처리
       const { error } = await supabase.auth.signUp({
         email: email.trim(),
         password: password,
@@ -172,7 +123,7 @@ export default function SignUpPage() {
       if (error) {
         showToast('회원가입 실패: ' + error.message, 'error');
       } else {
-        showToast('회원가입이 완료되었습니다! 환영합니다.', 'success');
+        showToast('회원가입이 성공적으로 완료되었습니다!', 'success');
         setTimeout(() => {
           router.push('/');
           router.refresh();
@@ -186,10 +137,10 @@ export default function SignUpPage() {
   };
 
   return (
-    <div className="relative max-w-lg mx-auto my-10 p-6 sm:p-8 bg-white border border-gray-100 rounded-3xl shadow-2xl space-y-7 text-xs font-sans">
-      {/* 🔔 프리미엄 토스트 UI */}
+    <div className="relative max-w-xl mx-auto my-10 p-6 sm:p-8 bg-white border border-gray-100 rounded-3xl shadow-2xl space-y-7 text-xs font-sans">
+      {/* 🔔 토스트 UI */}
       {toast.show && (
-        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-3 bg-gray-900/90 text-white backdrop-blur-md rounded-2xl shadow-2xl transition-all duration-300 animate-fadeIn">
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-3 bg-gray-900/90 text-white backdrop-blur-md rounded-2xl shadow-2xl transition-all duration-300">
           {toast.type === 'success' && <span className="text-emerald-400 font-bold">✓</span>}
           {toast.type === 'error' && <span className="text-rose-400 font-bold">✕</span>}
           {toast.type === 'info' && <span className="text-blue-400 font-bold">ℹ</span>}
@@ -197,15 +148,15 @@ export default function SignUpPage() {
         </div>
       )}
 
-      {/* 헤더 */}
+      {/* Header */}
       <div className="text-center border-b pb-5">
         <h1 className="text-2xl font-black text-gray-900 tracking-tight">hsinside 회원가입</h1>
-        <p className="text-gray-400 mt-1.5 text-[11px]">간단한 정보 입력으로 커뮤니티를 이용해 보세요.</p>
+        <p className="text-gray-400 mt-1.5 text-[11px]">서비스 이용을 위해 아래 상세 약관을 확인 후 동의해 주세요.</p>
       </div>
 
       <form onSubmit={handleFinalSignUp} className="space-y-6">
-        {/* 📜 1. 디자인 개선된 약관 동의 */}
-        <div className="space-y-3">
+        {/* 📜 1. 법정 상세 약관 동의 */}
+        <div className="space-y-4">
           <div className="flex items-center justify-between p-3.5 bg-gray-900 text-white rounded-2xl shadow-sm">
             <label htmlFor="all-terms" className="flex items-center gap-2.5 cursor-pointer font-bold text-xs select-none">
               <input
@@ -215,94 +166,80 @@ export default function SignUpPage() {
                 onChange={handleAllTermsChange}
                 className="w-4 h-4 rounded text-blue-500 accent-blue-500 cursor-pointer"
               />
-              <span>전체 약관에 동의합니다</span>
+              <span>전체 약관에 동의합니다 (필수)</span>
             </label>
-            <span className="text-[10px] text-gray-400 font-normal">필수 항목 전체 동의</span>
+            <span className="text-[10px] text-gray-400">필수 항목 3건</span>
           </div>
 
-          <div className="space-y-2">
-            {/* 약관 1 */}
-            <div className="border border-gray-100 rounded-2xl p-3 bg-gray-50/50 transition">
-              <div className="flex items-center justify-between">
-                <label className="flex items-center gap-2 cursor-pointer font-semibold text-gray-800">
-                  <input
-                    type="checkbox"
-                    checked={terms.service}
-                    onChange={(e) => setTerms({ ...terms, service: e.target.checked })}
-                    className="rounded accent-blue-600"
-                  />
-                  <span>[필수] 서비스 이용약관 동의</span>
-                </label>
-                <button
-                  type="button"
-                  onClick={() => toggleTermDetail('service')}
-                  className="text-[10px] text-gray-400 hover:text-gray-600 underline"
-                >
-                  {expandedTerms.service ? '접기' : '상세보기'}
-                </button>
+          <div className="space-y-3">
+            {/* 약관 1: 서비스 이용약관 */}
+            <div className="border border-gray-200 rounded-2xl p-3.5 bg-gray-50/60">
+              <label className="flex items-center gap-2 cursor-pointer font-bold text-gray-900 mb-2">
+                <input
+                  type="checkbox"
+                  checked={terms.service}
+                  onChange={(e) => setTerms({ ...terms, service: e.target.checked })}
+                  className="w-4 h-4 rounded accent-blue-600 cursor-pointer"
+                />
+                <span>[필수] 서비스 이용약관 동의</span>
+              </label>
+              <div className="p-3 bg-white border border-gray-200 rounded-xl text-[10px] text-gray-600 leading-relaxed h-28 overflow-y-auto space-y-1.5">
+                <p className="font-bold text-gray-800">제1조 (목적)</p>
+                <p>본 약관은 hsinside(이하 "회사")가 제공하는 모든 서비스의 이용 조건 및 절차, 회원과 회사의 권리, 의무 및 책임 사항을 규정함을 목적으로 합니다.</p>
+                <p className="font-bold text-gray-800 mt-1">제2조 (회원의 의무 및 규제)</p>
+                <p>1. 회원은 타인의 정보를 도용하거나 허위 사실을 등록해서는 안 됩니다.</p>
+                <p>2. 타인에 대한 비방, 욕설, 음란물, 광고성 게시물 작성 시 서비스 이용이 제한되거나 계정이 영구 정지될 수 있습니다.</p>
+                <p className="font-bold text-gray-800 mt-1">제3조 (서비스의 변경 및 중단)</p>
+                <p>회사는 시스템 점검, 교체 및 고장, 통신 두절 등의 사유가 발생한 경우 서비스 제공을 일시적으로 중단할 수 있습니다.</p>
               </div>
-              {expandedTerms.service && (
-                <div className="mt-2.5 p-2.5 bg-white border border-gray-100 rounded-xl text-[10px] text-gray-500 leading-relaxed max-h-24 overflow-y-auto">
-                  hsinside 커뮤니티 서비스 이용 조건 및 절차, 회원과 회사의 권리와 의무, 책임 사항에 대해 규정합니다. 타인 비방, 광고성 게시글 등록 시 서비스 이용이 제한될 수 있습니다.
-                </div>
-              )}
             </div>
 
-            {/* 약관 2 */}
-            <div className="border border-gray-100 rounded-2xl p-3 bg-gray-50/50 transition">
-              <div className="flex items-center justify-between">
-                <label className="flex items-center gap-2 cursor-pointer font-semibold text-gray-800">
-                  <input
-                    type="checkbox"
-                    checked={terms.privacy}
-                    onChange={(e) => setTerms({ ...terms, privacy: e.target.checked })}
-                    className="rounded accent-blue-600"
-                  />
-                  <span>[필수] 개인정보 수집 및 이용 동의</span>
-                </label>
-                <button
-                  type="button"
-                  onClick={() => toggleTermDetail('privacy')}
-                  className="text-[10px] text-gray-400 hover:text-gray-600 underline"
-                >
-                  {expandedTerms.privacy ? '접기' : '상세보기'}
-                </button>
+            {/* 약관 2: 개인정보 수집 및 이용 동의 */}
+            <div className="border border-gray-200 rounded-2xl p-3.5 bg-gray-50/60">
+              <label className="flex items-center gap-2 cursor-pointer font-bold text-gray-900 mb-2">
+                <input
+                  type="checkbox"
+                  checked={terms.privacy}
+                  onChange={(e) => setTerms({ ...terms, privacy: e.target.checked })}
+                  className="w-4 h-4 rounded accent-blue-600 cursor-pointer"
+                />
+                <span>[필수] 개인정보 수집 및 이용 동의</span>
+              </label>
+              <div className="p-3 bg-white border border-gray-200 rounded-xl text-[10px] text-gray-600 leading-relaxed h-32 overflow-y-auto space-y-1.5">
+                <p className="font-bold text-gray-800">1. 개인정보 수집 및 이용 목적</p>
+                <p>- 회원 가입 의사 확인, 본인/연령 확인, 회원제 서비스 제공에 따른 본인 식별 및 인증</p>
+                <p>- 부정 이용 방지, 비인가 사용 방지, 고지사항 전달 및 불만 처리</p>
+                <p className="font-bold text-gray-800 mt-1">2. 수집하는 개인정보 항목</p>
+                <p>- 필수 항목: 이메일 주소, 비밀번호, 닉네임, IP 주소, 서비스 이용 기록, 접속 로그</p>
+                <p className="font-bold text-gray-800 mt-1">3. 개인정보의 보유 및 이용 기간</p>
+                <p>- 원칙적으로 회원 탈퇴 시 수집된 개인정보는 즉시 파기합니다.</p>
+                <p>- 단, 관계 법령 규정에 의해 보존할 필요가 있는 경우 관련 법령에서 정한 일정한 기간 동안 회원 정보를 보관합니다.</p>
+                <p className="font-bold text-gray-800 mt-1">4. 동의 거부 권리 및 불이익</p>
+                <p>- 귀하는 개인정보 수집 및 이용에 거부할 권리가 있으나, 거부 시 회원가입 및 서비스 이용이 제한됩니다.</p>
               </div>
-              {expandedTerms.privacy && (
-                <div className="mt-2.5 p-2.5 bg-white border border-gray-100 rounded-xl text-[10px] text-gray-500 leading-relaxed max-h-24 overflow-y-auto">
-                  수집항목: 이메일, 닉네임, 접속 IP 및 접속 위치 데이터<br />
-                  목적: 회원 식별, 부정 이용 방지 및 게시물 관리<br />
-                  보유기간: 회원 탈퇴 시 즉시 파기합니다.
-                </div>
-              )}
             </div>
 
-            {/* 약관 3 */}
-            <div className="border border-gray-100 rounded-2xl p-3 bg-gray-50/50 transition">
-              <div className="flex items-center justify-between">
-                <label className="flex items-center gap-2 cursor-pointer font-semibold text-gray-800">
-                  <input
-                    type="checkbox"
-                    checked={terms.overseas}
-                    onChange={(e) => setTerms({ ...terms, overseas: e.target.checked })}
-                    className="rounded accent-blue-600"
-                  />
-                  <span>[필수] 개인정보 국외 이전 동의</span>
-                </label>
-                <button
-                  type="button"
-                  onClick={() => toggleTermDetail('overseas')}
-                  className="text-[10px] text-gray-400 hover:text-gray-600 underline"
-                >
-                  {expandedTerms.overseas ? '접기' : '상세보기'}
-                </button>
+            {/* 약관 3: 개인정보 국외 이전 동의 */}
+            <div className="border border-gray-200 rounded-2xl p-3.5 bg-gray-50/60">
+              <label className="flex items-center gap-2 cursor-pointer font-bold text-gray-900 mb-2">
+                <input
+                  type="checkbox"
+                  checked={terms.overseas}
+                  onChange={(e) => setTerms({ ...terms, overseas: e.target.checked })}
+                  className="w-4 h-4 rounded accent-blue-600 cursor-pointer"
+                />
+                <span>[필수] 개인정보 국외 이전 동의</span>
+              </label>
+              <div className="p-3 bg-white border border-gray-200 rounded-xl text-[10px] text-gray-600 leading-relaxed h-28 overflow-y-auto space-y-1.5">
+                <p className="font-bold text-gray-800">1. 이전받는 자</p>
+                <p>- Supabase Inc. (클라우드 데이터베이스 인프라 제공자)</p>
+                <p className="font-bold text-gray-800 mt-1">2. 이전되는 국가 및 일시/방법</p>
+                <p>- 이전 국가: 미국 / AWS 클라우드 데이터센터 (싱가포르 또는 도쿄 리전)</p>
+                <p>- 이전 일시 및 방법: 회원가입 시 네트워크를 통한 암호화 전송</p>
+                <p className="font-bold text-gray-800 mt-1">3. 이전되는 개인정보 항목 및 이용 목적</p>
+                <p>- 이전 항목: 이메일, 닉네임, 암호화된 비밀번호, 접속 기록</p>
+                <p>- 이용 목적: 회원 정보 저장, 암호화 데이터 관리 및 보안 데이터베이스 호스팅</p>
               </div>
-              {expandedTerms.overseas && (
-                <div className="mt-2.5 p-2.5 bg-white border border-gray-100 rounded-xl text-[10px] text-gray-500 leading-relaxed max-h-24 overflow-y-auto">
-                  이전받는 자: Supabase Inc.<br />
-                  목적: 클라우드 암호화 데이터베이스 저장 및 보안 호스팅
-                </div>
-              )}
             </div>
           </div>
         </div>
@@ -327,7 +264,7 @@ export default function SignUpPage() {
               type="button"
               onClick={handleCheckNickname}
               disabled={checkingNickname || !nickname.trim()}
-              className="px-4 py-2.5 bg-gray-900 text-white font-bold rounded-xl hover:bg-black transition disabled:bg-gray-200 disabled:text-gray-400"
+              className="px-4 py-2.5 bg-gray-900 text-white font-bold rounded-xl hover:bg-black transition disabled:bg-gray-200 disabled:text-gray-400 cursor-pointer disabled:cursor-not-allowed"
             >
               {checkingNickname ? '확인 중...' : '중복 확인'}
             </button>
@@ -379,63 +316,75 @@ export default function SignUpPage() {
           </div>
         </div>
 
-        {/* 🤖 5. 자체 제작 "로봇이 아닙니다" 위젯 */}
-        <div className="p-4 bg-gray-50 border border-gray-200 rounded-2xl">
-          <div className="flex items-center justify-between">
-            <div
-              onClick={handleCaptchaClick}
-              className="flex items-center gap-3 cursor-pointer select-none"
-            >
-              <div
-                className={`w-6 h-6 border-2 rounded-lg flex items-center justify-center transition-all ${
-                  isCaptchaVerified
-                    ? 'bg-emerald-500 border-emerald-500 text-white'
-                    : 'border-gray-300 bg-white hover:border-gray-400'
-                }`}
-              >
-                {captchaLoading ? (
-                  <div className="w-3 h-3 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
-                ) : isCaptchaVerified ? (
-                  <span className="font-bold text-xs">✓</span>
-                ) : null}
-              </div>
-              <span className="font-semibold text-gray-700 text-xs">
-                {isCaptchaVerified ? '보안 인증 완료' : '로봇이 아닙니다.'}
-              </span>
-            </div>
-
-            {/* 자체 브랜딩 마크 */}
-            <div className="flex flex-col items-end opacity-60">
-              <span className="text-[9px] font-black tracking-widest text-gray-500 uppercase">hsCaptcha</span>
-              <span className="text-[8px] text-gray-400">보안 및 개인정보</span>
-            </div>
+        {/* 🎚️ 5. 모던 슬라이더 방식 보안 인증 (Slide to Verify) */}
+        <div className="p-4 bg-gray-50 border border-gray-200 rounded-2xl space-y-2">
+          <div className="flex justify-between items-center mb-1">
+            <span className="font-bold text-gray-800 text-xs flex items-center gap-1.5">
+              🛡️ 자동 가입 방지 보안 인증
+            </span>
+            <span className="text-[10px] text-gray-400">
+              {isCaptchaVerified ? '인증 완료' : '오른쪽으로 슬라이드'}
+            </span>
           </div>
 
-          {/* 수학 문제 챌린지 팝업/영역 */}
-          {showMathChallenge && !isCaptchaVerified && (
-            <div className="mt-3 pt-3 border-t border-gray-200 flex items-center gap-2 animate-fadeIn">
-              <span className="font-bold text-gray-700">
-                Q. {captchaMath.num1} + {captchaMath.num2} = ?
-              </span>
-              <input
-                type="number"
-                value={userMathInput}
-                onChange={(e) => setUserMathInput(e.target.value)}
-                placeholder="답 입력"
-                className="w-20 px-2.5 py-1.5 border border-gray-300 rounded-lg text-center font-bold focus:outline-none focus:border-blue-500"
-              />
-              <button
-                type="button"
-                onClick={handleVerifyMath}
-                className="px-3 py-1.5 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition"
-              >
-                확인
-              </button>
+          {/* 슬라이더 트랙 트랙 */}
+          <div className="relative w-full h-12 bg-gray-200 rounded-xl overflow-hidden select-none flex items-center shadow-inner">
+            {/* 채워지는 프로그레스 배경 */}
+            <div
+              className={`absolute top-0 left-0 h-full transition-all duration-75 ${
+                isCaptchaVerified ? 'bg-emerald-500' : 'bg-blue-600'
+              }`}
+              style={{ width: `${sliderValue}%` }}
+            />
+
+            {/* 중앙 안내 문구 */}
+            <div className="absolute inset-0 flex items-center justify-center font-bold text-xs pointer-events-none z-10">
+              {isCaptchaVerified ? (
+                <span className="text-white flex items-center gap-1.5 animate-fadeIn">
+                  ✓ 보안 인증 완료!
+                </span>
+              ) : (
+                <span
+                  className="text-gray-500 transition-opacity"
+                  style={{ opacity: Math.max(0, 1 - sliderValue / 60) }}
+                >
+                  ➔ 오른쪽으로 밀어서 인증
+                </span>
+              )}
             </div>
-          )}
+
+            {/* 실제 드래그 조작 Range Input */}
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={sliderValue}
+              disabled={isCaptchaVerified}
+              onChange={(e) => {
+                const val = Number(e.target.value);
+                setSliderValue(val);
+                if (val >= 90) {
+                  setSliderValue(100);
+                  setIsCaptchaVerified(true);
+                  showToast('보안 인증이 완료되었습니다.', 'success');
+                }
+              }}
+              onMouseUp={() => {
+                if (sliderValue < 90 && !isCaptchaVerified) {
+                  setSliderValue(0);
+                }
+              }}
+              onTouchEnd={() => {
+                if (sliderValue < 90 && !isCaptchaVerified) {
+                  setSliderValue(0);
+                }
+              }}
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-default z-20"
+            />
+          </div>
         </div>
 
-        {/* 🚀 6. 최종 제출 버튼 */}
+        {/* 🚀 6. 가입완료 버튼 */}
         <button
           type="submit"
           disabled={
@@ -446,7 +395,7 @@ export default function SignUpPage() {
             !password.trim() ||
             !isCaptchaVerified
           }
-          className="w-full py-4 bg-blue-600 text-white font-bold text-sm rounded-2xl hover:bg-blue-700 transition shadow-lg shadow-blue-500/20 disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none"
+          className="w-full py-4 bg-blue-600 text-white font-bold text-sm rounded-2xl hover:bg-blue-700 transition shadow-lg shadow-blue-500/20 disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none cursor-pointer disabled:cursor-not-allowed"
         >
           {loading ? '가입 처리 중...' : '회원가입 완료'}
         </button>
