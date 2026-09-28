@@ -10,6 +10,7 @@ export default function WritePage() {
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
+  const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [user, setUser] = useState(null);
 
@@ -23,7 +24,7 @@ export default function WritePage() {
     }, 3500);
   };
 
-  // 2. 페이지 로드 시 로그인 유저 확인
+  // 2. 로그인 유저 확인
   useEffect(() => {
     const checkUser = async () => {
       const { data: { user: currentUser } } = await supabase.auth.getUser();
@@ -39,7 +40,21 @@ export default function WritePage() {
     checkUser();
   }, [router]);
 
-  // 3. 게시글 작성 등록 처리
+  // 3. 파일 선택 및 용량 제한 처리 (최대 10MB)
+  const handleFileChange = (e) => {
+    const selectedFile = e.target.files?.[0];
+    if (!selectedFile) return;
+
+    if (selectedFile.size > 10 * 1024 * 1024) {
+      showToast('파일 용량은 최대 10MB까지 업로드 가능합니다.', 'error');
+      e.target.value = '';
+      return;
+    }
+
+    setFile(selectedFile);
+  };
+
+  // 4. 게시글 작성 및 파일 업로드 제출 처리
   const handleSubmitPost = async (e) => {
     e.preventDefault();
 
@@ -57,6 +72,32 @@ export default function WritePage() {
         return;
       }
 
+      let uploadedFileUrl = null;
+
+      // 파일 업로드 처리 ('attachments' 버킷 사용)
+      if (file) {
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
+        const filePath = `uploads/${fileName}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('attachments')
+          .upload(filePath, file);
+
+        if (uploadError) {
+          showToast('파일 업로드 실패: ' + uploadError.message, 'error');
+          setLoading(false);
+          return;
+        }
+
+        // 업로드된 파일의 Public URL 가져오기
+        const { data: publicUrlData } = supabase.storage
+          .from('attachments')
+          .getPublicUrl(filePath);
+
+        uploadedFileUrl = publicUrlData.publicUrl;
+      }
+
       // DB insert 데이터 구성
       const postData = {
         title: title.trim(),
@@ -64,6 +105,7 @@ export default function WritePage() {
         author_email: currentUser.email,
         author_name: currentUser.user_metadata?.display_name || currentUser.email.split('@')[0],
         user_id: currentUser.id,
+        file_url: uploadedFileUrl,
       };
 
       const { error } = await supabase.from('posts').insert([postData]);
@@ -112,7 +154,7 @@ export default function WritePage() {
 
       {/* 작성 폼 */}
       <form onSubmit={handleSubmitPost} className="space-y-5">
-        {/* 작성자 정보 표시 영역 */}
+        {/* 작성자 정보 */}
         {user && (
           <div className="p-3.5 bg-gray-50 border border-gray-100 rounded-2xl flex items-center justify-between text-gray-600">
             <span className="font-semibold">
@@ -142,10 +184,40 @@ export default function WritePage() {
             value={content}
             onChange={(e) => setContent(e.target.value)}
             placeholder="내용을 자유롭게 작성하세요..."
-            rows={12}
+            rows={10}
             required
             className="w-full px-4 py-3 border border-gray-200 rounded-2xl text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition resize-y"
           />
+        </div>
+
+        {/* 📎 파일 업로드 영역 */}
+        <div>
+          <label className="block font-bold text-gray-700 mb-1.5">
+            파일 첨부 <span className="text-gray-400 font-normal">(선택, 최대 10MB)</span>
+          </label>
+          <div className="flex items-center gap-3">
+            <label className="px-4 py-2.5 bg-gray-100 text-gray-700 font-bold rounded-xl border border-gray-200 hover:bg-gray-200 transition cursor-pointer select-none">
+              📁 파일 선택
+              <input
+                type="file"
+                onChange={handleFileChange}
+                className="hidden"
+                accept="image/*,.pdf,.zip,.docx,.xlsx"
+              />
+            </label>
+            <span className="text-gray-500 truncate max-w-xs">
+              {file ? file.name : '선택된 파일 없음'}
+            </span>
+            {file && (
+              <button
+                type="button"
+                onClick={() => setFile(null)}
+                className="text-rose-500 font-bold hover:underline text-[11px]"
+              >
+                삭제
+              </button>
+            )}
+          </div>
         </div>
 
         {/* 버튼 영역 */}
@@ -162,7 +234,7 @@ export default function WritePage() {
             disabled={loading || !title.trim() || !content.trim()}
             className="flex-[2] py-3.5 bg-blue-600 text-white font-bold rounded-2xl hover:bg-blue-700 transition shadow-lg shadow-blue-500/20 disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none cursor-pointer disabled:cursor-not-allowed"
           >
-            {loading ? '등록 중...' : '게시글 등록하기'}
+            {loading ? '업로드 및 등록 중...' : '게시글 등록하기'}
           </button>
         </div>
       </form>
