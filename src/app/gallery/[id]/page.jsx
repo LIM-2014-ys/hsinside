@@ -9,7 +9,7 @@ export default function GalleryDetailPage() {
   const { id: rawGalleryId } = useParams();
   const galleryId = decodeURIComponent(rawGalleryId);
 
-  const [galleryName, setGalleryName] = useState('');
+  const [galleryInfo, setGalleryInfo] = useState({ id: galleryId, name: galleryId });
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -17,27 +17,29 @@ export default function GalleryDetailPage() {
     async function fetchData() {
       setLoading(true);
 
-      // 1. DB에서 갤러리 이름(name) 조회 (숫자 ID 또는 한글 이름 모두 대응)
-      let titleToDisplay = galleryId;
       const isNumeric = !isNaN(galleryId);
 
+      // 1. 기존 galleries 테이블에서 갤러리 조회 (ID 또는 이름으로 찾기)
       const { data: galleryData } = await supabase
         .from('galleries')
-        .select('name')
-        .eq(isNumeric ? 'id' : 'name', galleryId)
+        .select('*')
+        .or(`id.eq.${isNumeric ? Number(galleryId) : -1},name.eq.${galleryId}`)
         .maybeSingle();
 
-      if (galleryData && galleryData.name) {
-        titleToDisplay = galleryData.name;
+      let targetId = galleryId;
+      let targetName = galleryId;
+
+      if (galleryData) {
+        targetId = String(galleryData.id);
+        targetName = galleryData.name;
+        setGalleryInfo({ id: targetId, name: targetName });
       }
 
-      setGalleryName(titleToDisplay);
-
-      // 2. 게시글 목록 조회
+      // 2. 게시글 조회: gallery_id가 숫자 ID('1')로 저장된 기존 글 + 이름('임준서')으로 저장된 글 모두 조회
       const { data: postsData, error: postsError } = await supabase
         .from('posts')
         .select('*')
-        .eq('gallery_id', galleryId)
+        .in('gallery_id', [targetId, targetName])
         .order('created_at', { ascending: false });
 
       if (!postsError && postsData) {
@@ -58,9 +60,9 @@ export default function GalleryDetailPage() {
     <div className="max-w-4xl mx-auto my-8 p-6 bg-white border rounded-xl shadow-sm space-y-6">
       {/* 헤더 영역 */}
       <div className="flex justify-between items-center border-b pb-4">
-        <h1 className="text-lg font-bold text-gray-900">📌 {galleryName} 갤러리</h1>
+        <h1 className="text-lg font-bold text-gray-900">📌 {galleryInfo.name} 갤러리</h1>
         <Link
-          href={`/gallery/${galleryId}/write`}
+          href={`/gallery/${encodeURIComponent(galleryId)}/write`}
           className="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 transition"
         >
           ✏️ 글쓰기
@@ -75,7 +77,7 @@ export default function GalleryDetailPage() {
           posts.map((post) => (
             <Link
               key={post.id}
-              href={`/gallery/${galleryId}/${post.id}`}
+              href={`/gallery/${encodeURIComponent(galleryId)}/${post.id}`}
               className="flex justify-between items-center py-3 px-2 hover:bg-gray-50 transition rounded-md group"
             >
               <div className="flex items-center gap-3">
