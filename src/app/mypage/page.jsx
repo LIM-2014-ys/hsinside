@@ -7,187 +7,162 @@ import { supabase } from '@/lib/supabaseClient';
 export default function MyPage() {
   const router = useRouter();
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  // 닉네임 관련 상태
-  const [originalNickname, setOriginalNickname] = useState('');
   const [nickname, setNickname] = useState('');
-  const [isNicknameChecked, setIsNicknameChecked] = useState(true); // 기존 닉네임일 때는 기본 true
-  const [nicknameMessage, setNicknameMessage] = useState('');
-  const [isCheckingNickname, setIsCheckingNickname] = useState(false);
-  const [updating, setUpdating] = useState(false);
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function loadUserData() {
       const { data: { user } } = await supabase.auth.getUser();
-
       if (!user) {
         alert('로그인이 필요합니다.');
-        router.push('/login');
+        router.push('/');
         return;
       }
-
       setUser(user);
-      const currentNickname = user.user_metadata?.display_name || user.email.split('@')[0];
-      setOriginalNickname(currentNickname);
-      setNickname(currentNickname);
+      setNickname(user.user_metadata?.display_name || '');
       setLoading(false);
     }
-
     loadUserData();
   }, [router]);
 
-  // 닉네임 입력 변경 감지
-  const handleNicknameChange = (e) => {
-    const val = e.target.value;
-    setNickname(val);
+  // 1. 닉네임 변경
+  const handleUpdateNickname = async (e) => {
+    e.preventDefault();
+    if (!nickname.trim()) return alert('닉네임을 입력해 주세요.');
 
-    // 원래 내 닉네임으로 다시 돌아온 경우
-    if (val.trim() === originalNickname) {
-      setIsNicknameChecked(true);
-      setNicknameMessage('');
+    const { error } = await supabase.auth.updateUser({
+      data: { display_name: nickname.trim() },
+    });
+
+    if (error) {
+      alert('닉네임 변경 실패: ' + error.message);
     } else {
-      setIsNicknameChecked(false);
-      setNicknameMessage('');
+      alert('닉네임이 성공적으로 변경되었습니다.');
     }
   };
 
-  // 닉네임 중복 확인
-  const handleCheckNickname = async () => {
-    const trimmed = nickname.trim();
-    if (!trimmed) {
-      alert('닉네임을 입력해 주세요.');
-      return;
-    }
+  // 2. 비밀번호 변경
+  const handleUpdatePassword = async (e) => {
+    e.preventDefault();
+    if (password.length < 6) return alert('비밀번호는 최소 6자리 이상이어야 합니다.');
+    if (password !== confirmPassword) return alert('새 비밀번호가 일치하지 않습니다.');
 
-    if (trimmed.length < 2) {
-      alert('닉네임은 최소 2자 이상이어야 합니다.');
-      return;
-    }
+    const { error } = await supabase.auth.updateUser({
+      password: password,
+    });
 
-    if (trimmed === originalNickname) {
-      setIsNicknameChecked(true);
-      setNicknameMessage('현재 사용 중인 본인의 닉네임입니다.');
-      return;
+    if (error) {
+      alert('비밀번호 변경 실패: ' + error.message);
+    } else {
+      alert('비밀번호가 변경되었습니다.');
+      setPassword('');
+      setConfirmPassword('');
     }
+  };
 
-    setIsCheckingNickname(true);
+  // 3. 회원탈퇴
+  const handleWithdraw = async () => {
+    const confirmed = confirm(
+      '정말로 탈퇴하시겠습니까?\n탈퇴 시 계정 정보가 완전히 삭제되며 복구할 수 없습니다.'
+    );
+
+    if (!confirmed || !user) return;
 
     try {
-      // Supabase RPC 함수 호출 (1단계에서 만든 check_nickname_exists 사용)
-      const { data: isExists, error } = await supabase.rpc('check_nickname_exists', {
-        nickname_input: trimmed,
+      const res = await fetch('/api/auth/withdraw', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id }),
       });
 
-      if (error) throw error;
+      const data = await res.json();
 
-      if (isExists) {
-        setIsNicknameChecked(false);
-        setNicknameMessage('❌ 이미 사용 중인 닉네임입니다.');
+      if (res.ok && data.success) {
+        await supabase.auth.signOut();
+        alert('회원탈퇴가 완료되었습니다. 이용해 주셔서 감사합니다.');
+        router.push('/');
+        router.refresh();
       } else {
-        setIsNicknameChecked(true);
-        setNicknameMessage('✅ 사용 가능한 닉네임입니다.');
+        alert('탈퇴 처리 실패: ' + (data.error || '오류가 발생했습니다.'));
       }
     } catch (err) {
-      alert(`중복 확인 실패: ${err.message}`);
-    } finally {
-      setIsCheckingNickname(false);
-    }
-  };
-
-  // 프로필 변경 저장
-  const handleUpdateProfile = async (e) => {
-    e.preventDefault();
-
-    if (!isNicknameChecked) {
-      return alert('닉네임 중복 확인을 진행해 주세요.');
-    }
-
-    setUpdating(true);
-
-    try {
-      const trimmedNickname = nickname.trim();
-
-      const { data, error } = await supabase.auth.updateUser({
-        data: {
-          display_name: trimmedNickname,
-        },
-      });
-
-      if (error) throw error;
-
-      // 변경 성공 시 원래 닉네임 상태 업데이트
-      setOriginalNickname(trimmedNickname);
-      setUser(data.user);
-      setNicknameMessage('');
-      alert('닉네임이 성공적으로 변경되었습니다.');
-    } catch (err) {
-      alert(`프로필 수정 실패: ${err.message}`);
-    } finally {
-      setUpdating(false);
+      alert('서버 통신 중 오류가 발생했습니다.');
     }
   };
 
   if (loading) {
-    return (
-      <div className="max-w-md mx-auto my-12 p-6 text-center text-xs text-gray-500">
-        프로필 정보를 불러오는 중...
-      </div>
-    );
+    return <div className="max-w-md mx-auto my-12 text-center text-xs text-gray-500">로딩 중...</div>;
   }
 
   return (
-    <div className="max-w-md mx-auto my-10 p-6 bg-white border rounded-xl shadow-sm space-y-6">
-      <h1 className="text-lg font-bold text-gray-900 border-b pb-3">⚙️ 마이페이지 / 프로필 수정</h1>
+    <div className="max-w-md mx-auto my-8 p-6 bg-white border rounded-xl shadow-sm space-y-8 text-xs">
+      <h1 className="text-base font-bold text-gray-900 border-b pb-3">👤 마이페이지</h1>
 
-      <form onSubmit={handleUpdateProfile} className="space-y-4">
-        {/* 이메일 (수정 불가) */}
-        <div>
-          <label className="block text-xs font-semibold text-gray-500 mb-1">이메일 계정</label>
+      {/* 계정 기본 정보 */}
+      <div className="bg-gray-50 p-3 rounded-lg text-gray-600">
+        <p><span className="font-semibold text-gray-800">이메일:</span> {user?.email}</p>
+      </div>
+
+      {/* 닉네임 수정 폼 */}
+      <form onSubmit={handleUpdateNickname} className="space-y-3">
+        <h2 className="font-bold text-gray-800 text-sm">닉네임 수정</h2>
+        <div className="flex gap-2">
           <input
-            type="email"
-            value={user?.email || ''}
-            disabled
-            className="w-full px-3 py-2 border rounded-md text-xs bg-gray-100 text-gray-500 cursor-not-allowed"
+            type="text"
+            value={nickname}
+            onChange={(e) => setNickname(e.target.value)}
+            placeholder="새 닉네임 입력"
+            className="flex-1 px-3 py-2 border rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
+          <button
+            type="submit"
+            className="px-4 py-2 bg-blue-600 text-white font-bold rounded-md hover:bg-blue-700 transition"
+          >
+            수정
+          </button>
         </div>
+      </form>
 
-        {/* 닉네임 변경 입력 + 중복 확인 */}
-        <div>
-          <label className="block text-xs font-semibold text-gray-700 mb-1">닉네임</label>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={nickname}
-              onChange={handleNicknameChange}
-              className="flex-1 px-3 py-2 border rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
-              placeholder="변경할 닉네임 입력"
-              required
-            />
-            <button
-              type="button"
-              onClick={handleCheckNickname}
-              disabled={isCheckingNickname || nickname.trim() === originalNickname || !nickname.trim()}
-              className="px-3 py-2 bg-gray-800 text-white text-xs font-bold rounded-md hover:bg-gray-900 transition disabled:bg-gray-300 disabled:cursor-not-allowed"
-            >
-              {isCheckingNickname ? '확인 중...' : '중복확인'}
-            </button>
-          </div>
-          {nicknameMessage && (
-            <p className={`text-[11px] mt-1 font-medium ${isNicknameChecked ? 'text-green-600' : 'text-red-500'}`}>
-              {nicknameMessage}
-            </p>
-          )}
-        </div>
+      <hr />
 
+      {/* 비밀번호 변경 폼 */}
+      <form onSubmit={handleUpdatePassword} className="space-y-3">
+        <h2 className="font-bold text-gray-800 text-sm">비밀번호 변경</h2>
+        <input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder="새 비밀번호 (6자리 이상)"
+          className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+        />
+        <input
+          type="password"
+          value={confirmPassword}
+          onChange={(e) => setConfirmPassword(e.target.value)}
+          placeholder="새 비밀번호 확인"
+          className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+        />
         <button
           type="submit"
-          disabled={updating || !isNicknameChecked || (nickname.trim() === originalNickname && isNicknameChecked)}
-          className="w-full py-2.5 bg-blue-600 text-white text-xs font-bold rounded-md hover:bg-blue-700 transition disabled:bg-gray-300 disabled:cursor-not-allowed"
+          className="w-full py-2 bg-gray-800 text-white font-bold rounded-md hover:bg-gray-900 transition"
         >
-          {updating ? '변경사항 저장 중...' : '닉네임 변경 저장'}
+          비밀번호 변경하기
         </button>
       </form>
+
+      <hr />
+
+      {/* 회원탈퇴 버튼 */}
+      <div className="pt-2">
+        <button
+          onClick={handleWithdraw}
+          className="w-full py-2 bg-red-50 text-red-600 font-bold border border-red-200 rounded-md hover:bg-red-100 transition"
+        >
+          ⚠️ 회원탈퇴
+        </button>
+      </div>
     </div>
   );
 }
