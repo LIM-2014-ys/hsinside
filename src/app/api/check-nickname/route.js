@@ -1,13 +1,21 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
-
 export async function POST(req) {
   try {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    // 환경변수 검증
+    if (!supabaseUrl || !serviceRoleKey) {
+      console.error('Supabase 환경변수가 설정되지 않았습니다.');
+      return NextResponse.json(
+        { error: '서버 환경변수(SUPABASE_SERVICE_ROLE_KEY)가 설정되지 않았습니다.' },
+        { status: 500 }
+      );
+    }
+
+    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
     const { nickname } = await req.json();
 
     if (!nickname || !nickname.trim()) {
@@ -16,19 +24,21 @@ export async function POST(req) {
 
     const targetNickname = nickname.trim().toLowerCase();
 
-    // 전체 유저 목록을 불러와 닉네임 중복 비교
-    const { data: { users }, error } = await supabaseAdmin.auth.admin.listUsers();
+    // 전체 가입자 목록에서 닉네임 비교
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers();
 
     if (error) {
+      console.error('Supabase listUsers Error:', error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    const isDuplicate = users.some(
+    const isDuplicate = data?.users?.some(
       (user) => user.user_metadata?.display_name?.trim().toLowerCase() === targetNickname
     );
 
     return NextResponse.json({ isAvailable: !isDuplicate });
   } catch (err) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    console.error('Check Nickname Server Error:', err);
+    return NextResponse.json({ error: '서버 내부 오류가 발생했습니다.' }, { status: 500 });
   }
 }
