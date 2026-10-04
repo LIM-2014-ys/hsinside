@@ -7,21 +7,46 @@ export const revalidate = 0;
 export default async function GalleryListPage({ params }) {
   const { id } = await params;
 
-  // 1. DB에서 갤러리 정보 조회
-  const { data: gallery } = await supabase
+  // 1. DB에서 갤러리 정보 안전하게 조회
+  let gallery = null;
+
+  const { data: gById } = await supabase
     .from('galleries')
     .select('*')
-    .or(`id.eq.${id},slug.eq.${id}`)
+    .eq('id', id)
     .maybeSingle();
 
-  // 2. 해당 갤러리(gallery_id) 게시글 최신순 조회
+  if (gById) {
+    gallery = gById;
+  } else {
+    const { data: gByName } = await supabase
+      .from('galleries')
+      .select('*')
+      .eq('name', id)
+      .maybeSingle();
+    gallery = gByName;
+  }
+
+  // 갤러리 이름 가공 (예: "자유" -> "자유 갤러리", 이미 "갤러리"가 붙어있으면 그대로)
+  const rawName = gallery?.name || gallery?.title;
+  let galleryTitle = '';
+  if (rawName) {
+    galleryTitle = rawName.endsWith('갤러리') ? rawName : `${rawName} 갤러리`;
+  } else {
+    galleryTitle = `${id} 갤러리`;
+  }
+
+  // 2. 게시글 목록 조회
+  const targetIds = [id];
+  if (gallery?.id && String(gallery.id) !== String(id)) {
+    targetIds.push(String(gallery.id));
+  }
+
   const { data: posts, error } = await supabase
     .from('posts')
-    .select('id, title, author_name, author_email, created_at, slug, file_url')
-    .eq('gallery_id', id)
+    .select('id, title, author_name, author_email, created_at, slug, file_url, gallery_id')
+    .in('gallery_id', targetIds)
     .order('created_at', { ascending: false });
-
-  const galleryTitle = gallery?.name || gallery?.title || `📌 ${id} 갤러리`;
 
   return (
     <div className="max-w-4xl mx-auto my-10 p-6 sm:p-8 bg-white border border-gray-100 rounded-3xl shadow-2xl space-y-6 text-xs font-sans">
@@ -35,7 +60,7 @@ export default async function GalleryListPage({ params }) {
             ← 메인으로
           </Link>
           <h1 className="text-2xl font-black text-gray-900 tracking-tight">
-            {galleryTitle}
+            📌 {galleryTitle}
           </h1>
         </div>
         <Link
