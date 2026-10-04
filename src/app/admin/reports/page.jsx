@@ -1,130 +1,134 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 
 export default function AdminReportsPage() {
-  const [reports, setReports] = useState([]);
+  const router = useRouter();
+  const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
-
-  // 신고 내역 불러오기
-  const fetchReports = async () => {
-    setLoading(true);
-    const { data, error } = await supabase
-      .from('reports')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (!error && data) {
-      setReports(data);
-    }
-    setLoading(false);
-  };
+  const [reports, setReports] = useState([]);
 
   useEffect(() => {
-    fetchReports();
-  }, []);
+    const checkAdminAndFetch = async () => {
+      // 1. 현재 로그인 유저 및 어드민 권한 확인
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session?.user) {
+        alert('관리자 로그인 후 접근 가능합니다.');
+        router.replace('/login');
+        return;
+      }
 
-  // 신고 대상 삭제 처리
-  const handleDeleteTarget = async (report) => {
-    if (!confirm(`해당 ${report.target_type === 'post' ? '게시글' : '댓글'}을 정말 삭제하시겠습니까?`)) return;
+      const userRole = session.user.user_metadata?.role;
+      const userEmail = session.user.email;
 
-    const table = report.target_type === 'post' ? 'posts' : 'comments';
-    
-    // 1. 해당 게시글 또는 댓글 삭제
-    const { error: deleteError } = await supabase.from(table).delete().eq('id', report.target_id);
+      // role이 'admin'이거나 어드민 이메일 계정인지 검사 (필요 시 이메일 추가 가능)
+      const isAdminUser = userRole === 'admin' || userEmail?.endsWith('@admin.com');
 
-    if (deleteError) {
-      alert(`삭제 실패: ${deleteError.message}`);
-      return;
-    }
+      if (!isAdminUser) {
+        alert('접근 권한이 없습니다. 관리자 계정으로 로그인해 주세요.');
+        router.replace('/');
+        return;
+      }
 
-    // 2. 신고 상태를 'resolved'(처리완료)로 업데이트
-    await supabase.from('reports').update({ status: 'resolved' }).eq('id', report.id);
+      setIsAdmin(true);
 
-    alert('삭제 처리 및 신고 완결이 완료되었습니다.');
-    fetchReports();
-  };
+      // 2. 신고 내역 조회
+      const { data, error } = await supabase
+        .from('reports')
+        .select('*')
+        .order('created_at', { ascending: false });
 
-  // 신고건 무시/완료 처리
-  const handleResolveReport = async (reportId) => {
-    await supabase.from('reports').update({ status: 'resolved' }).eq('id', reportId);
-    fetchReports();
-  };
+      if (!error && data) {
+        setReports(data);
+      }
+      setLoading(false);
+    };
 
-  if (loading) return <div className="max-w-4xl mx-auto my-10 p-4 text-center text-xs text-gray-500">신고 목록 조회 중...</div>;
+    checkAdminAndFetch();
+  }, [router]);
+
+  if (loading) {
+    return (
+      <div className="max-w-4xl mx-auto my-10 p-8 bg-white border border-gray-100 rounded-3xl shadow-xl text-center text-xs font-semibold text-gray-500">
+        🔒 관리자 권한 및 신고 내역을 확인하는 중입니다...
+      </div>
+    );
+  }
+
+  if (!isAdmin) return null;
 
   return (
-    <div className="max-w-4xl mx-auto my-10 p-6 bg-white border rounded-xl shadow-sm space-y-6">
-      <div className="flex justify-between items-center border-b pb-3">
-        <h1 className="text-base font-bold text-gray-900">🚨 신고 접수 관리 대시보드</h1>
-        <button onClick={fetchReports} className="text-xs bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded">
-          🔄 새로고침
-        </button>
+    <div className="max-w-4xl mx-auto my-10 p-6 sm:p-8 bg-white border border-gray-100 rounded-3xl shadow-2xl space-y-6 text-xs font-sans">
+      {/* 관리자 상단 네비게이션 탭 */}
+      <div className="border-b pb-4 space-y-4">
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-black text-gray-900 tracking-tight">⚙️ 관리자 센터</h1>
+          <Link
+            href="/"
+            className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold rounded-xl transition text-[11px]"
+          >
+            메인으로 돌아가기
+          </Link>
+        </div>
+
+        {/* 탭 구분 */}
+        <div className="flex gap-2 pt-2">
+          <Link
+            href="/admin/reports"
+            className="px-4 py-2 bg-blue-600 text-white font-bold rounded-xl shadow-md text-xs"
+          >
+            🚨 신고 내역 관리
+          </Link>
+          <Link
+            href="/admin/users"
+            className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl transition text-xs"
+          >
+            👥 유저 관리
+          </Link>
+        </div>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full text-left border-collapse text-xs">
-          <thead>
-            <tr className="bg-gray-50 border-b text-gray-600">
-              <th className="p-2.5">타입</th>
-              <th className="p-2.5">대상 ID</th>
-              <th className="p-2.5">신고 사유</th>
-              <th className="p-2.5">신고자</th>
-              <th className="p-2.5">신시 일자</th>
-              <th className="p-2.5">상태</th>
-              <th className="p-2.5 text-right">관리 조치</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y text-gray-700">
-            {reports.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="text-center py-8 text-gray-400">
-                  접수된 신고 내역이 없습니다.
-                </td>
-              </tr>
-            ) : (
-              reports.map((item) => (
-                <tr key={item.id} className={item.status === 'resolved' ? 'bg-gray-50 opacity-60' : ''}>
-                  <td className="p-2.5">
-                    <span className={`px-2 py-0.5 rounded font-bold text-[10px] ${item.target_type === 'post' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'}`}>
-                      {item.target_type === 'post' ? '게시글' : '댓글'}
-                    </span>
-                  </td>
-                  <td className="p-2.5 font-mono text-[11px]">{item.target_id}</td>
-                  <td className="p-2.5 max-w-xs truncate">{item.reason}</td>
-                  <td className="p-2.5 text-gray-500">{item.reporter_email}</td>
-                  <td className="p-2.5 text-gray-400 text-[11px]">{new Date(item.created_at).toLocaleDateString()}</td>
-                  <td className="p-2.5">
-                    {item.status === 'pending' ? (
-                      <span className="text-red-600 font-bold">대기중</span>
-                    ) : (
-                      <span className="text-gray-400">처리완료</span>
-                    )}
-                  </td>
-                  <td className="p-2.5 text-right space-x-2">
-                    {item.status === 'pending' && (
-                      <>
-                        <button
-                          onClick={() => handleDeleteTarget(item)}
-                          className="px-2.5 py-1 bg-red-600 text-white rounded font-bold hover:bg-red-700 transition"
-                        >
-                          삭제 조치
-                        </button>
-                        <button
-                          onClick={() => handleResolveReport(item.id)}
-                          className="px-2.5 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition"
-                        >
-                          보류/종결
-                        </button>
-                      </>
-                    )}
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+      {/* 신고 내역 리스트 */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="font-bold text-sm text-gray-800">전체 신고 접수 건 ({reports.length}건)</h2>
+        </div>
+
+        {reports.length === 0 ? (
+          <div className="text-center py-16 text-gray-400 font-medium border border-gray-100 rounded-2xl">
+            접수된 신고 내역이 없습니다.
+          </div>
+        ) : (
+          <div className="overflow-hidden border border-gray-100 rounded-2xl divide-y divide-gray-100">
+            <div className="grid grid-cols-12 bg-gray-50 px-4 py-3 font-bold text-gray-500 text-[11px]">
+              <div className="col-span-2">신고 분류</div>
+              <div className="col-span-5">신고 내용 / 대상</div>
+              <div className="col-span-3 text-center">신고자</div>
+              <div className="col-span-2 text-right">신고일시</div>
+            </div>
+
+            {reports.map((item) => (
+              <div key={item.id} className="grid grid-cols-12 items-center px-4 py-3.5 hover:bg-gray-50/50">
+                <div className="col-span-2 font-bold text-rose-600 truncate">
+                  {item.reason || '기타 신고'}
+                </div>
+                <div className="col-span-5 truncate pr-2 text-gray-800 font-medium">
+                  {item.target_title || item.content || '상세 내용 없음'}
+                </div>
+                <div className="col-span-3 text-center text-gray-500 truncate text-[11px]">
+                  {item.reporter_email || item.reporter_name || '익명'}
+                </div>
+                <div className="col-span-2 text-right text-gray-400 text-[10px]">
+                  {new Date(item.created_at).toLocaleDateString('ko-KR')}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
