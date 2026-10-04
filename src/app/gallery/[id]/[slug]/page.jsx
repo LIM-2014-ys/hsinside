@@ -13,6 +13,7 @@ export default function PostDetailPage() {
 
   const [post, setPost] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
+  const [isBanned, setIsBanned] = useState(false);
   const [loading, setLoading] = useState(true);
 
   // 댓글 관련 상태
@@ -26,13 +27,25 @@ export default function PostDetailPage() {
   const [reportDetail, setReportDetail] = useState('');
   const [submittingReport, setSubmittingReport] = useState(false);
 
-  // 데이터 로드
   useEffect(() => {
     const fetchData = async () => {
-      // 1. 현재 사용자 및 정지 여부 확인
+      // 1. 현재 로그인 정보 및 DB 정지 상태 실시간 검사
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
-        setCurrentUser(session.user);
+        const user = session.user;
+        setCurrentUser(user);
+
+        const metaBanned = user.user_metadata?.status === '이용정지' || user.user_metadata?.banned === true;
+        const { data: banData } = await supabase
+          .from('reports')
+          .select('status')
+          .or(`target_author.eq.${user.email},target_author.eq.${user.user_metadata?.display_name}`)
+          .like('status', '%정지%')
+          .limit(1);
+
+        if (metaBanned || (banData && banData.length > 0)) {
+          setIsBanned(true);
+        }
       }
 
       // 2. 게시글 조회
@@ -67,7 +80,6 @@ export default function PostDetailPage() {
     fetchData();
   }, [galleryId, slug, router]);
 
-  // 작성자 본인 여부
   const isAuthor = Boolean(
     currentUser &&
     post &&
@@ -75,37 +87,7 @@ export default function PostDetailPage() {
       (post.author_email && post.author_email === currentUser.email))
   );
 
-  // 정지 상태 확인 함수
-  const isUserBanned = () => {
-    if (!currentUser) return false;
-    const status = currentUser.user_metadata?.status;
-    const isBanned = currentUser.user_metadata?.banned;
-    return status === '이용정지' || isBanned === true;
-  };
-
-  // 게시글 삭제
-  const handleDeletePost = async () => {
-    if (!isAuthor) {
-      alert('본인이 작성한 글만 삭제할 수 있습니다.');
-      return;
-    }
-
-    if (!confirm('정말로 이 게시글을 삭제하시겠습니까?')) return;
-
-    try {
-      const { error } = await supabase.from('posts').delete().eq('id', post.id);
-      if (error) {
-        alert('삭제 오류: ' + error.message);
-      } else {
-        alert('게시글이 삭제되었습니다.');
-        router.replace(`/gallery/${galleryId}`);
-      }
-    } catch {
-      alert('삭제 중 오류가 발생했습니다.');
-    }
-  };
-
-  // 💬 댓글 작성 처리 (이용정지 유저 차단)
+  // 💬 댓글 작성 (이용 정지자 완전 차단)
   const handleCommentSubmit = async (e) => {
     e.preventDefault();
 
@@ -115,9 +97,8 @@ export default function PostDetailPage() {
       return;
     }
 
-    // 🔒 이용 정지 유저 작성 차단
-    if (isUserBanned()) {
-      alert('🚫 현재 계정이 이용 정지 상태이므로 댓글을 작성할 수 없습니다.');
+    if (isBanned) {
+      alert('🚫 귀하의 계정은 이용 정지 상태이므로 댓글 등록이 불가능합니다.');
       return;
     }
 
@@ -145,7 +126,7 @@ export default function PostDetailPage() {
         .select();
 
       if (error) {
-        alert('댓글 등록 중 오류가 발생했습니다: ' + error.message);
+        alert('댓글 등록 오류: ' + error.message);
       } else if (data) {
         setComments((prev) => [...prev, data[0]]);
         setNewComment('');
@@ -178,7 +159,25 @@ export default function PostDetailPage() {
     }
   };
 
-  // 신고 제출
+  // 게시글 삭제
+  const handleDeletePost = async () => {
+    if (!isAuthor) return;
+    if (!confirm('정말로 이 게시글을 삭제하시겠습니까?')) return;
+
+    try {
+      const { error } = await supabase.from('posts').delete().eq('id', post.id);
+      if (error) {
+        alert('삭제 실패: ' + error.message);
+      } else {
+        alert('게시글이 삭제되었습니다.');
+        router.replace(`/gallery/${galleryId}`);
+      }
+    } catch {
+      alert('삭제 중 오류가 발생했습니다.');
+    }
+  };
+
+  // 신고 접수
   const handleReportSubmit = async (e) => {
     e.preventDefault();
 
@@ -201,7 +200,7 @@ export default function PostDetailPage() {
       ]);
 
       if (error) {
-        alert('신고 접수 오류: ' + error.message);
+        alert('신고 접수 실패: ' + error.message);
       } else {
         alert('신고가 정상 접수되었습니다.');
         setIsReportModalOpen(false);
@@ -217,7 +216,7 @@ export default function PostDetailPage() {
   if (loading) {
     return (
       <div className="max-w-3xl mx-auto my-16 p-8 bg-white border border-gray-100 rounded-3xl shadow-xl text-center text-xs font-semibold text-gray-500">
-        📄 게시글을 불러오는 중입니다...
+        📄 게시글 데이터를 불러오는 중입니다...
       </div>
     );
   }
@@ -226,13 +225,13 @@ export default function PostDetailPage() {
 
   return (
     <div className="max-w-3xl mx-auto my-10 p-6 sm:p-8 bg-white border border-gray-100 rounded-3xl shadow-2xl space-y-6 text-xs font-sans">
-      {/* 상단 버튼 바 */}
+      {/* 상단 버튼 */}
       <div className="flex items-center justify-between border-b pb-4">
         <Link
           href={`/gallery/${galleryId}`}
           className="px-3.5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold rounded-xl transition text-[11px]"
         >
-          ← 갤러리 목록으로
+          ← 목록으로
         </Link>
 
         <div className="flex items-center gap-2">
@@ -262,7 +261,7 @@ export default function PostDetailPage() {
         </div>
       </div>
 
-      {/* 게시글 제목 및 작성 정보 */}
+      {/* 게시글 제목 및 정보 */}
       <div className="space-y-3 border-b pb-5">
         <h1 className="text-xl sm:text-2xl font-black text-gray-900 leading-snug tracking-tight">
           {post.title}
@@ -277,7 +276,7 @@ export default function PostDetailPage() {
         </div>
       </div>
 
-      {/* 첨부 이미지 */}
+      {/* 첨부파일 / 이미지 */}
       {post.file_url && (
         <div className="p-3 bg-gray-50 rounded-2xl border border-gray-100">
           <img
@@ -299,23 +298,23 @@ export default function PostDetailPage() {
           💬 댓글 <span className="text-blue-600 font-extrabold">{comments.length}</span>개
         </h3>
 
-        {/* 댓글 작성 폼 */}
+        {/* 댓글 입력 폼 */}
         <form onSubmit={handleCommentSubmit} className="flex gap-2">
           <input
             type="text"
             value={newComment}
             onChange={(e) => setNewComment(e.target.value)}
             placeholder={
-              isUserBanned()
-                ? '🚫 이용 정지 상태이므로 댓글을 작성할 수 없습니다.'
+              isBanned
+                ? '🚫 계정이 정지되어 댓글 작성이 불가능합니다.'
                 : '댓글을 입력해 주세요...'
             }
-            disabled={isUserBanned()}
-            className="flex-1 px-4 py-3 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-400"
+            disabled={isBanned}
+            className="flex-1 px-4 py-3 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 disabled:bg-rose-50 disabled:text-rose-400 disabled:border-rose-200"
           />
           <button
             type="submit"
-            disabled={submittingComment || isUserBanned()}
+            disabled={submittingComment || isBanned}
             className="px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition shadow-md shadow-blue-500/20 disabled:bg-gray-200 disabled:shadow-none text-xs shrink-0"
           >
             {submittingComment ? '등록 중...' : '댓글 등록'}
