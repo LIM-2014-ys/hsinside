@@ -9,7 +9,7 @@ export default function PostDetailPage() {
   const router = useRouter();
   const params = useParams();
   const galleryId = params.id;
-  const slug = params.slug;
+  const rawSlug = params.slug;
 
   const [post, setPost] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
@@ -29,33 +29,45 @@ export default function PostDetailPage() {
 
   useEffect(() => {
     const fetchData = async () => {
-      // 1. 현재 로그인 정보 및 DB 정지 상태 실시간 검사
+      if (!rawSlug) return;
+      const decodedSlug = decodeURIComponent(rawSlug);
+
+      // 1. 현재 사용자 확인 및 정지 상태 검사 (Metadata + Auth)
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
         const user = session.user;
         setCurrentUser(user);
 
-        const metaBanned = user.user_metadata?.status === '이용정지' || user.user_metadata?.banned === true;
-        const { data: banData } = await supabase
-          .from('reports')
-          .select('status')
-          .or(`target_author.eq.${user.email},target_author.eq.${user.user_metadata?.display_name}`)
-          .like('status', '%정지%')
-          .limit(1);
-
-        if (metaBanned || (banData && banData.length > 0)) {
+        const userStatus = user.user_metadata?.status;
+        const userBanned = user.user_metadata?.banned;
+        if (userStatus === '이용정지' || userBanned === true) {
           setIsBanned(true);
         }
       }
 
-      // 2. 게시글 조회
-      const { data: postData, error: postError } = await supabase
+      // 2. 게시글 안전 조회 (slug 조회 후 실패 시 id 조회)
+      let postData = null;
+
+      // 2-1. slug 기반 조회
+      const { data: slugMatch } = await supabase
         .from('posts')
         .select('*')
-        .or(`slug.eq.${slug},id.eq.${slug}`)
+        .eq('slug', decodedSlug)
         .maybeSingle();
 
-      if (postError || !postData) {
+      postData = slugMatch;
+
+      // 2-2. slug로 안 찾아지고 숫자인 경우 id 기반 조회
+      if (!postData && !isNaN(Number(decodedSlug))) {
+        const { data: idMatch } = await supabase
+          .from('posts')
+          .select('*')
+          .eq('id', Number(decodedSlug))
+          .maybeSingle();
+        postData = idMatch;
+      }
+
+      if (!postData) {
         alert('존재하지 않거나 삭제된 게시글입니다.');
         router.replace(`/gallery/${galleryId}`);
         return;
@@ -78,8 +90,9 @@ export default function PostDetailPage() {
     };
 
     fetchData();
-  }, [galleryId, slug, router]);
+  }, [galleryId, rawSlug, router]);
 
+  // 작성자 본인 확인
   const isAuthor = Boolean(
     currentUser &&
     post &&
@@ -87,7 +100,7 @@ export default function PostDetailPage() {
       (post.author_email && post.author_email === currentUser.email))
   );
 
-  // 💬 댓글 작성 (이용 정지자 완전 차단)
+  // 💬 댓글 작성 (정지 유저 완전 차단)
   const handleCommentSubmit = async (e) => {
     e.preventDefault();
 
@@ -98,7 +111,7 @@ export default function PostDetailPage() {
     }
 
     if (isBanned) {
-      alert('🚫 귀하의 계정은 이용 정지 상태이므로 댓글 등록이 불가능합니다.');
+      alert('🚫 현재 계정은 이용 정지 상태이므로 댓글 작성이 불가능합니다.');
       return;
     }
 
@@ -126,7 +139,7 @@ export default function PostDetailPage() {
         .select();
 
       if (error) {
-        alert('댓글 등록 오류: ' + error.message);
+        alert('댓글 등록 중 오류: ' + error.message);
       } else if (data) {
         setComments((prev) => [...prev, data[0]]);
         setNewComment('');
@@ -169,7 +182,7 @@ export default function PostDetailPage() {
       if (error) {
         alert('삭제 실패: ' + error.message);
       } else {
-        alert('게시글이 삭제되었습니다.');
+        alert('게시글이 성공적으로 삭제되었습니다.');
         router.replace(`/gallery/${galleryId}`);
       }
     } catch {
@@ -177,7 +190,7 @@ export default function PostDetailPage() {
     }
   };
 
-  // 신고 접수
+  // 신고 제출
   const handleReportSubmit = async (e) => {
     e.preventDefault();
 
@@ -238,7 +251,7 @@ export default function PostDetailPage() {
           {isAuthor ? (
             <>
               <Link
-                href={`/gallery/${galleryId}/${slug}/edit`}
+                href={`/gallery/${galleryId}/${rawSlug}/edit`}
                 className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl transition text-[11px]"
               >
                 ✏️ 수정
@@ -261,7 +274,7 @@ export default function PostDetailPage() {
         </div>
       </div>
 
-      {/* 게시글 제목 및 정보 */}
+      {/* 게시글 제목 및 작성 정보 */}
       <div className="space-y-3 border-b pb-5">
         <h1 className="text-xl sm:text-2xl font-black text-gray-900 leading-snug tracking-tight">
           {post.title}
@@ -276,12 +289,12 @@ export default function PostDetailPage() {
         </div>
       </div>
 
-      {/* 첨부파일 / 이미지 */}
+      {/* 첨부 파일 / 이미지 */}
       {post.file_url && (
         <div className="p-3 bg-gray-50 rounded-2xl border border-gray-100">
           <img
             src={post.file_url}
-            alt="첨부파일"
+            alt="첨부 파일"
             className="max-h-96 rounded-xl object-contain mx-auto"
           />
         </div>
@@ -306,7 +319,7 @@ export default function PostDetailPage() {
             onChange={(e) => setNewComment(e.target.value)}
             placeholder={
               isBanned
-                ? '🚫 계정이 정지되어 댓글 작성이 불가능합니다.'
+                ? '🚫 이용 정지 상태이므로 댓글을 작성할 수 없습니다.'
                 : '댓글을 입력해 주세요...'
             }
             disabled={isBanned}
@@ -321,7 +334,7 @@ export default function PostDetailPage() {
           </button>
         </form>
 
-        {/* 댓글 목록 */}
+        {/* 댓글 리스트 */}
         {comments.length === 0 ? (
           <div className="text-center py-8 text-gray-400 font-medium border border-dashed border-gray-200 rounded-2xl">
             첫 번째 댓글을 작성해 보세요!
