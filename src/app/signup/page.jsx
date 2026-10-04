@@ -8,6 +8,7 @@ import { supabase } from '@/lib/supabaseClient';
 export default function SignupPage() {
   const router = useRouter();
 
+  // 기본 회원 정보 상태
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [nickname, setNickname] = useState('');
@@ -16,9 +17,15 @@ export default function SignupPage() {
   const [isNicknameAvailable, setIsNicknameAvailable] = useState(null);
   const [checkingNickname, setCheckingNickname] = useState(false);
 
-  // 슬라이드 인증 및 약관 동의 상태
+  // 슬라이드 보안 인증 상태 (UI 업그레이드)
+  const [slideValue, setSlideValue] = useState(0);
   const [isSlid, setIsSlid] = useState(false);
-  const [termsAgreed, setTermsAgreed] = useState(false);
+
+  // 3가지 분리된 이용약관 상태
+  const [agreeTerms, setAgreeTerms] = useState(false);      // 1. 서비스 이용약관
+  const [agreePrivacy, setAgreePrivacy] = useState(false);  // 2. 개인정보 수집 및 이용
+  const [agreeOverseas, setAgreeOverseas] = useState(false); // 3. 개인정보 국외 이전
+
   const [loading, setLoading] = useState(false);
 
   // 토스트 알림 상태
@@ -31,7 +38,17 @@ export default function SignupPage() {
     }, 3500);
   };
 
-  // 1. 닉네임 중복 확인 함수 (data.length 검사)
+  // 전체 약관 동의 / 해제 핸들러
+  const handleAllTermsChange = (e) => {
+    const checked = e.target.checked;
+    setAgreeTerms(checked);
+    setAgreePrivacy(checked);
+    setAgreeOverseas(checked);
+  };
+
+  const isAllTermsChecked = agreeTerms && agreePrivacy && agreeOverseas;
+
+  // 1. 닉네임 중복 확인
   const handleCheckNickname = async () => {
     if (!nickname.trim()) {
       showToast('닉네임을 입력해 주세요.', 'error');
@@ -67,7 +84,20 @@ export default function SignupPage() {
     }
   };
 
-  // 2. 회원가입 처리
+  // 2. 슬라이더 이동 처리
+  const handleSlideChange = (e) => {
+    if (isSlid) return;
+    const val = Number(e.target.value);
+    setSlideValue(val);
+
+    if (val >= 90) {
+      setSlideValue(100);
+      setIsSlid(true);
+      showToast('보안 인증이 완료되었습니다.', 'success');
+    }
+  };
+
+  // 3. 회원가입 처리
   const handleRegister = async (e) => {
     e.preventDefault();
 
@@ -77,12 +107,12 @@ export default function SignupPage() {
     }
 
     if (!isSlid) {
-      showToast('보안 인증 슬라이더를 우측 끝까지 밀어주세요.', 'error');
+      showToast('보안 인증 슬라이더를 끝까지 밀어주세요.', 'error');
       return;
     }
 
-    if (!termsAgreed) {
-      showToast('이용약관 및 개인정보 처리방침에 동의해 주세요.', 'error');
+    if (!agreeTerms || !agreePrivacy || !agreeOverseas) {
+      showToast('모든 필수 약관에 동의해야 가입할 수 있습니다.', 'error');
       return;
     }
 
@@ -193,55 +223,144 @@ export default function SignupPage() {
           )}
         </div>
 
-        {/* Slide to Verify (보안 슬라이드) */}
+        {/* 🔒 슬라이드 보안 인증 (디자인 업그레이드) */}
         <div className="pt-2">
           <label className="block font-bold text-gray-700 mb-1.5">보안 인증 *</label>
-          <div className="relative w-full h-12 bg-gray-100 rounded-xl border border-gray-200 overflow-hidden flex items-center justify-center select-none">
-            <span className={`text-[11px] font-bold ${isSlid ? 'text-emerald-600' : 'text-gray-400'}`}>
-              {isSlid ? '✓ 보안 인증 완료' : '➡️ 오른쪽으로 밀어서 인증하세요'}
+          <div
+            className={`relative w-full h-13 rounded-2xl border transition-all overflow-hidden select-none flex items-center ${
+              isSlid
+                ? 'bg-emerald-50 border-emerald-300 shadow-sm'
+                : 'bg-gray-50 border-gray-200 shadow-inner'
+            }`}
+          >
+            {/* 프로그레스 진행 바 배경 */}
+            <div
+              className={`absolute top-0 left-0 h-full transition-all duration-75 ${
+                isSlid ? 'bg-emerald-500' : 'bg-blue-500/20'
+              }`}
+              style={{ width: `${slideValue}%` }}
+            />
+
+            {/* 슬라이더 이동 손잡이 (Thumb) */}
+            <div
+              className={`absolute top-1 bottom-1 w-11 rounded-xl flex items-center justify-center font-bold text-white shadow-md transition-all z-10 ${
+                isSlid ? 'bg-emerald-600' : 'bg-blue-600'
+              }`}
+              style={{
+                left: isSlid
+                  ? 'calc(100% - 3rem)'
+                  : `calc(${slideValue}% * (1 - 3rem / 100%))`,
+              }}
+            >
+              {isSlid ? '✓' : '➔'}
+            </div>
+
+            {/* 안내 텍스트 */}
+            <span
+              className={`w-full text-center text-[11px] font-bold z-0 transition-opacity ${
+                isSlid ? 'text-emerald-800' : 'text-gray-500'
+              }`}
+            >
+              {isSlid ? '보안 인증이 완료되었습니다!' : '밀어서 보안 인증 완료하기'}
             </span>
+
+            {/* 투명 range 컨트롤 */}
             <input
               type="range"
               min="0"
               max="100"
-              value={isSlid ? 100 : 0}
-              onChange={(e) => {
-                if (Number(e.target.value) >= 90) {
-                  setIsSlid(true);
-                } else {
-                  setIsSlid(false);
-                }
-              }}
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+              value={slideValue}
+              disabled={isSlid}
+              onChange={handleSlideChange}
+              onMouseUp={() => !isSlid && setSlideValue(0)}
+              onTouchEnd={() => !isSlid && setSlideValue(0)}
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-default z-20"
             />
           </div>
         </div>
 
-        {/* 이용약관 */}
-        <div className="pt-2 space-y-2">
-          <label className="block font-bold text-gray-700">서비스 이용약관 및 커뮤니티 규정 *</label>
-          <div className="p-3 bg-gray-50 border border-gray-200 rounded-xl h-24 overflow-y-auto text-[10px] text-gray-500 leading-relaxed">
-            <p className="font-bold text-gray-700">제 1 조 (목적)</p>
-            <p>본 약관은 hsinside 커뮤니티 플랫폼이 제공하는 서비스의 이용조건 및 절차를 규정함을 목적으로 합니다.</p>
-            <p className="font-bold text-gray-700 mt-1">제 2 조 (의무 및 규정)</p>
-            <p>타인을 비방하거나 불법적인 내용을 게시할 경우 게시물 삭제 및 계정 제재 조치가 취해질 수 있습니다.</p>
+        {/* 📋 이용약관 (3가지 항목 분리 & 국외이전 포함) */}
+        <div className="pt-3 space-y-3">
+          <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+            <span className="font-bold text-gray-800 text-xs">약관 동의</span>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={isAllTermsChecked}
+                onChange={handleAllTermsChange}
+                className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+              />
+              <span className="font-bold text-blue-600 text-[11px]">전체 동의하기</span>
+            </label>
           </div>
-          <label className="flex items-center gap-2 cursor-pointer pt-1">
-            <input
-              type="checkbox"
-              checked={termsAgreed}
-              onChange={(e) => setTermsAgreed(e.target.checked)}
-              className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
-            />
-            <span className="font-bold text-gray-700 text-[11px]">위 이용약관 및 규정을 모두 확인했으며 동의합니다.</span>
-          </label>
+
+          {/* 1. 서비스 이용약관 */}
+          <div className="p-3 bg-gray-50/70 border border-gray-100 rounded-2xl space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={agreeTerms}
+                  onChange={(e) => setAgreeTerms(e.target.checked)}
+                  className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                />
+                <span className="font-bold text-gray-800 text-[11px]">[필수] 서비스 이용약관 동의</span>
+              </label>
+            </div>
+            <div className="p-2.5 bg-white border border-gray-100 rounded-xl h-16 overflow-y-auto text-[10px] text-gray-500 leading-relaxed">
+              hsinside 커뮤니티 플랫폼 서비스 이용을 위한 기본 규칙 및 유저 의무 사항을 규정합니다. 타인 비방, 불법 게시물 작성 시 이용 제재를 받을 수 있습니다.
+            </div>
+          </div>
+
+          {/* 2. 개인정보 수집 및 이용 동의 */}
+          <div className="p-3 bg-gray-50/70 border border-gray-100 rounded-2xl space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={agreePrivacy}
+                  onChange={(e) => setAgreePrivacy(e.target.checked)}
+                  className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                />
+                <span className="font-bold text-gray-800 text-[11px]">[필수] 개인정보 수집 및 이용 동의</span>
+              </label>
+            </div>
+            <div className="p-2.5 bg-white border border-gray-100 rounded-xl h-16 overflow-y-auto text-[10px] text-gray-500 leading-relaxed">
+              수집항목: 이메일 계정, 닉네임, 접속 로그. 수집목적: 회원 식별, 게시글 작성자 명시, 서비스 부정이용 방지. 보유기간: 회원 탈퇴 시 즉시 파기.
+            </div>
+          </div>
+
+          {/* 3. 개인정보 국외 이전 동의 */}
+          <div className="p-3 bg-gray-50/70 border border-gray-100 rounded-2xl space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={agreeOverseas}
+                  onChange={(e) => setAgreeOverseas(e.target.checked)}
+                  className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                />
+                <span className="font-bold text-gray-800 text-[11px]">[필수] 개인정보 국외 이전 동의</span>
+              </label>
+            </div>
+            <div className="p-2.5 bg-white border border-gray-100 rounded-xl h-16 overflow-y-auto text-[10px] text-gray-500 leading-relaxed">
+              이전받는 자: Supabase Inc. (AWS 데이터센터). 이전항목: 로그인 이메일, 닉네임, 업로드 데이터. 이전 국가 및 목적: 미국/글로벌 클라우드 데이터베이스 안전 보관 및 백업.
+            </div>
+          </div>
         </div>
 
         {/* 제출 버튼 */}
         <div className="pt-3">
           <button
             type="submit"
-            disabled={loading || !isNicknameAvailable || !isSlid || !termsAgreed}
+            disabled={
+              loading ||
+              !isNicknameAvailable ||
+              !isSlid ||
+              !agreeTerms ||
+              !agreePrivacy ||
+              !agreeOverseas
+            }
             className="w-full py-3.5 bg-blue-600 text-white font-bold rounded-2xl hover:bg-blue-700 transition shadow-lg shadow-blue-500/20 disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none cursor-pointer disabled:cursor-not-allowed text-xs"
           >
             {loading ? '계정 생성 중...' : '회원가입 완료'}
