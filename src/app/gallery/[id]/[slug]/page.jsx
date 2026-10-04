@@ -8,29 +8,46 @@ export const revalidate = 0;
 export default async function GalleryPostDetailPage({ params }) {
   const { id, slug } = await params;
 
-  // gallery_id 및 slug(고유 난수 링크)로 검색
-  let { data: post, error } = await supabase
+  // 1. slug(타임스탬프+난수)로 게시글 안전하게 조회
+  let post = null;
+
+  const { data: postBySlug } = await supabase
     .from('posts')
     .select('*')
-    .eq('gallery_id', id)
     .eq('slug', slug)
-    .single();
+    .maybeSingle();
 
-  // 이전 게시글 호환성을 위해 id 검색 예외 처리
-  if (!post) {
-    const { data: fallbackPost } = await supabase
+  if (postBySlug) {
+    post = postBySlug;
+  } else {
+    // 2. slug로 안 잡힐 경우 id(기존 레거시)로 조회
+    const { data: postById } = await supabase
       .from('posts')
       .select('*')
-      .eq('gallery_id', id)
       .eq('id', slug)
-      .single();
+      .maybeSingle();
 
-    post = fallbackPost;
+    post = postById;
   }
 
-  if (error || !post) {
+  // 게시글이 존재하지 않으면 404 처리
+  if (!post) {
     notFound();
   }
+
+  // 상단 이동 버튼용 갤러리 이름 조회
+  const { data: gallery } = await supabase
+    .from('galleries')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+
+  const rawName = gallery?.name || gallery?.title;
+  const galleryTitle = rawName
+    ? rawName.endsWith('갤러리')
+      ? rawName
+      : `${rawName} 갤러리`
+    : `${id} 갤러리`;
 
   return (
     <div className="max-w-3xl mx-auto my-10 p-6 sm:p-8 bg-white border border-gray-100 rounded-3xl shadow-2xl space-y-6 text-xs font-sans">
@@ -40,7 +57,7 @@ export default async function GalleryPostDetailPage({ params }) {
           href={`/gallery/${id}`}
           className="px-3 py-1.5 bg-gray-100 text-gray-600 font-bold rounded-xl hover:bg-gray-200 transition"
         >
-          ← {id} 갤러리 목록으로
+          ← {galleryTitle} 목록으로
         </Link>
         <span className="text-gray-400 text-[11px]">고유 링크 ID: {post.slug || post.id}</span>
       </div>
