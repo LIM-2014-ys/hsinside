@@ -7,11 +7,6 @@ import { supabase } from '@/lib/supabaseClient';
 import { isAdminEmail } from '@/lib/admin';
 import AdminBadge from '@/components/AdminBadge';
 
-function getTimeStampId(dateString) {
-  if (!dateString) return '';
-  return new Date(dateString).getTime();
-}
-
 export default function PostDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -81,7 +76,6 @@ export default function PostDetailPage() {
       if (error) {
         alert(`게시글 삭제 실패: ${error.message}`);
       } else {
-        alert('게시글이 삭제되었습니다.');
         router.push(`/gallery/${galleryId}`);
       }
     } catch {
@@ -95,13 +89,21 @@ export default function PostDetailPage() {
 
     setSubmittingComment(true);
     try {
+      const commentAuthorName = 
+        user?.user_metadata?.nickname ||
+        user?.user_metadata?.display_name ||
+        user?.user_metadata?.name ||
+        user?.user_metadata?.full_name ||
+        user?.email?.split('@')[0] ||
+        '익명';
+
       const { data, error } = await supabase
         .from('comments')
         .insert([
           {
             post_id: postId,
             content: newComment.trim(),
-            author_name: user?.user_metadata?.full_name || user?.email?.split('@')[0] || '익명',
+            author_name: commentAuthorName,
             author_email: user?.email || null,
           },
         ])
@@ -192,16 +194,12 @@ export default function PostDetailPage() {
 
       <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm space-y-4">
         <div>
-          <span className="inline-block px-2 py-0.5 mb-1 bg-gray-100 text-gray-500 font-bold rounded-md text-[10px] font-mono">
-            No. #{getTimeStampId(post.created_at)}
-          </span>
-
           <h1 className="text-xl font-black text-gray-900 leading-snug">{post.title}</h1>
 
           <div className="flex items-center justify-between text-gray-400 text-[11px] mt-2 pt-2 border-t border-gray-50">
             <div className="flex items-center">
               <span className="font-bold text-gray-700">
-                {post.author_name || post.author_email?.split('@')[0] || '익명'}
+                {post.author_name || '익명'}
               </span>
               <AdminBadge email={post.author_email} />
             </div>
@@ -209,11 +207,33 @@ export default function PostDetailPage() {
           </div>
         </div>
 
-        <div className="text-gray-800 leading-relaxed min-h-[150px] whitespace-pre-wrap text-xs pt-2">
+        <div className="text-gray-800 leading-relaxed min-h-[150px] whitespace-pre-wrap text-xs pt-2 border-t border-gray-50">
           {post.content}
         </div>
+
+        {/* 첨부파일 영역 */}
+        {post.file_url && (
+          <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between bg-gray-50/70 p-3 rounded-xl border border-gray-100">
+            <div className="flex items-center gap-2 truncate pr-2">
+              <span className="text-sm">📎</span>
+              <span className="font-semibold text-gray-700 truncate text-xs">
+                {post.file_name || '첨부파일'}
+              </span>
+            </div>
+            <a
+              href={post.file_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              download
+              className="px-3 py-1.5 bg-white border border-gray-200 hover:bg-gray-100 text-gray-700 font-bold rounded-lg text-[11px] shrink-0 transition"
+            >
+              다운로드
+            </a>
+          </div>
+        )}
       </div>
 
+      {/* 댓글 영역 */}
       <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm space-y-4">
         <h3 className="font-bold text-sm text-gray-900">💬 댓글 ({comments.length})</h3>
 
