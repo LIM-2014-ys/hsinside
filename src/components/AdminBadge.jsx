@@ -7,8 +7,8 @@ export default function AdminBadge({ email }) {
 
   return (
     <span
-      className="inline-flex items-center justify-center w-4 h-4 text-[10px] bg-emerald-500 text-white rounded-full font-bold ml-1 shrink-0 select-none"
-      title="관리자"
+      className="inline-flex items-center justify-center w-4 h-4 text-[10px] bg-blue-600 text-white rounded-md font-bold ml-1 shrink-0 select-none"
+      title="공식"
     >
       ✓
     </span>
