@@ -20,6 +20,7 @@ export default function PostDetailPage() {
   const [newComment, setNewComment] = useState('');
   const [loading, setLoading] = useState(true);
   const [submittingComment, setSubmittingComment] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -55,7 +56,7 @@ export default function PostDetailPage() {
           setComments(commentData);
         }
       } catch (err) {
-        console.error('데이터 조회 중 오류 발생:', err);
+        console.error('데이터 조회 오류:', err);
       } finally {
         setLoading(false);
       }
@@ -64,9 +65,15 @@ export default function PostDetailPage() {
     fetchData();
   }, [postId]);
 
-  const handleDeletePost = async () => {
-    if (!confirm('정말로 이 게시글을 삭제하시겠습니까?')) return;
+  // 이미지 파일 확장자 판별 함수
+  const isImageFile = (url, fileName) => {
+    if (!url) return false;
+    const targetStr = (fileName || url).toLowerCase();
+    return /\.(jpg|jpeg|png|gif|webp|svg|bmp)(\?.*)?$/i.test(targetStr);
+  };
 
+  const handleDeletePost = async () => {
+    setErrorMessage('');
     try {
       const { error } = await supabase
         .from('posts')
@@ -74,12 +81,12 @@ export default function PostDetailPage() {
         .eq('id', postId);
 
       if (error) {
-        alert(`게시글 삭제 실패: ${error.message}`);
+        setErrorMessage(`게시글 삭제 실패: ${error.message}`);
       } else {
         router.push(`/gallery/${galleryId}`);
       }
     } catch {
-      alert('게시글 삭제 처리 중 오류가 발생했습니다.');
+      setErrorMessage('게시글 삭제 처리 중 오류가 발생했습니다.');
     }
   };
 
@@ -87,7 +94,9 @@ export default function PostDetailPage() {
     e.preventDefault();
     if (!newComment.trim()) return;
 
+    setErrorMessage('');
     setSubmittingComment(true);
+
     try {
       const commentAuthorName = 
         user?.user_metadata?.nickname ||
@@ -111,21 +120,20 @@ export default function PostDetailPage() {
         .single();
 
       if (error) {
-        alert(`댓글 작성 실패: ${error.message}`);
+        setErrorMessage(`댓글 작성 실패: ${error.message}`);
       } else if (data) {
         setComments([...comments, data]);
         setNewComment('');
       }
     } catch {
-      alert('댓글 작성 중 오류가 발생했습니다.');
+      setErrorMessage('댓글 작성 중 오류가 발생했습니다.');
     } finally {
       setSubmittingComment(false);
     }
   };
 
   const handleDeleteComment = async (commentId) => {
-    if (!confirm('이 댓글을 삭제하시겠습니까?')) return;
-
+    setErrorMessage('');
     try {
       const { error } = await supabase
         .from('comments')
@@ -133,12 +141,12 @@ export default function PostDetailPage() {
         .eq('id', commentId);
 
       if (error) {
-        alert(`댓글 삭제 실패: ${error.message}`);
+        setErrorMessage(`댓글 삭제 실패: ${error.message}`);
       } else {
         setComments(comments.filter((c) => c.id !== commentId));
       }
     } catch {
-      alert('댓글 삭제 처리 중 오류가 발생했습니다.');
+      setErrorMessage('댓글 삭제 처리 중 오류가 발생했습니다.');
     }
   };
 
@@ -168,8 +176,16 @@ export default function PostDetailPage() {
     );
   }
 
+  const hasImage = isImageFile(post.file_url, post.file_name);
+
   return (
     <div className="max-w-4xl mx-auto my-8 px-4 font-sans text-xs space-y-6">
+      {errorMessage && (
+        <div className="p-3 bg-rose-50 border border-rose-200 text-rose-600 font-semibold rounded-xl text-xs">
+          ⚠️ {errorMessage}
+        </div>
+      )}
+
       <div className="flex items-center justify-between border-b pb-4">
         <Link
           href={`/gallery/${galleryId}`}
@@ -207,15 +223,27 @@ export default function PostDetailPage() {
           </div>
         </div>
 
-        <div className="text-gray-800 leading-relaxed min-h-[150px] whitespace-pre-wrap text-xs pt-2 border-t border-gray-50">
+        {/* 본문 텍스트 */}
+        <div className="text-gray-800 leading-relaxed min-h-[100px] whitespace-pre-wrap text-xs pt-2 border-t border-gray-50">
           {post.content}
         </div>
 
-        {/* 첨부파일 영역 */}
+        {/* 이미지 바로 보기 */}
+        {hasImage && (
+          <div className="pt-4 border-t border-gray-50 flex justify-center bg-gray-50/50 rounded-2xl p-2 border border-gray-100/80">
+            <img
+              src={post.file_url}
+              alt={post.file_name || '첨부 이미지'}
+              className="max-w-full h-auto rounded-xl shadow-sm object-contain max-h-[600px]"
+            />
+          </div>
+        )}
+
+        {/* 일반 첨부파일 다운로드 바 */}
         {post.file_url && (
           <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between bg-gray-50/70 p-3 rounded-xl border border-gray-100">
             <div className="flex items-center gap-2 truncate pr-2">
-              <span className="text-sm">📎</span>
+              <span className="text-sm">{hasImage ? '🖼️' : '📎'}</span>
               <span className="font-semibold text-gray-700 truncate text-xs">
                 {post.file_name || '첨부파일'}
               </span>
