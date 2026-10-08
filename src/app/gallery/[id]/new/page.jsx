@@ -38,9 +38,16 @@ export default function NewPostPage() {
     setSubmitting(true);
 
     try {
-      // author_email null 제약 조건 방지를 위해 비로그인 시 기본 이메일 할당
+      // 닉네임 최우선 적용 (nickname -> display_name -> name -> full_name -> email 아이디 -> 익명)
+      const authorName = 
+        user?.user_metadata?.nickname ||
+        user?.user_metadata?.display_name ||
+        user?.user_metadata?.name ||
+        user?.user_metadata?.full_name ||
+        user?.email?.split('@')[0] ||
+        '익명';
+
       const authorEmail = user?.email || 'anonymous@guest.local';
-      const authorName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || '익명';
 
       const { data, error } = await supabase
         .from('posts')
@@ -86,7 +93,6 @@ export default function NewPostPage() {
 
       {/* 작성 폼 */}
       <form onSubmit={handleSubmit} className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm space-y-4">
-        {/* 인라인 에러 메시지 바 */}
         {errorMessage && (
           <div className="p-3 bg-rose-50 border border-rose-200 text-rose-600 font-semibold rounded-xl text-xs">
             ⚠️ {errorMessage}
