@@ -16,14 +16,20 @@ export default function GalleryPage() {
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
+    // galleryId가 없거나 숫자가 아닌 경우(예: 'request') DB 쿼리를 수행하지 않음
+    if (!galleryId || isNaN(Number(galleryId))) {
+      setLoading(false);
+      return;
+    }
+
     const fetchData = async () => {
       setLoading(true);
       try {
-        // 1. galleries 테이블에서 갤러리 이름 및 정보 조회
+        // 1. galleries 테이블에서 갤러리 정보 조회
         const { data: galleryData } = await supabase
           .from('galleries')
           .select('*')
-          .eq('id', galleryId)
+          .eq('id', Number(galleryId))
           .maybeSingle();
 
         if (galleryData) {
@@ -34,7 +40,7 @@ export default function GalleryPage() {
         const { data: postsData, error: postsError } = await supabase
           .from('posts')
           .select('*')
-          .eq('gallery_id', galleryId)
+          .eq('gallery_id', Number(galleryId))
           .order('created_at', { ascending: false });
 
         if (!postsError && postsData) {
@@ -42,28 +48,30 @@ export default function GalleryPage() {
         }
       } catch (err) {
         console.error('갤러리 데이터를 불러오는 중 오류 발생:', err);
-      } finally {
+      } font-medium {
         setLoading(false);
       }
     };
 
-    if (galleryId) {
-      fetchData();
-    }
+    fetchData();
   }, [galleryId]);
 
+  // 'request' 경로로 들어온 경우 다른 화면을 보여주거나 리다이렉트
+  if (galleryId === 'request') {
+    return null;
+  }
+
   const filteredPosts = posts.filter((post) =>
-    post.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    post.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     (post.author_name && post.author_name.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
-  // 갤러리 이름 fallback (galleries 테이블에 없을 경우 번호 표기)
   const galleryTitle = galleryInfo?.name || galleryInfo?.title || `갤러리 (${galleryId})`;
   const galleryDesc = galleryInfo?.description || '자유롭게 의견을 나누는 공간입니다.';
 
   return (
     <div className="max-w-4xl mx-auto my-8 px-4 font-sans text-xs">
-      {/* 갤러리 헤더 및 글쓰기 버튼 */}
+      {/* 갤러리 헤더 */}
       <div className="flex items-center justify-between border-b pb-4 mb-6">
         <div>
           <h1 className="text-xl font-black text-gray-900 tracking-tight">
@@ -92,7 +100,7 @@ export default function GalleryPage() {
         />
       </div>
 
-      {/* 게시글 리스트 테이블 */}
+      {/* 게시글 리스트 */}
       <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
         {loading ? (
           <div className="py-16 text-center text-gray-400 font-bold">
