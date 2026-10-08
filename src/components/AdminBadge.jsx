@@ -1,21 +1,7 @@
 'use client';
 
-// 관리자 이메일 목록
-export const ADMIN_EMAILS = [
-  'treetowood@goedu.kr',
-  '2026ys6807@goe.go.kr',
-  '2026ys6809@goe.go.kr',
-];
+import { isAdminEmail } from '@/lib/admin';
 
-// 관리자 여부 확인 유틸리티 함수
-export const isAdminEmail = (email) => {
-  if (!email) return false;
-  return ADMIN_EMAILS.map((e) => e.toLowerCase()).includes(
-    email.toLowerCase().trim()
-  );
-};
-
-// 파란색 인증 배지 + 마우스 호버 툴팁 컴포넌트
 export default function AdminBadge({ email }) {
   if (!isAdminEmail(email)) return null;
 
@@ -33,7 +19,7 @@ export default function AdminBadge({ email }) {
         />
       </svg>
 
-      {/* 마우스 호버 시 뜨는 툴팁 설명 */}
+      {/* 마우스 호버 시 뜨는 툴팁 */}
       <span className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 hidden group-hover:flex flex-col items-center whitespace-nowrap z-50 pointer-events-none">
         <span className="bg-gray-900 text-white text-[10px] font-bold py-1 px-2.5 rounded-lg shadow-xl border border-gray-700">
           🛡️ hsinside 공식 관리자
