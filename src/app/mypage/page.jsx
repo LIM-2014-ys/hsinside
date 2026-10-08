@@ -12,7 +12,7 @@ export default function MyPage() {
 
   // 닉네임 변경 상태
   const [newNickname, setNewNickname] = useState('');
-  const [nicknameMsg, setNicknameMsg] = useState({ text: '', type: '' }); // 'success' | 'error' | 'info'
+  const [nicknameMsg, setNicknameMsg] = useState({ text: '', type: '' });
   const [isDuplicateChecked, setIsDuplicateChecked] = useState(false);
   const [verifiedNickname, setVerifiedNickname] = useState('');
   const [updatingNickname, setUpdatingNickname] = useState(false);
@@ -41,7 +41,7 @@ export default function MyPage() {
     fetchUser();
   }, [router]);
 
-  // 🔍 닉네임 중복 확인 (본인 ID 제외 처리 .neq)
+  // 본인 ID 제외 중복 검사 (.neq)
   const handleCheckDuplicate = async () => {
     const trimmed = newNickname.trim();
 
@@ -60,7 +60,6 @@ export default function MyPage() {
     }
 
     try {
-      // 📌 본인의 ID를 제외하고 검색하여 본인 닉네임이 중복 처리되는 현상 차단
       const { data, error } = await supabase
         .from('profiles')
         .select('id')
@@ -68,7 +67,6 @@ export default function MyPage() {
         .neq('id', user.id);
 
       if (error) {
-        // DB 테이블에 관련 정보가 없는 경우 fallback 허용
         setNicknameMsg({ text: '사용 가능한 닉네임입니다.', type: 'success' });
         setIsDuplicateChecked(true);
         setVerifiedNickname(trimmed);
@@ -89,7 +87,7 @@ export default function MyPage() {
     }
   };
 
-  // ✏️ 닉네임 변경 제출
+  // 닉네임 수정 제출
   const handleUpdateProfile = async (e) => {
     e.preventDefault();
     const trimmed = newNickname.trim();
@@ -109,25 +107,25 @@ export default function MyPage() {
     setNicknameMsg({ text: '', type: '' });
 
     try {
-      const { data, error } = await supabase.auth.updateUser({
+      const { data: authData, error: authError } = await supabase.auth.updateUser({
         data: { display_name: trimmed },
       });
 
-      if (error) {
-        setNicknameMsg({ text: '닉네임 변경 실패: ' + error.message, type: 'error' });
-      } else {
-        await supabase.from('profiles').upsert([
-          {
-            id: user.id,
-            display_name: trimmed,
-            email: user.email,
-          },
-        ]);
-
-        setUser(data.user);
-        setIsDuplicateChecked(false);
-        setNicknameMsg({ text: '✓ 닉네임이 성공적으로 변경되었습니다.', type: 'success' });
+      if (authError) {
+        setNicknameMsg({ text: '닉네임 변경 실패: ' + authError.message, type: 'error' });
+        return;
       }
+
+      await supabase
+        .from('profiles')
+        .update({ display_name: trimmed })
+        .eq('id', user.id);
+
+      await supabase.auth.refreshSession();
+
+      setUser(authData.user);
+      setIsDuplicateChecked(false);
+      setNicknameMsg({ text: '✓ 닉네임이 성공적으로 변경되었습니다.', type: 'success' });
     } catch {
       setNicknameMsg({ text: '프로필 변경 중 오류가 발생했습니다.', type: 'error' });
     } finally {
@@ -135,7 +133,7 @@ export default function MyPage() {
     }
   };
 
-  // 🔒 비밀번호 변경 제출
+  // 비밀번호 수정 제출
   const handleUpdatePassword = async (e) => {
     e.preventDefault();
 
@@ -196,7 +194,6 @@ export default function MyPage() {
         </Link>
       </div>
 
-      {/* 회원 계정 정보 */}
       <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100 space-y-2">
         <div className="flex justify-between items-center text-[11px]">
           <span className="text-gray-400 font-medium">이메일 계정</span>
@@ -216,7 +213,7 @@ export default function MyPage() {
         </div>
       </div>
 
-      {/* 1. 닉네임 변경 폼 */}
+      {/* 닉네임 변경 폼 */}
       <form onSubmit={handleUpdateProfile} className="space-y-4 pt-2 border-t">
         <h2 className="font-bold text-sm text-gray-900">✏️ 닉네임 수정</h2>
 
@@ -243,7 +240,6 @@ export default function MyPage() {
             </button>
           </div>
 
-          {/* 💬 alert 대신 인풋 하단에 텍스트 표시 */}
           {nicknameMsg.text && (
             <p
               className={`mt-2 font-bold text-[11px] ${
@@ -268,7 +264,7 @@ export default function MyPage() {
         </button>
       </form>
 
-      {/* 2. 비밀번호 변경 폼 */}
+      {/* 비밀번호 변경 폼 */}
       <form onSubmit={handleUpdatePassword} className="space-y-4 pt-4 border-t">
         <h2 className="font-bold text-sm text-gray-900">🔒 비밀번호 변경</h2>
 
@@ -299,7 +295,6 @@ export default function MyPage() {
             className="w-full px-4 py-3 border border-gray-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
           />
 
-          {/* 💬 alert 대신 인풋 하단에 텍스트 표시 */}
           {passwordMsg.text && (
             <p
               className={`mt-2 font-bold text-[11px] ${
