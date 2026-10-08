@@ -13,6 +13,7 @@ export default function SignUpPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [nickname, setNickname] = useState('');
 
+  // alert 대신 하단 인풋 메세지
   const [nicknameMsg, setNicknameMsg] = useState({ text: '', type: '' });
   const [isNicknameChecked, setIsNicknameChecked] = useState(false);
   const [verifiedNickname, setVerifiedNickname] = useState('');
@@ -22,6 +23,7 @@ export default function SignUpPage() {
   const [sliderPosition, setSliderPosition] = useState(0);
   const [loading, setLoading] = useState(false);
 
+  // 약관 동의 상태
   const [terms, setTerms] = useState({
     service: false,
     privacy: false,
@@ -33,6 +35,7 @@ export default function SignUpPage() {
     setTerms({ service: checked, privacy: checked, overseas: checked });
   };
 
+  // 닉네임 중복 확인
   const handleCheckNickname = async () => {
     const trimmed = nickname.trim();
 
@@ -69,6 +72,7 @@ export default function SignUpPage() {
     }
   };
 
+  // 보안 슬라이더 핸들러
   const handleSliderChange = (e) => {
     const value = Number(e.target.value);
     setSliderPosition(value);
@@ -83,7 +87,7 @@ export default function SignUpPage() {
     setFormMsg({ text: '', type: '' });
 
     if (!terms.service || !terms.privacy || !terms.overseas) {
-      setFormMsg({ text: '필수 이용약관에 모두 동의하셔야 합니다.', type: 'error' });
+      setFormMsg({ text: '모든 필수 약관에 동의하셔야 가입이 가능합니다.', type: 'error' });
       return;
     }
 
@@ -119,7 +123,7 @@ export default function SignUpPage() {
 
       if (error) {
         if (error.message.includes('Error sending confirmation email')) {
-          setFormMsg({ text: '가입 승인 처리 완료! 바로 로그인하실 수 있습니다.', type: 'success' });
+          setFormMsg({ text: '가입 승인 완료! 바로 로그인 가능합니다.', type: 'success' });
           setTimeout(() => router.push('/login'), 1200);
         } else {
           setFormMsg({ text: '회원가입 실패: ' + error.message, type: 'error' });
@@ -144,13 +148,14 @@ export default function SignUpPage() {
   };
 
   return (
-    <div className="max-w-md mx-auto my-10 p-6 sm:p-8 bg-white border border-gray-100 rounded-3xl shadow-2xl space-y-6 text-xs font-sans">
+    <div className="max-w-lg mx-auto my-10 p-6 sm:p-8 bg-white border border-gray-100 rounded-3xl shadow-2xl space-y-6 text-xs font-sans">
       <div className="text-center space-y-1">
         <h1 className="text-2xl font-black text-gray-900 tracking-tight">hsinside 회원가입</h1>
-        <p className="text-gray-400 text-[11px]">서비스 이용을 위해 정보를 입력해 주세요.</p>
+        <p className="text-gray-400 text-[11px]">약관 동의 및 계정 정보를 입력해 주세요.</p>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleSubmit} className="space-y-5">
+        {/* 이메일 */}
         <div>
           <label className="block font-bold text-gray-700 mb-1">이메일 계정 *</label>
           <input
@@ -163,6 +168,7 @@ export default function SignUpPage() {
           />
         </div>
 
+        {/* 닉네임 + 중복확인 */}
         <div>
           <label className="block font-bold text-gray-700 mb-1">닉네임 *</label>
           <div className="flex gap-2">
@@ -181,7 +187,7 @@ export default function SignUpPage() {
             <button
               type="button"
               onClick={handleCheckNickname}
-              className="px-3.5 py-3 bg-gray-800 hover:bg-gray-900 text-white font-bold rounded-xl text-xs shrink-0 transition"
+              className="px-4 py-3 bg-gray-800 hover:bg-gray-900 text-white font-bold rounded-xl text-xs shrink-0 transition"
             >
               중복 확인
             </button>
@@ -198,6 +204,7 @@ export default function SignUpPage() {
           )}
         </div>
 
+        {/* 비밀번호 */}
         <div>
           <label className="block font-bold text-gray-700 mb-1">비밀번호 *</label>
           <input
@@ -210,6 +217,7 @@ export default function SignUpPage() {
           />
         </div>
 
+        {/* 비밀번호 확인 */}
         <div>
           <label className="block font-bold text-gray-700 mb-1">비밀번호 확인 *</label>
           <input
@@ -222,51 +230,77 @@ export default function SignUpPage() {
           />
         </div>
 
-        <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100 space-y-2.5">
-          <label className="flex items-center gap-2 font-bold text-gray-800 pb-1 border-b border-gray-200 cursor-pointer">
+        {/* 📜 이전 약관 스크롤 상세 박스 복원 */}
+        <div className="space-y-3 pt-2">
+          <label className="flex items-center gap-2 font-black text-gray-900 cursor-pointer border-b pb-2">
             <input
               type="checkbox"
               checked={terms.service && terms.privacy && terms.overseas}
               onChange={handleAllTerms}
-              className="rounded accent-emerald-600"
+              className="rounded accent-emerald-600 w-4 h-4"
             />
-            <span>전체 약관 동의하기</span>
+            <span>약관 전체 동의하기</span>
           </label>
 
-          <label className="flex items-center gap-2 text-gray-600 cursor-pointer text-[11px]">
-            <input
-              type="checkbox"
-              checked={terms.service}
-              onChange={(e) => setTerms({ ...terms, service: e.target.checked })}
-              className="rounded accent-emerald-600"
-            />
-            <span>[필수] 서비스 이용약관 동의</span>
-          </label>
+          {/* 1. 서비스 이용약관 */}
+          <div className="space-y-1">
+            <label className="flex items-center gap-2 font-bold text-gray-700 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={terms.service}
+                onChange={(e) => setTerms({ ...terms, service: e.target.checked })}
+                className="rounded accent-emerald-600"
+              />
+              <span>[필수] 서비스 이용약관</span>
+            </label>
+            <div className="h-20 p-2.5 bg-gray-50 border border-gray-200 rounded-xl overflow-y-auto text-[10px] text-gray-500 leading-relaxed">
+              제 1 조 (목적) 본 약관은 hsinside 커뮤니티 플랫폼이 제공하는 모든 서비스의 이용조건 및 절차, 이용자와 당사의 권리, 의무, 책임사항을 규정함을 목적으로 합니다.
+              <br />
+              제 2 조 (회원가입 및 게시물 관리) 이용자는 타인의 명예를 훼손하거나 불법적인 게시물을 등록할 수 없으며, 위반 시 서비스 이용 제한 처분을 받을 수 있습니다.
+            </div>
+          </div>
 
-          <label className="flex items-center gap-2 text-gray-600 cursor-pointer text-[11px]">
-            <input
-              type="checkbox"
-              checked={terms.privacy}
-              onChange={(e) => setTerms({ ...terms, privacy: e.target.checked })}
-              className="rounded accent-emerald-600"
-            />
-            <span>[필수] 개인정보 수집 및 이용 동의</span>
-          </label>
+          {/* 2. 개인정보 수집 및 이용 */}
+          <div className="space-y-1">
+            <label className="flex items-center gap-2 font-bold text-gray-700 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={terms.privacy}
+                onChange={(e) => setTerms({ ...terms, privacy: e.target.checked })}
+                className="rounded accent-emerald-600"
+              />
+              <span>[필수] 개인정보 수집 및 이용 동의</span>
+            </label>
+            <div className="h-20 p-2.5 bg-gray-50 border border-gray-200 rounded-xl overflow-y-auto text-[10px] text-gray-500 leading-relaxed">
+              1. 수집 항목: 이메일 주소, 닉네임, 접속 IP 및 쿠키 정보.
+              <br />
+              2. 수집 및 이용 목적: 회원 식별, 부정 이용 방지, 서비스 관련 주요 고지사항 전달.
+              <br />
+              3. 보유 및 이용 기간: 회원 탈퇴 시까지 (단, 법령에 따른 보존 의무가 있는 경우 법정 기간 동안 보관).
+            </div>
+          </div>
 
-          <label className="flex items-center gap-2 text-gray-600 cursor-pointer text-[11px]">
-            <input
-              type="checkbox"
-              checked={terms.overseas}
-              onChange={(e) => setTerms({ ...terms, overseas: e.target.checked })}
-              className="rounded accent-emerald-600"
-            />
-            <span>[필수] 국외 이전 및 제3자 제공 동의</span>
-          </label>
+          {/* 3. 국외 이전 및 제3자 제공 */}
+          <div className="space-y-1">
+            <label className="flex items-center gap-2 font-bold text-gray-700 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={terms.overseas}
+                onChange={(e) => setTerms({ ...terms, overseas: e.target.checked })}
+                className="rounded accent-emerald-600"
+              />
+              <span>[필수] 국외 이전 및 제3자 제공 동의</span>
+            </label>
+            <div className="h-20 p-2.5 bg-gray-50 border border-gray-200 rounded-xl overflow-y-auto text-[10px] text-gray-500 leading-relaxed">
+              인증 및 데이터베이스 관리를 위해 Supabase Inc. (미국) 데이터베이스 인프라에 회원 정보가 암호화되어 보관 및 연동됩니다.
+            </div>
+          </div>
         </div>
 
+        {/* 🎚️ 보안 슬라이더 인증 유지 */}
         <div className="p-4 bg-emerald-50/50 border border-emerald-100 rounded-2xl space-y-2">
           <label className="block font-bold text-emerald-900 text-[11px]">
-            {slideVerified ? '✅ 보안 인증 완료' : '👉 슬라이더를 끝까지 밀어주세요'}
+            {slideVerified ? '✅ 보안 인증 완료' : '👉 슬라이더를 우측으로 끝까지 밀어주세요'}
           </label>
           <input
             type="range"
@@ -279,6 +313,7 @@ export default function SignUpPage() {
           />
         </div>
 
+        {/* 하단 메세지 */}
         {formMsg.text && (
           <p
             className={`font-bold text-[11px] text-center ${
