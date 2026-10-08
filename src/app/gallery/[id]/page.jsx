@@ -6,6 +6,12 @@ import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 import AdminBadge from '@/components/AdminBadge';
 
+// created_at 날짜를 Date.now() 형태의 타임스탬프 숫자로 변환하는 함수
+function getTimeStampId(dateString) {
+  if (!dateString) return '';
+  return new Date(dateString).getTime();
+}
+
 export default function GalleryDetailPage() {
   const params = useParams();
   const galleryId = params.id;
@@ -20,7 +26,6 @@ export default function GalleryDetailPage() {
     const fetchGalleryAndPosts = async () => {
       setLoading(true);
       try {
-        // 1. 갤러리 정보 조회
         const { data: galleryData } = await supabase
           .from('galleries')
           .select('*')
@@ -31,7 +36,6 @@ export default function GalleryDetailPage() {
           setGallery(galleryData);
         }
 
-        // 2. 해당 갤러리의 게시글 목록 조회
         const { data: postsData, error: postsError } = await supabase
           .from('posts')
           .select('*')
@@ -61,7 +65,6 @@ export default function GalleryDetailPage() {
 
   return (
     <div className="max-w-4xl mx-auto my-8 px-4 font-sans text-xs space-y-6">
-      {/* 상단 헤더 영역 */}
       <div className="flex items-center justify-between border-b pb-4">
         <div>
           <Link
@@ -86,11 +89,10 @@ export default function GalleryDetailPage() {
         </Link>
       </div>
 
-      {/* 게시글 목록 테이블 */}
       <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
         <div className="grid grid-cols-12 gap-2 px-4 py-2.5 bg-gray-50 border-b border-gray-100 text-gray-400 font-bold text-[11px]">
-          <div className="col-span-2 text-center">번호</div>
-          <div className="col-span-6">제목</div>
+          <div className="col-span-3 text-center">번호</div>
+          <div className="col-span-5">제목</div>
           <div className="col-span-2">작성자</div>
           <div className="col-span-2 text-right">작성일</div>
         </div>
@@ -107,10 +109,10 @@ export default function GalleryDetailPage() {
                 href={`/gallery/${galleryId}/${post.id}`}
                 className="grid grid-cols-12 gap-2 px-4 py-3.5 items-center hover:bg-gray-50/80 transition text-gray-800"
               >
-                <div className="col-span-2 text-center text-gray-400 font-mono text-[10px]">
-                  #{post.id}
+                <div className="col-span-3 text-center text-gray-400 font-mono text-[10px]">
+                  #{getTimeStampId(post.created_at)}
                 </div>
-                <div className="col-span-6 font-bold text-gray-900 truncate pr-2">
+                <div className="col-span-5 font-bold text-gray-900 truncate pr-2">
                   {post.title}
                 </div>
                 <div className="col-span-2 flex items-center gap-0.5 truncate">
