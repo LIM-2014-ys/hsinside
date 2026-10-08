@@ -13,7 +13,6 @@ export default function PostWritePage() {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
 
-  // 파일 직접 첨부 관련 상태
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [uploadedFileUrl, setUploadedFileUrl] = useState('');
@@ -22,7 +21,7 @@ export default function PostWritePage() {
   const [user, setUser] = useState(null);
   const [isBanned, setIsBanned] = useState(false);
 
-  // 🍞 토스트 알림 상태 (alert 완전 대체)
+  // 플로팅 토스트 상태 (alert 완전 대체)
   const [toast, setToast] = useState({ show: false, message: '', type: 'info' });
 
   const showToast = (message, type = 'info') => {
@@ -56,7 +55,6 @@ export default function PostWritePage() {
     checkAuthAndBan();
   }, [galleryId, router]);
 
-  // 📁 Supabase Storage 파일 업로드 핸들러
   const handleFileChange = async (e) => {
     const selectedFile = e.target.files?.[0];
     if (!selectedFile) return;
@@ -99,7 +97,6 @@ export default function PostWritePage() {
     }
   };
 
-  // ✍️ 게시글 작성 제출
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -221,7 +218,6 @@ export default function PostWritePage() {
         </div>
       </form>
 
-      {/* 🍞 커스텀 플로팅 토스트 UI */}
       {toast.show && (
         <div
           className={`fixed bottom-6 right-6 z-50 px-5 py-3.5 rounded-2xl shadow-2xl text-xs font-bold transition-all border animate-bounce ${
