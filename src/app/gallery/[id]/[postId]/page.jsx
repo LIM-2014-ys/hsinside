@@ -7,11 +7,15 @@ import { supabase } from '@/lib/supabaseClient';
 import { isAdminEmail } from '@/lib/admin';
 import AdminBadge from '@/components/AdminBadge';
 
+function getTimeStampId(dateString) {
+  if (!dateString) return '';
+  return new Date(dateString).getTime();
+}
+
 export default function PostDetailPage() {
   const params = useParams();
   const router = useRouter();
 
-  // URL 매개변수 ([id], [postId])
   const galleryId = params.id;
   const postId = params.postId;
 
@@ -22,7 +26,6 @@ export default function PostDetailPage() {
   const [loading, setLoading] = useState(true);
   const [submittingComment, setSubmittingComment] = useState(false);
 
-  // 로그인 사용자 상태 확인
   useEffect(() => {
     const fetchUser = async () => {
       const { data: { user: currentUser } } = await supabase.auth.getUser();
@@ -31,14 +34,12 @@ export default function PostDetailPage() {
     fetchUser();
   }, []);
 
-  // 게시글 및 댓글 데이터 로드
   useEffect(() => {
     if (!postId) return;
 
     const fetchData = async () => {
       setLoading(true);
       try {
-        // 1. 게시글 상세 정보 조회
         const { data: postData, error: postError } = await supabase
           .from('posts')
           .select('*')
@@ -49,7 +50,6 @@ export default function PostDetailPage() {
           setPost(postData);
         }
 
-        // 2. 해당 게시글의 댓글 목록 조회
         const { data: commentData, error: commentError } = await supabase
           .from('comments')
           .select('*')
@@ -69,7 +69,6 @@ export default function PostDetailPage() {
     fetchData();
   }, [postId]);
 
-  // 게시글 삭제 (본인 또는 관리자 권한)
   const handleDeletePost = async () => {
     if (!confirm('정말로 이 게시글을 삭제하시겠습니까?')) return;
 
@@ -90,7 +89,6 @@ export default function PostDetailPage() {
     }
   };
 
-  // 댓글 작성 처리
   const handleAddComment = async (e) => {
     e.preventDefault();
     if (!newComment.trim()) return;
@@ -123,7 +121,6 @@ export default function PostDetailPage() {
     }
   };
 
-  // 댓글 삭제 (본인 또는 관리자 권한)
   const handleDeleteComment = async (commentId) => {
     if (!confirm('이 댓글을 삭제하시겠습니까?')) return;
 
@@ -171,7 +168,6 @@ export default function PostDetailPage() {
 
   return (
     <div className="max-w-4xl mx-auto my-8 px-4 font-sans text-xs space-y-6">
-      {/* 상단 버튼 영역 */}
       <div className="flex items-center justify-between border-b pb-4">
         <Link
           href={`/gallery/${galleryId}`}
@@ -194,12 +190,10 @@ export default function PostDetailPage() {
         )}
       </div>
 
-      {/* 게시글 본문 */}
       <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm space-y-4">
         <div>
-          {/* 게시글 ID 배지 */}
-          <span className="inline-block px-2 py-0.5 mb-1 bg-gray-100 text-gray-500 font-bold rounded-md text-[10px]">
-            No. #{post.id}
+          <span className="inline-block px-2 py-0.5 mb-1 bg-gray-100 text-gray-500 font-bold rounded-md text-[10px] font-mono">
+            No. #{getTimeStampId(post.created_at)}
           </span>
 
           <h1 className="text-xl font-black text-gray-900 leading-snug">{post.title}</h1>
@@ -220,11 +214,9 @@ export default function PostDetailPage() {
         </div>
       </div>
 
-      {/* 댓글 영역 */}
       <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm space-y-4">
         <h3 className="font-bold text-sm text-gray-900">💬 댓글 ({comments.length})</h3>
 
-        {/* 댓글 작성 입력창 */}
         <form onSubmit={handleAddComment} className="flex gap-2">
           <input
             type="text"
@@ -243,7 +235,6 @@ export default function PostDetailPage() {
           </button>
         </form>
 
-        {/* 댓글 목록 */}
         <div className="divide-y divide-gray-100 pt-2">
           {comments.length === 0 ? (
             <p className="text-center py-6 text-gray-400 font-medium">등록된 댓글이 없습니다.</p>
