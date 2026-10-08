@@ -48,7 +48,7 @@ export default function GalleryPage() {
         }
       } catch (err) {
         console.error('갤러리 데이터를 불러오는 중 오류 발생:', err);
-      } font-medium {
+      } finally {
         setLoading(false);
       }
     };
@@ -56,7 +56,7 @@ export default function GalleryPage() {
     fetchData();
   }, [galleryId]);
 
-  // 'request' 경로로 들어온 경우 다른 화면을 보여주거나 리다이렉트
+  // 'request' 경로로 들어온 경우 렌더링 방지
   if (galleryId === 'request') {
     return null;
   }
