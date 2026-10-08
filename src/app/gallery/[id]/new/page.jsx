@@ -78,11 +78,15 @@ export default function NewPostPage() {
         fileName = file.name;
       }
 
-      // 게시글 저장
+      // Date.now() 기반 13자리 밀리초 타임스탬프 ID 생성
+      const customPostId = Date.now();
+
+      // 게시글 저장 (Date.now() ID 지정)
       const { data, error } = await supabase
         .from('posts')
         .insert([
           {
+            id: customPostId, // 👈 링크 난수화를 위한 Date.now() ID 직접 저장
             gallery_id: galleryId,
             title: title.trim(),
             content: content.trim(),
@@ -167,7 +171,7 @@ export default function NewPostPage() {
 
         <div>
           <label className="block text-gray-700 font-bold mb-1.5 text-xs">
-            파일 첨부 (선택)
+            사진 및 파일 첨부
           </label>
           <input
             type="file"
