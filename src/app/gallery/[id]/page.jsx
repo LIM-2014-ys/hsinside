@@ -1,141 +1,123 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
+import AdminBadge from '@/components/AdminBadge';
 
-export default function GalleryPage() {
+export default function GalleryDetailPage() {
   const params = useParams();
-  const router = useRouter();
   const galleryId = params.id;
 
-  const [galleryInfo, setGalleryInfo] = useState(null);
+  const [gallery, setGallery] = useState(null);
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
-    // galleryId가 없거나 숫자가 아닌 경우(예: 'request') DB 쿼리를 수행하지 않음
-    if (!galleryId || isNaN(Number(galleryId))) {
-      setLoading(false);
-      return;
-    }
+    if (!galleryId) return;
 
-    const fetchData = async () => {
+    const fetchGalleryAndPosts = async () => {
       setLoading(true);
       try {
-        // 1. galleries 테이블에서 갤러리 정보 조회
+        // 1. 갤러리 정보 조회
         const { data: galleryData } = await supabase
           .from('galleries')
           .select('*')
-          .eq('id', Number(galleryId))
+          .eq('id', galleryId)
           .maybeSingle();
 
         if (galleryData) {
-          setGalleryInfo(galleryData);
+          setGallery(galleryData);
         }
 
         // 2. 해당 갤러리의 게시글 목록 조회
         const { data: postsData, error: postsError } = await supabase
           .from('posts')
           .select('*')
-          .eq('gallery_id', Number(galleryId))
+          .eq('gallery_id', galleryId)
           .order('created_at', { ascending: false });
 
         if (!postsError && postsData) {
           setPosts(postsData);
         }
       } catch (err) {
-        console.error('갤러리 데이터를 불러오는 중 오류 발생:', err);
+        console.error('데이터 조회 오류:', err);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchData();
+    fetchGalleryAndPosts();
   }, [galleryId]);
 
-  // 'request' 경로로 들어온 경우 렌더링 방지
-  if (galleryId === 'request') {
-    return null;
+  if (loading) {
+    return (
+      <div className="max-w-4xl mx-auto my-16 text-center text-gray-400 font-bold text-xs">
+        📋 게시글 목록을 불러오는 중입니다...
+      </div>
+    );
   }
 
-  const filteredPosts = posts.filter((post) =>
-    post.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (post.author_name && post.author_name.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
-
-  const galleryTitle = galleryInfo?.name || galleryInfo?.title || `갤러리 (${galleryId})`;
-  const galleryDesc = galleryInfo?.description || '자유롭게 의견을 나누는 공간입니다.';
-
   return (
-    <div className="max-w-4xl mx-auto my-8 px-4 font-sans text-xs">
-      {/* 갤러리 헤더 */}
-      <div className="flex items-center justify-between border-b pb-4 mb-6">
+    <div className="max-w-4xl mx-auto my-8 px-4 font-sans text-xs space-y-6">
+      {/* 상단 헤더 영역 */}
+      <div className="flex items-center justify-between border-b pb-4">
         <div>
-          <h1 className="text-xl font-black text-gray-900 tracking-tight">
-            📌 {galleryTitle}
+          <Link
+            href="/gallery"
+            className="text-[11px] text-gray-400 hover:text-gray-600 font-bold mb-1 inline-block transition"
+          >
+            ← 전체 갤러리 목록
+          </Link>
+          <h1 className="text-xl font-black text-gray-900">
+            {gallery?.name || `갤러리 #${galleryId}`}
           </h1>
-          <p className="text-gray-400 text-[11px] mt-0.5">
-            {galleryDesc}
-          </p>
+          {gallery?.description && (
+            <p className="text-gray-500 text-[11px] mt-1">{gallery.description}</p>
+          )}
         </div>
+
         <Link
-          href={`/gallery/${galleryId}/write`}
-          className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition shadow-md shadow-emerald-500/20 text-xs"
+          href={`/gallery/${galleryId}/new`}
+          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition text-xs shadow-sm"
         >
-          ✍️ 글쓰기
+          ✏️ 글쓰기
         </Link>
       </div>
 
-      {/* 검색 창 */}
-      <div className="mb-4 flex gap-2">
-        <input
-          type="text"
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          placeholder="제목 또는 작성자로 검색..."
-          className="w-full max-w-xs px-3.5 py-2 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
-        />
-      </div>
-
-      {/* 게시글 리스트 */}
+      {/* 게시글 목록 테이블 */}
       <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
-        {loading ? (
-          <div className="py-16 text-center text-gray-400 font-bold">
-            📄 게시글을 불러오는 중입니다...
-          </div>
-        ) : filteredPosts.length === 0 ? (
-          <div className="py-16 text-center space-y-3">
-            <p className="text-gray-400 font-bold">등록된 게시글이 없습니다.</p>
-            <Link
-              href={`/gallery/${galleryId}/write`}
-              className="inline-block px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl transition text-[11px]"
-            >
-              첫 게시글 작성하기
-            </Link>
+        <div className="grid grid-cols-12 gap-2 px-4 py-2.5 bg-gray-50 border-b border-gray-100 text-gray-400 font-bold text-[11px]">
+          <div className="col-span-2 text-center">번호</div>
+          <div className="col-span-6">제목</div>
+          <div className="col-span-2">작성자</div>
+          <div className="col-span-2 text-right">작성일</div>
+        </div>
+
+        {posts.length === 0 ? (
+          <div className="py-12 text-center text-gray-400 font-medium">
+            등록된 게시글이 없습니다. 첫 글을 작성해 보세요!
           </div>
         ) : (
           <div className="divide-y divide-gray-100">
-            <div className="grid grid-cols-12 gap-2 px-4 py-3 bg-gray-50 text-gray-400 font-bold text-[11px]">
-              <span className="col-span-7">제목</span>
-              <span className="col-span-3 text-center">작성자</span>
-              <span className="col-span-2 text-right">작성일</span>
-            </div>
-
-            {filteredPosts.map((post) => (
+            {posts.map((post) => (
               <Link
                 key={post.id}
-                href={`/gallery/${galleryId}/${post.slug || post.id}`}
+                href={`/gallery/${galleryId}/${post.id}`}
                 className="grid grid-cols-12 gap-2 px-4 py-3.5 items-center hover:bg-gray-50/80 transition text-gray-800"
               >
-                <div className="col-span-7 font-semibold truncate flex items-center gap-1.5">
-                  {post.file_url && <span className="text-emerald-600 text-[10px]">📁</span>}
-                  <span className="hover:underline">{post.title}</span>
+                <div className="col-span-2 text-center text-gray-400 font-mono text-[10px]">
+                  #{post.id}
                 </div>
-                <div className="col-span-3 text-center text-gray-500 font-medium truncate text-[11px]">
-                  {post.author_name || post.author_email?.split('@')[0] || '익명'}
+                <div className="col-span-6 font-bold text-gray-900 truncate pr-2">
+                  {post.title}
+                </div>
+                <div className="col-span-2 flex items-center gap-0.5 truncate">
+                  <span className="font-semibold text-gray-700 truncate">
+                    {post.author_name || post.author_email?.split('@')[0] || '익명'}
+                  </span>
+                  <AdminBadge email={post.author_email} />
                 </div>
                 <div className="col-span-2 text-right text-gray-400 text-[10px]">
                   {new Date(post.created_at).toLocaleDateString('ko-KR')}
