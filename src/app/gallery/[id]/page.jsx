@@ -1,144 +1,212 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 
-export const dynamic = 'force-dynamic';
-export const revalidate = 0;
+export default function PostWritePage() {
+  const router = useRouter();
+  const params = useParams();
+  const galleryId = params.id;
 
-export default async function GalleryListPage({ params }) {
-  const { id } = await params;
+  const [title, setTitle] = useState('');
+  const [content, setContent] = useState('');
 
-  // 1. DB에서 갤러리 정보 안전하게 조회
-  let gallery = null;
+  // 파일 업로드 상태
+  const [file, setFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadedFileUrl, setUploadedFileUrl] = useState('');
 
-  const { data: gById } = await supabase
-    .from('galleries')
-    .select('*')
-    .eq('id', id)
-    .maybeSingle();
+  const [loading, setLoading] = useState(false);
+  const [user, setUser] = useState(null);
+  const [isBanned, setIsBanned] = useState(false);
 
-  if (gById) {
-    gallery = gById;
-  } else {
-    const { data: gByName } = await supabase
-      .from('galleries')
-      .select('*')
-      .eq('name', id)
-      .maybeSingle();
-    gallery = gByName;
-  }
+  useEffect(() => {
+    const checkAuthAndBan = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
 
-  // 갤러리 이름 가공 (예: "자유" -> "자유 갤러리", 이미 "갤러리"가 붙어있으면 그대로)
-  const rawName = gallery?.name || gallery?.title;
-  let galleryTitle = '';
-  if (rawName) {
-    galleryTitle = rawName.endsWith('갤러리') ? rawName : `${rawName} 갤러리`;
-  } else {
-    galleryTitle = `${id} 갤러리`;
-  }
+      if (!session?.user) {
+        alert('로그인 후 글을 작성할 수 있습니다.');
+        router.replace('/login');
+        return;
+      }
 
-  // 2. 게시글 목록 조회
-  const targetIds = [id];
-  if (gallery?.id && String(gallery.id) !== String(id)) {
-    targetIds.push(String(gallery.id));
-  }
+      const currentUser = session.user;
+      setUser(currentUser);
 
-  const { data: posts, error } = await supabase
-    .from('posts')
-    .select('id, title, author_name, author_email, created_at, slug, file_url, gallery_id')
-    .in('gallery_id', targetIds)
-    .order('created_at', { ascending: false });
+      const userStatus = currentUser.user_metadata?.status;
+      const userBanned = currentUser.user_metadata?.banned;
+
+      if (userStatus === '이용정지' || userBanned === true) {
+        setIsBanned(true);
+        alert('🚫 귀하의 계정은 현재 이용 정지 상태이므로 글 작성이 제한됩니다.');
+        router.replace(`/gallery/${galleryId}`);
+      }
+    };
+
+    checkAuthAndBan();
+  }, [galleryId, router]);
+
+  // 📁 파일 직접 업로드 처리
+  const handleFileChange = async (e) => {
+    const selectedFile = e.target.files?.[0];
+    if (!selectedFile) return;
+
+    if (isBanned) {
+      alert('🚫 이용 정지 상태에서는 파일 업로드가 불가능합니다.');
+      return;
+    }
+
+    setFile(selectedFile);
+    setUploading(true);
+
+    try {
+      const fileExt = selectedFile.name.split('.').pop();
+      const fileName = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
+      const filePath = `uploads/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('attachments')
+        .upload(filePath, selectedFile);
+
+      if (uploadError) throw uploadError;
+
+      const { data: publicUrlData } = supabase.storage
+        .from('attachments')
+        .getPublicUrl(filePath);
+
+      setUploadedFileUrl(publicUrlData.publicUrl);
+      alert('파일 업로드가 완료되었습니다.');
+    } catch (err) {
+      alert('파일 업로드 실패: ' + (err.message || '오류가 발생했습니다.'));
+      setFile(null);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  // ✍️ 게시글 DB 저장
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    if (!user) {
+      alert('로그인이 필요합니다.');
+      return;
+    }
+
+    if (isBanned) {
+      alert('🚫 정지 상태에서는 글을 작성할 수 없습니다.');
+      return;
+    }
+
+    if (!title.trim() || !content.trim()) {
+      alert('제목과 내용을 모두 입력해 주세요.');
+      return;
+    }
+
+    setLoading(true);
+
+    const generatedSlug = `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    const authorName = user.user_metadata?.display_name || user.email?.split('@')[0] || '익명';
+
+    try {
+      const { error } = await supabase.from('posts').insert([
+        {
+          gallery_id: galleryId,
+          title: title.trim(),
+          content: content.trim(),
+          author_name: authorName,
+          author_email: user.email,
+          user_id: user.id,
+          file_url: uploadedFileUrl || null,
+          is_censored: false, // 📌 업로드 시 기본 검열 해제(false) 저장
+          slug: generatedSlug,
+        },
+      ]);
+
+      if (error) {
+        alert('글 작성 중 오류가 발생했습니다: ' + error.message);
+      } else {
+        alert('게시글이 성공적으로 등록되었습니다.');
+        router.push(`/gallery/${galleryId}`);
+      }
+    } catch {
+      alert('글 작성 중 오류가 발생했습니다.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (isBanned) return null;
 
   return (
-    <div className="max-w-4xl mx-auto my-10 p-6 sm:p-8 bg-white border border-gray-100 rounded-3xl shadow-2xl space-y-6 text-xs font-sans">
-      {/* 갤러리 상단 헤더 */}
-      <div className="flex items-center justify-between border-b pb-5">
-        <div className="flex items-center gap-3">
-          <Link
-            href="/"
-            className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold rounded-xl transition text-[11px]"
-          >
-            ← 메인으로
-          </Link>
-          <h1 className="text-2xl font-black text-gray-900 tracking-tight">
-            📌 {galleryTitle}
-          </h1>
-        </div>
+    <div className="max-w-2xl mx-auto my-10 p-6 sm:p-8 bg-white border border-gray-100 rounded-3xl shadow-2xl space-y-6 text-xs font-sans">
+      <div className="flex items-center justify-between border-b pb-4">
         <Link
-          href={`/gallery/${id}/write`}
-          className="px-4 py-2.5 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition shadow-md shadow-blue-500/20 text-xs"
+          href={`/gallery/${galleryId}`}
+          className="px-3.5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold rounded-xl transition text-[11px]"
         >
-          ✏️ 글 작성하기
+          ← 목록으로
         </Link>
+        <h1 className="text-xl font-black text-gray-900 tracking-tight">✍ 새 글 작성</h1>
       </div>
 
-      {/* 에러 처리 */}
-      {error && (
-        <div className="p-4 bg-rose-50 border border-rose-100 text-rose-600 rounded-2xl font-semibold">
-          게시글을 불러오는 중 오류가 발생했습니다: {error.message}
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="block font-bold text-gray-700 mb-1">게시글 제목 *</label>
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="제목을 입력하세요"
+            required
+            className="w-full px-4 py-3 border border-gray-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+          />
         </div>
-      )}
 
-      {/* 게시글 목록 (제목 / 작성자 / 날짜시간만 표시, #n 번호 없음) */}
-      {!error && posts && posts.length === 0 ? (
-        <div className="text-center py-16 text-gray-400 font-medium">
-          등록된 게시글이 없습니다. 첫 번째 글을 작성해 보세요!
-        </div>
-      ) : (
-        <div className="overflow-hidden border border-gray-100 rounded-2xl">
-          {/* 테이블 헤더 */}
-          <div className="grid grid-cols-12 bg-gray-50/80 px-4 py-3 font-bold text-gray-500 border-b border-gray-100 text-[11px]">
-            <div className="col-span-7 sm:col-span-8">제목</div>
-            <div className="col-span-3 sm:col-span-2 text-center">작성자</div>
-            <div className="col-span-2 text-right">날짜 / 시간</div>
-          </div>
-
-          {/* 게시글 목록 */}
-          <div className="divide-y divide-gray-100">
-            {posts?.map((post) => {
-              const postLink = `/gallery/${id}/${post.slug || post.id}`;
-              const formattedDate = new Date(post.created_at).toLocaleString('ko-KR', {
-                month: '2-digit',
-                day: '2-digit',
-                hour: '2-digit',
-                minute: '2-digit',
-                hour12: false,
-              });
-
-              return (
-                <div
-                  key={post.id}
-                  className="grid grid-cols-12 items-center px-4 py-3.5 hover:bg-blue-50/30 transition text-gray-800"
-                >
-                  {/* 제목 */}
-                  <div className="col-span-7 sm:col-span-8 font-medium truncate pr-2">
-                    <Link
-                      href={postLink}
-                      className="hover:text-blue-600 hover:underline transition font-semibold"
-                    >
-                      {post.title}
-                    </Link>
-                    {post.file_url && (
-                      <span className="ml-1.5 text-[10px] text-gray-400" title="첨부파일 있음">
-                        📎
-                      </span>
-                    )}
-                  </div>
-
-                  {/* 작성자 */}
-                  <div className="col-span-3 sm:col-span-2 text-center text-gray-600 truncate font-medium text-[11px]">
-                    {post.author_name || post.author_email?.split('@')[0] || '익명'}
-                  </div>
-
-                  {/* 날짜 / 시간 */}
-                  <div className="col-span-2 text-right text-gray-400 text-[10px]">
-                    {formattedDate}
-                  </div>
-                </div>
-              );
-            })}
+        <div>
+          <label className="block font-bold text-gray-700 mb-1">첨부 파일 / 이미지 (선택)</label>
+          <div className="p-4 border border-dashed border-gray-200 rounded-2xl bg-gray-50/50 space-y-2">
+            <input
+              type="file"
+              accept="image/*, .pdf, .zip"
+              onChange={handleFileChange}
+              disabled={uploading}
+              className="w-full text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer"
+            />
+            {uploading && <p className="text-blue-600 font-bold text-[11px]">⏳ 파일 업로드 진행 중...</p>}
+            {uploadedFileUrl && (
+              <div className="pt-2 flex items-center gap-2 text-emerald-600 font-bold text-[11px]">
+                <span>✓ 파일 업로드 완료</span>
+                {file && <span className="text-gray-400 font-normal">({file.name})</span>}
+              </div>
+            )}
           </div>
         </div>
-      )}
+
+        <div>
+          <label className="block font-bold text-gray-700 mb-1">내용 *</label>
+          <textarea
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            placeholder="내용을 작성하세요..."
+            rows={8}
+            required
+            className="w-full px-4 py-3 border border-gray-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition resize-none"
+          />
+        </div>
+
+        <div className="pt-2">
+          <button
+            type="submit"
+            disabled={loading || uploading}
+            className="w-full py-3.5 bg-blue-600 text-white font-bold rounded-2xl hover:bg-blue-700 transition shadow-lg shadow-blue-500/20 disabled:bg-gray-200 text-xs"
+          >
+            {loading ? '게시글 등록 중...' : '작성 완료'}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
