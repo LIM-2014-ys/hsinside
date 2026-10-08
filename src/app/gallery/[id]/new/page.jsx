@@ -13,6 +13,7 @@ export default function NewPostPage() {
   const [user, setUser] = useState(null);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
+  const [file, setFile] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -49,19 +50,46 @@ export default function NewPostPage() {
 
       const authorEmail = user?.email || 'anonymous@guest.local';
 
-      // Date.now()를 사용하여 13자리 밀리초 타임스탬프 ID 생성
-      const customPostId = Date.now();
+      let fileUrl = null;
+      let fileName = null;
 
+      // 파일 업로드 처리
+      if (file) {
+        const fileExt = file.name.split('.').pop();
+        const filePath = `${galleryId}/${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
+
+        const { error: uploadError } = await supabase
+          .storage
+          .from('gallery-files')
+          .upload(filePath, file);
+
+        if (uploadError) {
+          setErrorMessage(`파일 업로드 실패: ${uploadError.message}`);
+          setSubmitting(false);
+          return;
+        }
+
+        const { data: publicUrlData } = supabase
+          .storage
+          .from('gallery-files')
+          .getPublicUrl(filePath);
+
+        fileUrl = publicUrlData?.publicUrl || null;
+        fileName = file.name;
+      }
+
+      // 게시글 저장
       const { data, error } = await supabase
         .from('posts')
         .insert([
           {
-            id: customPostId, // 👈 PK ID를 Date.now() 난수로 직접 지정
             gallery_id: galleryId,
             title: title.trim(),
             content: content.trim(),
             author_name: authorName,
             author_email: authorEmail,
+            file_url: fileUrl,
+            file_name: fileName,
           },
         ])
         .select('*')
@@ -70,7 +98,6 @@ export default function NewPostPage() {
       if (error) {
         setErrorMessage(`게시글 등록 실패: ${error.message}`);
       } else if (data) {
-        // 등록 후 이동되는 상세 링크도 /gallery/galleryId/1728373434000 형태가 됨
         router.push(`/gallery/${galleryId}/${data.id}`);
       }
     } catch (err) {
@@ -135,6 +162,18 @@ export default function NewPostPage() {
             }}
             disabled={submitting}
             className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 text-xs transition resize-y"
+          />
+        </div>
+
+        <div>
+          <label className="block text-gray-700 font-bold mb-1.5 text-xs">
+            파일 첨부 (선택)
+          </label>
+          <input
+            type="file"
+            onChange={(e) => setFile(e.target.files?.[0] || null)}
+            disabled={submitting}
+            className="w-full text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 transition cursor-pointer"
           />
         </div>
 
