@@ -16,6 +16,9 @@ export default function PostDetailPage() {
   const [isBanned, setIsBanned] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  // 검열 이미지 강제 표시 토글 상태
+  const [showCensoredImage, setShowCensoredImage] = useState(false);
+
   // 댓글 관련 상태
   const [comments, setComments] = useState([]);
   const [newComment, setNewComment] = useState('');
@@ -32,7 +35,7 @@ export default function PostDetailPage() {
       if (!rawSlug) return;
       const decodedSlug = decodeURIComponent(rawSlug);
 
-      // 1. 현재 사용자 확인 및 정지 상태 검사 (Metadata + Auth)
+      // 1. 세션 및 정지 상태 확인
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
         const user = session.user;
@@ -45,10 +48,9 @@ export default function PostDetailPage() {
         }
       }
 
-      // 2. 게시글 안전 조회 (slug 조회 후 실패 시 id 조회)
+      // 2. 게시글 안전 조회
       let postData = null;
 
-      // 2-1. slug 기반 조회
       const { data: slugMatch } = await supabase
         .from('posts')
         .select('*')
@@ -57,7 +59,6 @@ export default function PostDetailPage() {
 
       postData = slugMatch;
 
-      // 2-2. slug로 안 찾아지고 숫자인 경우 id 기반 조회
       if (!postData && !isNaN(Number(decodedSlug))) {
         const { data: idMatch } = await supabase
           .from('posts')
@@ -92,7 +93,6 @@ export default function PostDetailPage() {
     fetchData();
   }, [galleryId, rawSlug, router]);
 
-  // 작성자 본인 확인
   const isAuthor = Boolean(
     currentUser &&
     post &&
@@ -100,7 +100,7 @@ export default function PostDetailPage() {
       (post.author_email && post.author_email === currentUser.email))
   );
 
-  // 💬 댓글 작성 (정지 유저 완전 차단)
+  // 댓글 작성
   const handleCommentSubmit = async (e) => {
     e.preventDefault();
 
@@ -111,7 +111,7 @@ export default function PostDetailPage() {
     }
 
     if (isBanned) {
-      alert('🚫 현재 계정은 이용 정지 상태이므로 댓글 작성이 불가능합니다.');
+      alert('🚫 이용 정지 상태이므로 댓글 작성이 불가능합니다.');
       return;
     }
 
@@ -139,7 +139,7 @@ export default function PostDetailPage() {
         .select();
 
       if (error) {
-        alert('댓글 등록 중 오류: ' + error.message);
+        alert('댓글 등록 오류: ' + error.message);
       } else if (data) {
         setComments((prev) => [...prev, data[0]]);
         setNewComment('');
@@ -151,7 +151,7 @@ export default function PostDetailPage() {
     }
   };
 
-  // 💬 댓글 삭제
+  // 댓글 삭제
   const handleDeleteComment = async (commentId, commentUserEmail) => {
     if (currentUser?.email !== commentUserEmail) {
       alert('본인의 댓글만 삭제할 수 있습니다.');
@@ -172,7 +172,7 @@ export default function PostDetailPage() {
     }
   };
 
-  // 게시글 삭제
+  // 글 삭제
   const handleDeletePost = async () => {
     if (!isAuthor) return;
     if (!confirm('정말로 이 게시글을 삭제하시겠습니까?')) return;
@@ -274,7 +274,7 @@ export default function PostDetailPage() {
         </div>
       </div>
 
-      {/* 게시글 제목 및 작성 정보 */}
+      {/* 게시글 제목 및 날짜 */}
       <div className="space-y-3 border-b pb-5">
         <h1 className="text-xl sm:text-2xl font-black text-gray-900 leading-snug tracking-tight">
           {post.title}
@@ -289,14 +289,40 @@ export default function PostDetailPage() {
         </div>
       </div>
 
-      {/* 첨부 파일 / 이미지 */}
+      {/* 🖼️ 선택적 사진 검열 로직 */}
       {post.file_url && (
-        <div className="p-3 bg-gray-50 rounded-2xl border border-gray-100">
-          <img
-            src={post.file_url}
-            alt="첨부 파일"
-            className="max-h-96 rounded-xl object-contain mx-auto"
-          />
+        <div className="p-3 bg-gray-50 rounded-2xl border border-gray-100 overflow-hidden relative">
+          {/* post.is_censored가 true일 때만 검열 필터 적용 */}
+          {post.is_censored && !showCensoredImage ? (
+            <div className="relative py-12 px-4 text-center space-y-3 bg-gray-100 rounded-xl border border-gray-200">
+              <span className="text-3xl block">👁️‍🗨️</span>
+              <p className="font-bold text-gray-700 text-xs">
+                관리자 또는 규제 기준에 의해 검열 처리된 이미지입니다.
+              </p>
+              <button
+                onClick={() => setShowCensoredImage(true)}
+                className="px-4 py-2 bg-gray-800 hover:bg-gray-900 text-white font-bold rounded-xl text-[11px] transition shadow-md"
+              >
+                검열된 원본 사진 보기
+              </button>
+            </div>
+          ) : (
+            <div className="relative">
+              <img
+                src={post.file_url}
+                alt="첨부파일"
+                className="max-h-96 rounded-xl object-contain mx-auto"
+              />
+              {post.is_censored && (
+                <button
+                  onClick={() => setShowCensoredImage(false)}
+                  className="mt-2 text-[10px] text-gray-400 hover:underline block mx-auto font-medium"
+                >
+                  🔒 사진 다시 숨기기
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -311,7 +337,6 @@ export default function PostDetailPage() {
           💬 댓글 <span className="text-blue-600 font-extrabold">{comments.length}</span>개
         </h3>
 
-        {/* 댓글 입력 폼 */}
         <form onSubmit={handleCommentSubmit} className="flex gap-2">
           <input
             type="text"
@@ -319,7 +344,7 @@ export default function PostDetailPage() {
             onChange={(e) => setNewComment(e.target.value)}
             placeholder={
               isBanned
-                ? '🚫 이용 정지 상태이므로 댓글을 작성할 수 없습니다.'
+                ? '🚫 계정이 정지되어 댓글 작성이 불가능합니다.'
                 : '댓글을 입력해 주세요...'
             }
             disabled={isBanned}
@@ -334,7 +359,6 @@ export default function PostDetailPage() {
           </button>
         </form>
 
-        {/* 댓글 리스트 */}
         {comments.length === 0 ? (
           <div className="text-center py-8 text-gray-400 font-medium border border-dashed border-gray-200 rounded-2xl">
             첫 번째 댓글을 작성해 보세요!
