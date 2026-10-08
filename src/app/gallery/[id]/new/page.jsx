@@ -1,231 +1,128 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 
 export default function NewPostPage() {
-  const { id: galleryId } = useParams();
+  const params = useParams();
   const router = useRouter();
+  const galleryId = params.id;
 
+  const [user, setUser] = useState(null);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
-  const [user, setUser] = useState(null);
-  const [location, setLocation] = useState('Detecting...');
+  const [submitting, setSubmitting] = useState(false);
 
-  // 이미지 관련 상태
-  const [selectedFiles, setSelectedFiles] = useState([]);
-  const [previewUrls, setPreviewUrls] = useState([]);
-  const [loading, setLoading] = useState(false);
-
+  // 현재 로그인한 사용자 정보 로드
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (!user) {
-        alert('로그인이 필요한 서비스입니다.');
-        router.push('/login');
-      } else {
-        setUser(user);
-      }
-    });
+    const fetchUser = async () => {
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      setUser(currentUser);
+    };
+    fetchUser();
+  }, []);
 
-    fetchUserLocation();
-  }, [router]);
-
-  // IP 기반 위치 추적
-  const fetchUserLocation = async () => {
-    try {
-      const res = await fetch('https://ipapi.co/json/');
-      if (res.ok) {
-        const data = await res.json();
-        if (data.city) {
-          setLocation(data.city);
-          return;
-        }
-      }
-      setLocation('Seoul');
-    } catch {
-      setLocation('Seoul');
-    }
-  };
-
-  // 이미지 파일 선택 핸들러
-  const handleFileChange = (e) => {
-    const files = Array.from(e.target.files);
-    if (files.length + selectedFiles.length > 5) {
-      alert('이미지는 최대 5장까지 첨부할 수 있습니다.');
-      return;
-    }
-
-    const newFiles = [...selectedFiles, ...files];
-    setSelectedFiles(newFiles);
-
-    // 미리보기 URL 생성
-    const newPreviews = newFiles.map((file) => URL.createObjectURL(file));
-    setPreviewUrls(newPreviews);
-  };
-
-  // 이미지 삭제
-  const handleRemoveImage = (index) => {
-    const updatedFiles = selectedFiles.filter((_, i) => i !== index);
-    const updatedPreviews = previewUrls.filter((_, i) => i !== index);
-
-    setSelectedFiles(updatedFiles);
-    setPreviewUrls(updatedPreviews);
-  };
-
-  // Supabase Storage로 이미지 파일 업로드
-  const uploadImages = async () => {
-    const uploadedUrls = [];
-
-    for (const file of selectedFiles) {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${fileExt}`;
-      const filePath = `posts/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('post_images')
-        .upload(filePath, file);
-
-      if (uploadError) {
-        console.error('이미지 업로드 에러:', uploadError);
-        continue;
-      }
-
-      // 업로드된 이미지의 Public URL 가져오기
-      const { data } = supabase.storage
-        .from('post_images')
-        .getPublicUrl(filePath);
-
-      if (data?.publicUrl) {
-        uploadedUrls.push(data.publicUrl);
-      }
-    }
-
-    return uploadedUrls;
-  };
-
+  // 게시글 등록 처리
   const handleSubmit = async (e) => {
     e.preventDefault();
+
     if (!title.trim() || !content.trim()) {
-      alert('제목과 내용을 입력해 주세요.');
+      alert('제목과 내용을 모두 입력해주세요.');
       return;
     }
 
-    setLoading(true);
+    setSubmitting(true);
 
     try {
-      // 1. 이미지 업로드 실행
-      const imageUrls = await uploadImages();
+      // author_email과 author_name을 명시적으로 포함하여 DB 저장
+      const { data, error } = await supabase
+        .from('posts')
+        .insert([
+          {
+            gallery_id: galleryId,
+            title: title.trim(),
+            content: content.trim(),
+            author_name: user?.user_metadata?.full_name || user?.email?.split('@')[0] || '익명',
+            author_email: user?.email || null,
+          },
+        ])
+        .select('*')
+        .single();
 
-      // 2. 게시글 등록 (image_urls 배열 저장)
-      const postCode = parseInt(Date.now().toString(), 10);
-
-      const { error } = await supabase.from('posts').insert([
-        {
-          title: title.trim(),
-          content: content.trim(),
-          gallery_id: parseInt(galleryId, 10),
-          author_email: user.email,
-          author_name: user.user_metadata?.display_name || user.email.split('@')[0],
-          post_code: postCode,
-          location: location === 'Detecting...' ? 'Seoul' : location,
-          image_urls: imageUrls, // 업로드된 이미지 URL 목록
-        },
-      ]);
-
-      if (error) throw error;
-
-      router.push(`/gallery/${galleryId}/${postCode}`);
+      if (error) {
+        alert(`게시글 등록 실패: ${error.message}`);
+      } else if (data) {
+        alert('게시글이 등록되었습니다.');
+        router.push(`/gallery/${galleryId}`);
+      }
     } catch (err) {
-      console.error('게시글 작성 에러:', err);
-      alert(`게시글 등록 실패: ${err.message}`);
+      console.error('글 작성 오류:', err);
+      alert('게시글 등록 중 오류가 발생했습니다.');
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
 
   return (
-    <div className="max-w-2xl mx-auto p-6 bg-white rounded-lg shadow border border-gray-200 mt-6">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-xl font-bold text-gray-900">✍️ 새 게시글 작성</h1>
-        <span className="text-xs bg-blue-50 text-blue-700 px-2.5 py-1 rounded-full font-medium border border-blue-100">
-          📍 접속 위치: {location}
-        </span>
+    <div className="max-w-4xl mx-auto my-8 px-4 font-sans text-xs space-y-6">
+      {/* 상단 헤더 */}
+      <div className="flex items-center justify-between border-b pb-4">
+        <div>
+          <Link
+            href={`/gallery/${galleryId}`}
+            className="text-[11px] text-gray-400 hover:text-gray-600 font-bold mb-1 inline-block transition"
+          >
+            ← 갤러리로 돌아가기
+          </Link>
+          <h1 className="text-xl font-black text-gray-900">✏️ 새 게시글 작성</h1>
+        </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
+      {/* 작성 폼 */}
+      <form onSubmit={handleSubmit} className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm space-y-4">
         <div>
-          <label className="block text-xs font-semibold text-gray-700 mb-1">제목</label>
-          <input
-            type="text"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="제목을 입력하세요"
-            className="w-full px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-          />
-        </div>
-
-        <div>
-          <label className="block text-xs font-semibold text-gray-700 mb-1">내용</label>
-          <textarea
-            rows={8}
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            placeholder="내용을 작성해 보세요."
-            className="w-full px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-          />
-        </div>
-
-        {/* 사진 첨부 섹션 */}
-        <div>
-          <label className="block text-xs font-semibold text-gray-700 mb-1">
-            📷 사진 첨부 (최대 5장)
+          <label className="block text-gray-700 font-bold mb-1.5 text-xs">
+            제목
           </label>
           <input
-            type="file"
-            accept="image/*"
-            multiple
-            onChange={handleFileChange}
-            className="block w-full text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer"
+            type="text"
+            placeholder="제목을 입력하세요"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            disabled={submitting}
+            className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 text-xs transition"
           />
-
-          {/* 이미지 미리보기 목록 */}
-          {previewUrls.length > 0 && (
-            <div className="flex gap-2 mt-3 overflow-x-auto pb-2">
-              {previewUrls.map((url, idx) => (
-                <div key={idx} className="relative group flex-shrink-0">
-                  <img
-                    src={url}
-                    alt={`미리보기 ${idx + 1}`}
-                    className="w-20 h-20 object-cover rounded-lg border border-gray-200"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveImage(idx)}
-                    className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold shadow hover:bg-red-600"
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
 
-        <div className="flex justify-end gap-2 pt-2 border-t">
-          <button
-            type="button"
-            onClick={() => router.back()}
-            className="px-4 py-2 bg-gray-100 text-gray-700 text-xs font-semibold rounded"
+        <div>
+          <label className="block text-gray-700 font-bold mb-1.5 text-xs">
+            내용
+          </label>
+          <textarea
+            rows={10}
+            placeholder="내용을 작성해 보세요..."
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            disabled={submitting}
+            className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 text-xs transition resize-y"
+          />
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <Link
+            href={`/gallery/${galleryId}`}
+            className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold rounded-xl transition text-xs"
           >
             취소
-          </button>
+          </Link>
           <button
             type="submit"
-            disabled={loading}
-            className="px-5 py-2 bg-blue-600 text-white text-xs font-semibold rounded hover:bg-blue-700 disabled:opacity-50"
+            disabled={submitting || !title.trim() || !content.trim()}
+            className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition text-xs disabled:opacity-50"
           >
-            {loading ? '이미지 및 글 등록 중...' : '등록하기'}
+            {submitting ? '등록 중...' : '게시글 등록'}
           </button>
         </div>
       </form>
