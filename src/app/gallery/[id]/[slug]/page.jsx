@@ -16,21 +16,17 @@ export default function PostDetailPage() {
   const [isBanned, setIsBanned] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // 검열 사진 표시 상태
   const [showCensoredImage, setShowCensoredImage] = useState(false);
 
-  // 댓글 관련 상태
   const [comments, setComments] = useState([]);
   const [newComment, setNewComment] = useState('');
   const [submittingComment, setSubmittingComment] = useState(false);
 
-  // 신고 모달 상태
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [reportReason, setReportReason] = useState('음란물 / 불법정보');
   const [reportDetail, setReportDetail] = useState('');
   const [submittingReport, setSubmittingReport] = useState(false);
 
-  // 🍞 토스트 알림 상태
   const [toast, setToast] = useState({ show: false, message: '', type: 'info' });
 
   const showToast = (message, type = 'info') => {
@@ -105,7 +101,6 @@ export default function PostDetailPage() {
       (post.author_email && post.author_email === currentUser.email))
   );
 
-  // 댓글 작성
   const handleCommentSubmit = async (e) => {
     e.preventDefault();
 
@@ -157,7 +152,6 @@ export default function PostDetailPage() {
     }
   };
 
-  // 댓글 삭제
   const handleDeleteComment = async (commentId, commentUserEmail) => {
     if (currentUser?.email !== commentUserEmail) {
       showToast('본인의 댓글만 삭제할 수 있습니다.', 'error');
@@ -177,7 +171,6 @@ export default function PostDetailPage() {
     }
   };
 
-  // 게시글 삭제
   const handleDeletePost = async () => {
     if (!isAuthor) return;
 
@@ -194,7 +187,6 @@ export default function PostDetailPage() {
     }
   };
 
-  // 신고 제출
   const handleReportSubmit = async (e) => {
     e.preventDefault();
 
@@ -391,7 +383,6 @@ export default function PostDetailPage() {
         )}
       </div>
 
-      {/* 🚨 신고 모달 */}
       {isReportModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white border border-gray-100 rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-2xl text-xs">
@@ -445,7 +436,6 @@ export default function PostDetailPage() {
         </div>
       )}
 
-      {/* 🍞 커스텀 플로팅 토스트 UI */}
       {toast.show && (
         <div
           className={`fixed bottom-6 right-6 z-50 px-5 py-3.5 rounded-2xl shadow-2xl text-xs font-bold transition-all border animate-bounce ${
