@@ -2,167 +2,194 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 
 export default function MyPage() {
   const router = useRouter();
   const [user, setUser] = useState(null);
-  const [nickname, setNickname] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(true);
 
+  // 닉네임 변경 관련 상태
+  const [newNickname, setNewNickname] = useState('');
+  const [isDuplicateChecked, setIsDuplicateChecked] = useState(false);
+  const [verifiedNickname, setVerifiedNickname] = useState('');
+  const [updating, setUpdating] = useState(false);
+
   useEffect(() => {
-    async function loadUserData() {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        alert('로그인이 필요합니다.');
-        router.push('/');
+    const fetchUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (!session?.user) {
+        alert('로그인이 필요한 페이지입니다.');
+        router.replace('/login');
         return;
       }
-      setUser(user);
-      setNickname(user.user_metadata?.display_name || '');
+
+      const currentUser = session.user;
+      setUser(currentUser);
+      setNewNickname(currentUser.user_metadata?.display_name || '');
       setLoading(false);
-    }
-    loadUserData();
+    };
+
+    fetchUser();
   }, [router]);
 
-  // 1. 닉네임 변경
-  const handleUpdateNickname = async (e) => {
-    e.preventDefault();
-    if (!nickname.trim()) return alert('닉네임을 입력해 주세요.');
+  // 🔍 마이페이지 닉네임 중복 확인 (data.length > 0)
+  const handleCheckDuplicate = async () => {
+    const trimmed = newNickname.trim();
 
-    const { error } = await supabase.auth.updateUser({
-      data: { display_name: nickname.trim() },
-    });
-
-    if (error) {
-      alert('닉네임 변경 실패: ' + error.message);
-    } else {
-      alert('닉네임이 성공적으로 변경되었습니다.');
+    if (!trimmed) {
+      alert('변경할 닉네임을 입력해 주세요.');
+      return;
     }
-  };
 
-  // 2. 비밀번호 변경
-  const handleUpdatePassword = async (e) => {
-    e.preventDefault();
-    if (password.length < 6) return alert('비밀번호는 최소 6자리 이상이어야 합니다.');
-    if (password !== confirmPassword) return alert('새 비밀번호가 일치하지 않습니다.');
-
-    const { error } = await supabase.auth.updateUser({
-      password: password,
-    });
-
-    if (error) {
-      alert('비밀번호 변경 실패: ' + error.message);
-    } else {
-      alert('비밀번호가 변경되었습니다.');
-      setPassword('');
-      setConfirmPassword('');
+    if (trimmed === user?.user_metadata?.display_name) {
+      alert('현재 사용 중인 닉네임과 동일합니다.');
+      return;
     }
-  };
-
-  // 3. 회원탈퇴
-  const handleWithdraw = async () => {
-    const confirmed = confirm(
-      '정말로 탈퇴하시겠습니까?\n탈퇴 시 계정 정보가 완전히 삭제되며 복구할 수 없습니다.'
-    );
-
-    if (!confirmed || !user) return;
 
     try {
-      const res = await fetch('/api/auth/withdraw', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: user.id }),
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('display_name', trimmed);
+
+      if (!error && data && data.length > 0) {
+        alert('이미 사용 중인 닉네임입니다. 다른 닉네임을 입력해 주세요.');
+        setIsDuplicateChecked(false);
+      } else {
+        alert('사용 가능한 닉네임입니다.');
+        setIsDuplicateChecked(true);
+        setVerifiedNickname(trimmed);
+      }
+    } catch {
+      alert('중복 확인 중 오류가 발생했습니다.');
+    }
+  };
+
+  // ✏️ 닉네임 업데이트 처리
+  const handleUpdateProfile = async (e) => {
+    e.preventDefault();
+
+    const trimmed = newNickname.trim();
+
+    if (!trimmed) {
+      alert('닉네임을 입력해 주세요.');
+      return;
+    }
+
+    if (trimmed !== user?.user_metadata?.display_name && (!isDuplicateChecked || verifiedNickname !== trimmed)) {
+      alert('닉네임 중복 확인을 완료해 주세요.');
+      return;
+    }
+
+    setUpdating(true);
+
+    try {
+      // 1. Supabase Auth 메타데이터 변경 (헤더에 반영됨)
+      const { data, error } = await supabase.auth.updateUser({
+        data: {
+          display_name: trimmed,
+        },
       });
 
-      const data = await res.json();
-
-      if (res.ok && data.success) {
-        await supabase.auth.signOut();
-        alert('회원탈퇴가 완료되었습니다. 이용해 주셔서 감사합니다.');
-        router.push('/');
-        router.refresh();
+      if (error) {
+        alert('닉네임 변경 실패: ' + error.message);
       } else {
-        alert('탈퇴 처리 실패: ' + (data.error || '오류가 발생했습니다.'));
+        // 2. profiles 테이블 동기화 (존재할 경우)
+        await supabase.from('profiles').upsert([
+          {
+            id: user.id,
+            display_name: trimmed,
+            email: user.email,
+          },
+        ]);
+
+        alert('닉네임이 정상적으로 변경되었습니다!');
+        setUser(data.user);
+        setIsDuplicateChecked(false);
       }
-    } catch (err) {
-      alert('서버 통신 중 오류가 발생했습니다.');
+    } catch {
+      alert('프로필 변경 중 오류가 발생했습니다.');
+    } finally {
+      setUpdating(false);
     }
   };
 
   if (loading) {
-    return <div className="max-w-md mx-auto my-12 text-center text-xs text-gray-500">로딩 중...</div>;
+    return (
+      <div className="max-w-xl mx-auto my-16 p-8 bg-white border border-gray-100 rounded-3xl shadow-xl text-center text-xs font-semibold text-gray-500">
+        👤 마이페이지 데이터를 불러오는 중입니다...
+      </div>
+    );
   }
 
   return (
-    <div className="max-w-md mx-auto my-8 p-6 bg-white border rounded-xl shadow-sm space-y-8 text-xs">
-      <h1 className="text-base font-bold text-gray-900 border-b pb-3">👤 마이페이지</h1>
-
-      {/* 계정 기본 정보 */}
-      <div className="bg-gray-50 p-3 rounded-lg text-gray-600">
-        <p><span className="font-semibold text-gray-800">이메일:</span> {user?.email}</p>
+    <div className="max-w-xl mx-auto my-10 p-6 sm:p-8 bg-white border border-gray-100 rounded-3xl shadow-2xl space-y-6 text-xs font-sans">
+      <div className="flex items-center justify-between border-b pb-4">
+        <h1 className="text-xl font-black text-gray-900 tracking-tight">👤 마이페이지</h1>
+        <Link
+          href="/"
+          className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold rounded-xl transition text-[11px]"
+        >
+          ← 메인으로
+        </Link>
       </div>
 
-      {/* 닉네임 수정 폼 */}
-      <form onSubmit={handleUpdateNickname} className="space-y-3">
-        <h2 className="font-bold text-gray-800 text-sm">닉네임 수정</h2>
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={nickname}
-            onChange={(e) => setNickname(e.target.value)}
-            placeholder="새 닉네임 입력"
-            className="flex-1 px-3 py-2 border rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
-          />
-          <button
-            type="submit"
-            className="px-4 py-2 bg-blue-600 text-white font-bold rounded-md hover:bg-blue-700 transition"
-          >
-            수정
-          </button>
+      {/* 회원 정보 카드 */}
+      <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100 space-y-2">
+        <div className="flex justify-between items-center text-[11px]">
+          <span className="text-gray-400 font-medium">이메일 계정</span>
+          <span className="font-bold text-gray-800">{user?.email}</span>
         </div>
-      </form>
+        <div className="flex justify-between items-center text-[11px]">
+          <span className="text-gray-400 font-medium">계정 상태</span>
+          <span className="font-bold text-emerald-600">
+            {user?.user_metadata?.status || '정상'}
+          </span>
+        </div>
+      </div>
 
-      <hr />
+      {/* 닉네임 변경 폼 */}
+      <form onSubmit={handleUpdateProfile} className="space-y-4 pt-2 border-t">
+        <h2 className="font-bold text-sm text-gray-900">✏️ 닉네임 수정</h2>
 
-      {/* 비밀번호 변경 폼 */}
-      <form onSubmit={handleUpdatePassword} className="space-y-3">
-        <h2 className="font-bold text-gray-800 text-sm">비밀번호 변경</h2>
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="새 비밀번호 (6자리 이상)"
-          className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
-        />
-        <input
-          type="password"
-          value={confirmPassword}
-          onChange={(e) => setConfirmPassword(e.target.value)}
-          placeholder="새 비밀번호 확인"
-          className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
-        />
+        <div>
+          <label className="block font-bold text-gray-700 mb-1">닉네임 설정 *</label>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={newNickname}
+              onChange={(e) => {
+                setNewNickname(e.target.value);
+                setIsDuplicateChecked(false);
+              }}
+              placeholder="새로운 닉네임 입력"
+              required
+              className="flex-1 px-4 py-3 border border-gray-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+            />
+            <button
+              type="button"
+              onClick={handleCheckDuplicate}
+              className="px-4 py-3 bg-gray-800 hover:bg-gray-900 text-white font-bold rounded-xl text-xs shrink-0 transition"
+            >
+              중복 확인
+            </button>
+          </div>
+          {isDuplicateChecked && verifiedNickname === newNickname.trim() && (
+            <p className="text-emerald-600 font-bold text-[10px] mt-1">✓ 변경 가능한 닉네임입니다.</p>
+          )}
+        </div>
+
         <button
           type="submit"
-          className="w-full py-2 bg-gray-800 text-white font-bold rounded-md hover:bg-gray-900 transition"
+          disabled={updating}
+          className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl transition shadow-lg shadow-emerald-500/20 disabled:bg-gray-200 text-xs"
         >
-          비밀번호 변경하기
+          {updating ? '변경 내용 저장 중...' : '닉네임 변경 완료'}
         </button>
       </form>
-
-      <hr />
-
-      {/* 회원탈퇴 버튼 */}
-      <div className="pt-2">
-        <button
-          onClick={handleWithdraw}
-          className="w-full py-2 bg-red-50 text-red-600 font-bold border border-red-200 rounded-md hover:bg-red-100 transition"
-        >
-          ⚠️ 회원탈퇴
-        </button>
-      </div>
     </div>
   );
 }
