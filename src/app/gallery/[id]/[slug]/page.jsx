@@ -16,7 +16,7 @@ export default function PostDetailPage() {
   const [isBanned, setIsBanned] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // 검열 이미지 강제 표시 토글 상태
+  // 검열 사진 표시 상태
   const [showCensoredImage, setShowCensoredImage] = useState(false);
 
   // 댓글 관련 상태
@@ -30,12 +30,19 @@ export default function PostDetailPage() {
   const [reportDetail, setReportDetail] = useState('');
   const [submittingReport, setSubmittingReport] = useState(false);
 
+  // 🍞 토스트 알림 상태
+  const [toast, setToast] = useState({ show: false, message: '', type: 'info' });
+
+  const showToast = (message, type = 'info') => {
+    setToast({ show: true, message, type });
+    setTimeout(() => setToast({ show: false, message: '', type: 'info' }), 3000);
+  };
+
   useEffect(() => {
     const fetchData = async () => {
       if (!rawSlug) return;
       const decodedSlug = decodeURIComponent(rawSlug);
 
-      // 1. 세션 및 정지 상태 확인
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
         const user = session.user;
@@ -48,7 +55,6 @@ export default function PostDetailPage() {
         }
       }
 
-      // 2. 게시글 안전 조회
       let postData = null;
 
       const { data: slugMatch } = await supabase
@@ -69,14 +75,13 @@ export default function PostDetailPage() {
       }
 
       if (!postData) {
-        alert('존재하지 않거나 삭제된 게시글입니다.');
-        router.replace(`/gallery/${galleryId}`);
+        showToast('존재하지 않거나 삭제된 게시글입니다.', 'error');
+        setTimeout(() => router.replace(`/gallery/${galleryId}`), 1200);
         return;
       }
 
       setPost(postData);
 
-      // 3. 댓글 목록 조회
       const { data: commentData } = await supabase
         .from('comments')
         .select('*')
@@ -105,18 +110,18 @@ export default function PostDetailPage() {
     e.preventDefault();
 
     if (!currentUser) {
-      alert('로그인 후 댓글을 작성할 수 있습니다.');
-      router.push('/login');
+      showToast('로그인 후 댓글을 작성할 수 있습니다.', 'error');
+      setTimeout(() => router.push('/login'), 1200);
       return;
     }
 
     if (isBanned) {
-      alert('🚫 이용 정지 상태이므로 댓글 작성이 불가능합니다.');
+      showToast('🚫 계정이 정지되어 댓글 작성이 불가능합니다.', 'error');
       return;
     }
 
     if (!newComment.trim()) {
-      alert('댓글 내용을 입력해 주세요.');
+      showToast('댓글 내용을 입력해 주세요.', 'error');
       return;
     }
 
@@ -139,13 +144,14 @@ export default function PostDetailPage() {
         .select();
 
       if (error) {
-        alert('댓글 등록 오류: ' + error.message);
+        showToast('댓글 등록 실패: ' + error.message, 'error');
       } else if (data) {
         setComments((prev) => [...prev, data[0]]);
         setNewComment('');
+        showToast('✓ 댓글이 등록되었습니다.', 'success');
       }
     } catch {
-      alert('댓글 작성 중 오류가 발생했습니다.');
+      showToast('댓글 작성 중 오류가 발생했습니다.', 'error');
     } finally {
       setSubmittingComment(false);
     }
@@ -154,39 +160,37 @@ export default function PostDetailPage() {
   // 댓글 삭제
   const handleDeleteComment = async (commentId, commentUserEmail) => {
     if (currentUser?.email !== commentUserEmail) {
-      alert('본인의 댓글만 삭제할 수 있습니다.');
+      showToast('본인의 댓글만 삭제할 수 있습니다.', 'error');
       return;
     }
-
-    if (!confirm('댓글을 삭제하시겠습니까?')) return;
 
     try {
       const { error } = await supabase.from('comments').delete().eq('id', commentId);
       if (error) {
-        alert('댓글 삭제 실패: ' + error.message);
+        showToast('댓글 삭제 실패: ' + error.message, 'error');
       } else {
         setComments((prev) => prev.filter((c) => c.id !== commentId));
+        showToast('댓글이 삭제되었습니다.', 'info');
       }
     } catch {
-      alert('댓글 삭제 중 오류가 발생했습니다.');
+      showToast('댓글 삭제 중 오류가 발생했습니다.', 'error');
     }
   };
 
-  // 글 삭제
+  // 게시글 삭제
   const handleDeletePost = async () => {
     if (!isAuthor) return;
-    if (!confirm('정말로 이 게시글을 삭제하시겠습니까?')) return;
 
     try {
       const { error } = await supabase.from('posts').delete().eq('id', post.id);
       if (error) {
-        alert('삭제 실패: ' + error.message);
+        showToast('삭제 실패: ' + error.message, 'error');
       } else {
-        alert('게시글이 성공적으로 삭제되었습니다.');
-        router.replace(`/gallery/${galleryId}`);
+        showToast('게시글이 삭제되었습니다.', 'info');
+        setTimeout(() => router.replace(`/gallery/${galleryId}`), 1000);
       }
     } catch {
-      alert('삭제 중 오류가 발생했습니다.');
+      showToast('삭제 중 오류가 발생했습니다.', 'error');
     }
   };
 
@@ -195,7 +199,7 @@ export default function PostDetailPage() {
     e.preventDefault();
 
     if (isAuthor) {
-      alert('본인 글은 신고할 수 없습니다.');
+      showToast('본인 글은 신고할 수 없습니다.', 'error');
       return;
     }
 
@@ -213,14 +217,14 @@ export default function PostDetailPage() {
       ]);
 
       if (error) {
-        alert('신고 접수 실패: ' + error.message);
+        showToast('신고 접수 실패: ' + error.message, 'error');
       } else {
-        alert('신고가 정상 접수되었습니다.');
+        showToast('신고가 정상 접수되었습니다.', 'success');
         setIsReportModalOpen(false);
         setReportDetail('');
       }
     } catch {
-      alert('신고 접수 중 오류가 발생했습니다.');
+      showToast('신고 접수 중 오류가 발생했습니다.', 'error');
     } finally {
       setSubmittingReport(false);
     }
@@ -237,8 +241,7 @@ export default function PostDetailPage() {
   if (!post) return null;
 
   return (
-    <div className="max-w-3xl mx-auto my-10 p-6 sm:p-8 bg-white border border-gray-100 rounded-3xl shadow-2xl space-y-6 text-xs font-sans">
-      {/* 상단 버튼 */}
+    <div className="max-w-3xl mx-auto my-10 p-6 sm:p-8 bg-white border border-gray-100 rounded-3xl shadow-2xl space-y-6 text-xs font-sans relative">
       <div className="flex items-center justify-between border-b pb-4">
         <Link
           href={`/gallery/${galleryId}`}
@@ -274,7 +277,6 @@ export default function PostDetailPage() {
         </div>
       </div>
 
-      {/* 게시글 제목 및 날짜 */}
       <div className="space-y-3 border-b pb-5">
         <h1 className="text-xl sm:text-2xl font-black text-gray-900 leading-snug tracking-tight">
           {post.title}
@@ -289,10 +291,8 @@ export default function PostDetailPage() {
         </div>
       </div>
 
-      {/* 🖼️ 선택적 사진 검열 로직 */}
       {post.file_url && (
         <div className="p-3 bg-gray-50 rounded-2xl border border-gray-100 overflow-hidden relative">
-          {/* post.is_censored가 true일 때만 검열 필터 적용 */}
           {post.is_censored && !showCensoredImage ? (
             <div className="relative py-12 px-4 text-center space-y-3 bg-gray-100 rounded-xl border border-gray-200">
               <span className="text-3xl block">👁️‍🗨️</span>
@@ -326,12 +326,10 @@ export default function PostDetailPage() {
         </div>
       )}
 
-      {/* 게시글 본문 */}
       <div className="py-4 text-gray-800 text-sm leading-relaxed whitespace-pre-wrap min-h-[140px]">
         {post.content}
       </div>
 
-      {/* 💬 댓글 섹션 */}
       <div className="border-t pt-6 space-y-4">
         <h3 className="font-bold text-sm text-gray-900">
           💬 댓글 <span className="text-blue-600 font-extrabold">{comments.length}</span>개
@@ -444,6 +442,21 @@ export default function PostDetailPage() {
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {/* 🍞 커스텀 플로팅 토스트 UI */}
+      {toast.show && (
+        <div
+          className={`fixed bottom-6 right-6 z-50 px-5 py-3.5 rounded-2xl shadow-2xl text-xs font-bold transition-all border animate-bounce ${
+            toast.type === 'error'
+              ? 'bg-rose-50 text-rose-800 border-rose-200'
+              : toast.type === 'success'
+              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+              : 'bg-gray-900 text-white border-gray-800'
+          }`}
+        >
+          {toast.message}
         </div>
       )}
     </div>
