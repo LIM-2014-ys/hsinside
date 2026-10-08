@@ -14,6 +14,7 @@ export default function NewPostPage() {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
   // 현재 로그인한 사용자 정보 로드
   useEffect(() => {
@@ -27,16 +28,20 @@ export default function NewPostPage() {
   // 게시글 등록 처리
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setErrorMessage('');
 
     if (!title.trim() || !content.trim()) {
-      alert('제목과 내용을 모두 입력해주세요.');
+      setErrorMessage('제목과 내용을 모두 입력해주세요.');
       return;
     }
 
     setSubmitting(true);
 
     try {
-      // author_email과 author_name을 명시적으로 포함하여 DB 저장
+      // author_email null 제약 조건 방지를 위해 비로그인 시 기본 이메일 할당
+      const authorEmail = user?.email || 'anonymous@guest.local';
+      const authorName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || '익명';
+
       const { data, error } = await supabase
         .from('posts')
         .insert([
@@ -44,22 +49,21 @@ export default function NewPostPage() {
             gallery_id: galleryId,
             title: title.trim(),
             content: content.trim(),
-            author_name: user?.user_metadata?.full_name || user?.email?.split('@')[0] || '익명',
-            author_email: user?.email || null,
+            author_name: authorName,
+            author_email: authorEmail,
           },
         ])
         .select('*')
         .single();
 
       if (error) {
-        alert(`게시글 등록 실패: ${error.message}`);
+        setErrorMessage(`게시글 등록 실패: ${error.message}`);
       } else if (data) {
-        alert('게시글이 등록되었습니다.');
         router.push(`/gallery/${galleryId}`);
       }
     } catch (err) {
       console.error('글 작성 오류:', err);
-      alert('게시글 등록 중 오류가 발생했습니다.');
+      setErrorMessage('게시글 등록 중 오류가 발생했습니다.');
     } finally {
       setSubmitting(false);
     }
@@ -82,6 +86,13 @@ export default function NewPostPage() {
 
       {/* 작성 폼 */}
       <form onSubmit={handleSubmit} className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm space-y-4">
+        {/* 인라인 에러 메시지 바 */}
+        {errorMessage && (
+          <div className="p-3 bg-rose-50 border border-rose-200 text-rose-600 font-semibold rounded-xl text-xs">
+            ⚠️ {errorMessage}
+          </div>
+        )}
+
         <div>
           <label className="block text-gray-700 font-bold mb-1.5 text-xs">
             제목
@@ -90,7 +101,10 @@ export default function NewPostPage() {
             type="text"
             placeholder="제목을 입력하세요"
             value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            onChange={(e) => {
+              setTitle(e.target.value);
+              if (errorMessage) setErrorMessage('');
+            }}
             disabled={submitting}
             className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 text-xs transition"
           />
@@ -104,7 +118,10 @@ export default function NewPostPage() {
             rows={10}
             placeholder="내용을 작성해 보세요..."
             value={content}
-            onChange={(e) => setContent(e.target.value)}
+            onChange={(e) => {
+              setContent(e.target.value);
+              if (errorMessage) setErrorMessage('');
+            }}
             disabled={submitting}
             className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 text-xs transition resize-y"
           />
