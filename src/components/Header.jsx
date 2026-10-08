@@ -11,7 +11,6 @@ export default function Header() {
   const [nickname, setNickname] = useState('');
 
   useEffect(() => {
-    // 1. 초기 세션 불러오기
     const getInitialSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
@@ -29,7 +28,7 @@ export default function Header() {
 
     getInitialSession();
 
-    // 2. Auth 상태 및 프로필 변경 실시간 감지 (닉네임 변경 시 즉시 업데이트)
+    // 마이페이지 등의 닉네임 수정 시 상단 헤더 동기화
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       if (session?.user) {
         setUser(session.user);
@@ -53,7 +52,6 @@ export default function Header() {
     await supabase.auth.signOut();
     setUser(null);
     setNickname('');
-    alert('로그아웃 되었습니다.');
     router.push('/');
     router.refresh();
   };
