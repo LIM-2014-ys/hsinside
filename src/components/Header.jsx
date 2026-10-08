@@ -28,6 +28,10 @@ export default function Header() {
 
     getInitialSession();
 
+    <Link href="/gallery-request" className="text-gray-700 font-bold hover:text-emerald-600 transition">
+  갤러리 신청
+    </Link>
+
     // 마이페이지 등의 닉네임 수정 시 상단 헤더 동기화
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       if (session?.user) {
