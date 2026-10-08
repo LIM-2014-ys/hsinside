@@ -38,7 +38,7 @@ export default function NewPostPage() {
     setSubmitting(true);
 
     try {
-      // 닉네임 최우선 적용 (nickname -> display_name -> name -> full_name -> email 아이디 -> 익명)
+      // 닉네임 최우선 적용
       const authorName = 
         user?.user_metadata?.nickname ||
         user?.user_metadata?.display_name ||
@@ -49,10 +49,14 @@ export default function NewPostPage() {
 
       const authorEmail = user?.email || 'anonymous@guest.local';
 
+      // Date.now()를 사용하여 13자리 밀리초 타임스탬프 ID 생성
+      const customPostId = Date.now();
+
       const { data, error } = await supabase
         .from('posts')
         .insert([
           {
+            id: customPostId, // 👈 PK ID를 Date.now() 난수로 직접 지정
             gallery_id: galleryId,
             title: title.trim(),
             content: content.trim(),
@@ -66,7 +70,8 @@ export default function NewPostPage() {
       if (error) {
         setErrorMessage(`게시글 등록 실패: ${error.message}`);
       } else if (data) {
-        router.push(`/gallery/${galleryId}`);
+        // 등록 후 이동되는 상세 링크도 /gallery/galleryId/1728373434000 형태가 됨
+        router.push(`/gallery/${galleryId}/${data.id}`);
       }
     } catch (err) {
       console.error('글 작성 오류:', err);
