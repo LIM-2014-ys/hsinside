@@ -8,36 +8,41 @@ import { supabase } from '@/lib/supabaseClient';
 export default function SignUpPage() {
   const router = useRouter();
 
-  // 입력 폼 상태
+  // 입력 폼
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [nickname, setNickname] = useState('');
 
-  // 검증 상태
+  // alert 대신 인풋 하단 안내 텍스트 상태
+  const [nicknameMsg, setNicknameMsg] = useState({ text: '', type: '' });
   const [isNicknameChecked, setIsNicknameChecked] = useState(false);
   const [verifiedNickname, setVerifiedNickname] = useState('');
+
+  const [formMsg, setFormMsg] = useState({ text: '', type: '' });
   const [slideVerified, setSlideVerified] = useState(false);
   const [sliderPosition, setSliderPosition] = useState(0);
   const [loading, setLoading] = useState(false);
 
-  // 약관 동의 상태
+  // 이용약관
   const [terms, setTerms] = useState({
     service: false,
     privacy: false,
     overseas: false,
   });
 
-  // 약관 전체 선택
   const handleAllTerms = (e) => {
     const checked = e.target.checked;
     setTerms({ service: checked, privacy: checked, overseas: checked });
   };
 
-  // 닉네임 중복 체크 (data.length > 0 검증)
+  // 🔍 회원가입 닉네임 중복 확인
   const handleCheckNickname = async () => {
-    if (!nickname.trim()) {
-      alert('닉네임을 입력해 주세요.');
+    const trimmed = nickname.trim();
+
+    if (!trimmed) {
+      setNicknameMsg({ text: '닉네임을 입력해 주세요.', type: 'error' });
+      setIsNicknameChecked(false);
       return;
     }
 
@@ -45,30 +50,29 @@ export default function SignUpPage() {
       const { data, error } = await supabase
         .from('profiles')
         .select('id')
-        .eq('display_name', nickname.trim());
+        .eq('display_name', trimmed);
 
       if (error && error.code !== 'PGRST116') {
-        // profiles 테이블이 따로 없을 시 fallback 검사
+        setNicknameMsg({ text: '사용 가능한 닉네임입니다.', type: 'success' });
         setIsNicknameChecked(true);
-        setVerifiedNickname(nickname.trim());
-        alert('사용 가능한 닉네임입니다.');
+        setVerifiedNickname(trimmed);
         return;
       }
 
       if (data && data.length > 0) {
-        alert('이미 사용 중인 닉네임입니다. 다른 닉네임을 입력해 주세요.');
+        setNicknameMsg({ text: '이미 사용 중인 닉네임입니다. 다른 닉네임을 입력해 주세요.', type: 'error' });
         setIsNicknameChecked(false);
       } else {
-        alert('사용 가능한 닉네임입니다.');
+        setNicknameMsg({ text: '사용 가능한 닉네임입니다.', type: 'success' });
         setIsNicknameChecked(true);
-        setVerifiedNickname(nickname.trim());
+        setVerifiedNickname(trimmed);
       }
     } catch {
-      alert('닉네임 중복 확인 중 오류가 발생했습니다.');
+      setNicknameMsg({ text: '닉네임 중복 확인 중 오류가 발생했습니다.', type: 'error' });
+      setIsNicknameChecked(false);
     }
   };
 
-  // 슬라이드 검증
   const handleSliderChange = (e) => {
     const value = Number(e.target.value);
     setSliderPosition(value);
@@ -81,31 +85,31 @@ export default function SignUpPage() {
   // 회원가입 제출
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setFormMsg({ text: '', type: '' });
 
     if (!terms.service || !terms.privacy || !terms.overseas) {
-      alert('필수 이용약관에 모두 동의해야 합니다.');
+      setFormMsg({ text: '필수 이용약관에 모두 동의하셔야 합니다.', type: 'error' });
       return;
     }
 
     if (!isNicknameChecked || verifiedNickname !== nickname.trim()) {
-      alert('닉네임 중복 확인을 완료해 주세요.');
+      setNicknameMsg({ text: '닉네임 중복 확인을 완료해 주세요.', type: 'error' });
       return;
     }
 
     if (password !== confirmPassword) {
-      alert('비밀번호가 일치하지 않습니다.');
+      setFormMsg({ text: '비밀번호가 일치하지 않습니다.', type: 'error' });
       return;
     }
 
     if (!slideVerified) {
-      alert('슬라이드 보안 인증을 완료해 주세요.');
+      setFormMsg({ text: '보안 슬라이드 인증을 완료해 주세요.', type: 'error' });
       return;
     }
 
     setLoading(true);
 
     try {
-      // 📌 emailRedirectTo를 절대 포함하지 않아 불필요한 이메일 발송 차단
       const { data, error } = await supabase.auth.signUp({
         email: email.trim(),
         password,
@@ -119,15 +123,13 @@ export default function SignUpPage() {
       });
 
       if (error) {
-        // 이메일 미인증 모드 전용 안내
         if (error.message.includes('Error sending confirmation email')) {
-          alert('가입 승인 처리 완료: 바로 로그인하실 수 있습니다.');
-          router.push('/login');
+          setFormMsg({ text: '가입 승인 처리 완료! 바로 로그인하실 수 있습니다.', type: 'success' });
+          setTimeout(() => router.push('/login'), 1200);
         } else {
-          alert('회원가입 실패: ' + error.message);
+          setFormMsg({ text: '회원가입 실패: ' + error.message, type: 'error' });
         }
       } else if (data.user) {
-        // 중복 체크용 profiles 테이블 동기화 (존재하는 경우)
         await supabase.from('profiles').upsert([
           {
             id: data.user.id,
@@ -136,11 +138,11 @@ export default function SignUpPage() {
           },
         ]);
 
-        alert('🎉 회원가입이 완료되었습니다! 로그인 페이지로 이동합니다.');
-        router.push('/login');
+        setFormMsg({ text: '🎉 회원가입이 완료되었습니다! 로그인 페이지로 이동합니다.', type: 'success' });
+        setTimeout(() => router.push('/login'), 1200);
       }
     } catch {
-      alert('회원가입 처리 중 오류가 발생했습니다.');
+      setFormMsg({ text: '회원가입 처리 중 오류가 발생했습니다.', type: 'error' });
     } finally {
       setLoading(false);
     }
@@ -177,6 +179,7 @@ export default function SignUpPage() {
               onChange={(e) => {
                 setNickname(e.target.value);
                 setIsNicknameChecked(false);
+                setNicknameMsg({ text: '', type: '' });
               }}
               placeholder="사용할 닉네임"
               required
@@ -190,8 +193,16 @@ export default function SignUpPage() {
               중복 확인
             </button>
           </div>
-          {isNicknameChecked && verifiedNickname === nickname.trim() && (
-            <p className="text-emerald-600 font-bold text-[10px] mt-1">✓ 확인된 닉네임입니다.</p>
+
+          {/* 💬 alert 대신 하단 안내 문구 */}
+          {nicknameMsg.text && (
+            <p
+              className={`mt-1.5 font-bold text-[11px] ${
+                nicknameMsg.type === 'success' ? 'text-emerald-600' : 'text-rose-600'
+              }`}
+            >
+              {nicknameMsg.text}
+            </p>
           )}
         </div>
 
@@ -221,7 +232,7 @@ export default function SignUpPage() {
           />
         </div>
 
-        {/* 📜 필수 이용약관 */}
+        {/* 약관 동의 */}
         <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100 space-y-2.5">
           <label className="flex items-center gap-2 font-bold text-gray-800 pb-1 border-b border-gray-200 cursor-pointer">
             <input
@@ -264,7 +275,7 @@ export default function SignUpPage() {
           </label>
         </div>
 
-        {/* 🧩 보안 슬라이더 */}
+        {/* 보안 슬라이더 */}
         <div className="p-4 bg-emerald-50/50 border border-emerald-100 rounded-2xl space-y-2">
           <label className="block font-bold text-emerald-900 text-[11px]">
             {slideVerified ? '✅ 보안 인증 완료' : '👉 슬라이더를 끝까지 밀어주세요'}
@@ -279,6 +290,17 @@ export default function SignUpPage() {
             className="w-full accent-emerald-600 cursor-pointer"
           />
         </div>
+
+        {/* 💬 양식 실패/성공 안내 메시지 */}
+        {formMsg.text && (
+          <p
+            className={`font-bold text-[11px] text-center ${
+              formMsg.type === 'success' ? 'text-emerald-600' : 'text-rose-600'
+            }`}
+          >
+            {formMsg.text}
+          </p>
+        )}
 
         <button
           type="submit"
