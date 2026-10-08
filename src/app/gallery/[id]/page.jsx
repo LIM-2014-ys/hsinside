@@ -10,32 +10,45 @@ export default function GalleryPage() {
   const router = useRouter();
   const galleryId = params.id;
 
+  const [galleryInfo, setGalleryInfo] = useState(null);
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
-    const fetchPosts = async () => {
+    const fetchData = async () => {
       setLoading(true);
       try {
-        const { data, error } = await supabase
+        // 1. galleries 테이블에서 갤러리 이름 및 정보 조회
+        const { data: galleryData } = await supabase
+          .from('galleries')
+          .select('*')
+          .eq('id', galleryId)
+          .maybeSingle();
+
+        if (galleryData) {
+          setGalleryInfo(galleryData);
+        }
+
+        // 2. 해당 갤러리의 게시글 목록 조회
+        const { data: postsData, error: postsError } = await supabase
           .from('posts')
           .select('*')
           .eq('gallery_id', galleryId)
           .order('created_at', { ascending: false });
 
-        if (!error && data) {
-          setPosts(data);
+        if (!postsError && postsData) {
+          setPosts(postsData);
         }
       } catch (err) {
-        console.error('게시글 불러오기 실패:', err);
+        console.error('갤러리 데이터를 불러오는 중 오류 발생:', err);
       } finally {
         setLoading(false);
       }
     };
 
     if (galleryId) {
-      fetchPosts();
+      fetchData();
     }
   }, [galleryId]);
 
@@ -44,16 +57,20 @@ export default function GalleryPage() {
     (post.author_name && post.author_name.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
+  // 갤러리 이름 fallback (galleries 테이블에 없을 경우 번호 표기)
+  const galleryTitle = galleryInfo?.name || galleryInfo?.title || `갤러리 (${galleryId})`;
+  const galleryDesc = galleryInfo?.description || '자유롭게 의견을 나누는 공간입니다.';
+
   return (
     <div className="max-w-4xl mx-auto my-8 px-4 font-sans text-xs">
       {/* 갤러리 헤더 및 글쓰기 버튼 */}
       <div className="flex items-center justify-between border-b pb-4 mb-6">
         <div>
           <h1 className="text-xl font-black text-gray-900 tracking-tight">
-            📌 갤러리 (#{galleryId})
+            📌 {galleryTitle}
           </h1>
           <p className="text-gray-400 text-[11px] mt-0.5">
-            자유롭게 의견을 나누는 공간입니다.
+            {galleryDesc}
           </p>
         </div>
         <Link
