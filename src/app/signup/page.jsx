@@ -8,13 +8,11 @@ import { supabase } from '@/lib/supabaseClient';
 export default function SignUpPage() {
   const router = useRouter();
 
-  // 입력 폼
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [nickname, setNickname] = useState('');
 
-  // alert 대신 인풋 하단 안내 텍스트 상태
   const [nicknameMsg, setNicknameMsg] = useState({ text: '', type: '' });
   const [isNicknameChecked, setIsNicknameChecked] = useState(false);
   const [verifiedNickname, setVerifiedNickname] = useState('');
@@ -24,7 +22,6 @@ export default function SignUpPage() {
   const [sliderPosition, setSliderPosition] = useState(0);
   const [loading, setLoading] = useState(false);
 
-  // 이용약관
   const [terms, setTerms] = useState({
     service: false,
     privacy: false,
@@ -36,7 +33,6 @@ export default function SignUpPage() {
     setTerms({ service: checked, privacy: checked, overseas: checked });
   };
 
-  // 🔍 회원가입 닉네임 중복 확인
   const handleCheckNickname = async () => {
     const trimmed = nickname.trim();
 
@@ -82,7 +78,6 @@ export default function SignUpPage() {
     }
   };
 
-  // 회원가입 제출
   const handleSubmit = async (e) => {
     e.preventDefault();
     setFormMsg({ text: '', type: '' });
@@ -156,7 +151,6 @@ export default function SignUpPage() {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        {/* 이메일 */}
         <div>
           <label className="block font-bold text-gray-700 mb-1">이메일 계정 *</label>
           <input
@@ -169,7 +163,6 @@ export default function SignUpPage() {
           />
         </div>
 
-        {/* 닉네임 + 중복 확인 */}
         <div>
           <label className="block font-bold text-gray-700 mb-1">닉네임 *</label>
           <div className="flex gap-2">
@@ -194,7 +187,6 @@ export default function SignUpPage() {
             </button>
           </div>
 
-          {/* 💬 alert 대신 하단 안내 문구 */}
           {nicknameMsg.text && (
             <p
               className={`mt-1.5 font-bold text-[11px] ${
@@ -206,7 +198,6 @@ export default function SignUpPage() {
           )}
         </div>
 
-        {/* 비밀번호 */}
         <div>
           <label className="block font-bold text-gray-700 mb-1">비밀번호 *</label>
           <input
@@ -219,7 +210,6 @@ export default function SignUpPage() {
           />
         </div>
 
-        {/* 비밀번호 확인 */}
         <div>
           <label className="block font-bold text-gray-700 mb-1">비밀번호 확인 *</label>
           <input
@@ -232,7 +222,6 @@ export default function SignUpPage() {
           />
         </div>
 
-        {/* 약관 동의 */}
         <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100 space-y-2.5">
           <label className="flex items-center gap-2 font-bold text-gray-800 pb-1 border-b border-gray-200 cursor-pointer">
             <input
@@ -275,7 +264,6 @@ export default function SignUpPage() {
           </label>
         </div>
 
-        {/* 보안 슬라이더 */}
         <div className="p-4 bg-emerald-50/50 border border-emerald-100 rounded-2xl space-y-2">
           <label className="block font-bold text-emerald-900 text-[11px]">
             {slideVerified ? '✅ 보안 인증 완료' : '👉 슬라이더를 끝까지 밀어주세요'}
@@ -291,7 +279,6 @@ export default function SignUpPage() {
           />
         </div>
 
-        {/* 💬 양식 실패/성공 안내 메시지 */}
         {formMsg.text && (
           <p
             className={`font-bold text-[11px] text-center ${
