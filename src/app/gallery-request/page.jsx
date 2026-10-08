@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
-import AdminBadge, { isAdminEmail } from '@/components/AdminBadge';
+import { isAdminEmail } from '@/lib/admin';
+import AdminBadge from '@/components/AdminBadge';
 
 export default function AdminGalleryRequestsPage() {
   const [user, setUser] = useState(null);
