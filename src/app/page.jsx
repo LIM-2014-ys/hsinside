@@ -23,9 +23,9 @@ export default async function HomePage() {
             원하는 갤러리를 선택하여 게시글을 확인하고 작성해 보세요.
           </p>
         </div>
-        {/* 갤러리 신청 버튼 */}
+        {/* 갤러리 신청 버튼 (/gallery-request 로 수정) */}
         <Link
-          href="/gallery/request"
+          href="/gallery-request"
           className="px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl transition shadow-md shadow-amber-500/20 text-xs flex items-center gap-1.5"
         >
           📢 갤러리 신청하기
