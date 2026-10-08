@@ -22,41 +22,47 @@ export default function PostWritePage() {
   const [user, setUser] = useState(null);
   const [isBanned, setIsBanned] = useState(false);
 
+  // 🍞 토스트 알림 상태 (alert 완전 대체)
+  const [toast, setToast] = useState({ show: false, message: '', type: 'info' });
+
+  const showToast = (message, type = 'info') => {
+    setToast({ show: true, message, type });
+    setTimeout(() => setToast({ show: false, message: '', type: 'info' }), 3000);
+  };
+
   useEffect(() => {
     const checkAuthAndBan = async () => {
-      // 1. 세션 로그인 체크
       const { data: { session } } = await supabase.auth.getSession();
 
       if (!session?.user) {
-        alert('로그인 후 글을 작성할 수 있습니다.');
-        router.replace('/login');
+        showToast('로그인 후 글을 작성할 수 있습니다.', 'error');
+        setTimeout(() => router.replace('/login'), 1200);
         return;
       }
 
       const currentUser = session.user;
       setUser(currentUser);
 
-      // 2. 유저 메타데이터 기반 정지 여부 검사
       const userStatus = currentUser.user_metadata?.status;
       const userBanned = currentUser.user_metadata?.banned;
 
       if (userStatus === '이용정지' || userBanned === true) {
         setIsBanned(true);
-        alert('🚫 귀하의 계정은 현재 이용 정지 상태이므로 글 및 파일 작성이 차단됩니다.');
-        router.replace(`/gallery/${galleryId}`);
+        showToast('🚫 계정이 정지 상태이므로 글 및 파일 작성이 제한됩니다.', 'error');
+        setTimeout(() => router.replace(`/gallery/${galleryId}`), 1500);
       }
     };
 
     checkAuthAndBan();
   }, [galleryId, router]);
 
-  // 📁 Supabase Storage 'attachments' 버킷 직접 파일 업로드
+  // 📁 Supabase Storage 파일 업로드 핸들러
   const handleFileChange = async (e) => {
     const selectedFile = e.target.files?.[0];
     if (!selectedFile) return;
 
     if (isBanned) {
-      alert('🚫 이용 정지 상태에서는 파일 업로드가 불가능합니다.');
+      showToast('🚫 이용 정지 상태에서는 파일 업로드가 불가능합니다.', 'error');
       return;
     }
 
@@ -72,16 +78,21 @@ export default function PostWritePage() {
         .from('attachments')
         .upload(filePath, selectedFile);
 
-      if (uploadError) throw uploadError;
+      if (uploadError) {
+        if (uploadError.message.includes('row-level security')) {
+          throw new Error('스토리지 보안 정책(RLS) 승인이 필요합니다.');
+        }
+        throw uploadError;
+      }
 
       const { data: publicUrlData } = supabase.storage
         .from('attachments')
         .getPublicUrl(filePath);
 
       setUploadedFileUrl(publicUrlData.publicUrl);
-      alert('파일 업로드가 완료되었습니다.');
+      showToast('✓ 파일이 성공적으로 업로드되었습니다.', 'success');
     } catch (err) {
-      alert('파일 업로드 실패: ' + (err.message || '오류가 발생했습니다.'));
+      showToast('파일 업로드 실패: ' + (err.message || '오류가 발생했습니다.'), 'error');
       setFile(null);
     } finally {
       setUploading(false);
@@ -93,24 +104,22 @@ export default function PostWritePage() {
     e.preventDefault();
 
     if (!user) {
-      alert('로그인이 필요합니다.');
+      showToast('로그인이 필요합니다.', 'error');
       return;
     }
 
-    // 🔒 제출 시 2차 정지 차단 검증
-    if (isBanned || user.user_metadata?.status === '이용정지' || user.user_metadata?.banned === true) {
-      alert('🚫 귀하의 계정은 현재 이용 정지 상태이므로 글 작성이 완전히 금지됩니다.');
+    if (isBanned) {
+      showToast('🚫 정지 상태에서는 글을 작성할 수 없습니다.', 'error');
       return;
     }
 
     if (!title.trim() || !content.trim()) {
-      alert('제목과 내용을 모두 입력해 주세요.');
+      showToast('제목과 내용을 모두 입력해 주세요.', 'error');
       return;
     }
 
     setLoading(true);
 
-    // 영문/숫자 기반의 명확한 slug 생성
     const generatedSlug = `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     const authorName = user.user_metadata?.display_name || user.email?.split('@')[0] || '익명';
 
@@ -124,44 +133,28 @@ export default function PostWritePage() {
           author_email: user.email,
           user_id: user.id,
           file_url: uploadedFileUrl || null,
+          is_censored: false,
           slug: generatedSlug,
         },
       ]);
 
       if (error) {
-        alert('글 작성 중 오류가 발생했습니다: ' + error.message);
+        showToast('글 작성 중 오류: ' + error.message, 'error');
       } else {
-        alert('게시글이 성공적으로 등록되었습니다.');
-        router.push(`/gallery/${galleryId}`);
+        showToast('🎉 게시글이 등록되었습니다.', 'success');
+        setTimeout(() => router.push(`/gallery/${galleryId}`), 1000);
       }
     } catch {
-      alert('글 작성 중 오류가 발생했습니다.');
+      showToast('글 작성 처리 중 오류가 발생했습니다.', 'error');
     } finally {
       setLoading(false);
     }
   };
 
-  if (isBanned) {
-    return (
-      <div className="max-w-md mx-auto my-16 p-8 bg-rose-50 border border-rose-200 rounded-3xl text-center space-y-4">
-        <span className="text-3xl block">🚫</span>
-        <h2 className="text-base font-black text-rose-900">글 작성 권한 제한</h2>
-        <p className="text-xs text-rose-700 leading-relaxed">
-          귀하의 계정은 현재 이용 정지 상태입니다.<br />
-          모든 게시글 및 파일 업로드 작성이 제한됩니다.
-        </p>
-        <Link
-          href={`/gallery/${galleryId}`}
-          className="inline-block px-4 py-2 bg-rose-600 text-white font-bold rounded-xl text-xs shadow-md"
-        >
-          목록으로 돌아가기
-        </Link>
-      </div>
-    );
-  }
+  if (isBanned) return null;
 
   return (
-    <div className="max-w-2xl mx-auto my-10 p-6 sm:p-8 bg-white border border-gray-100 rounded-3xl shadow-2xl space-y-6 text-xs font-sans">
+    <div className="max-w-2xl mx-auto my-10 p-6 sm:p-8 bg-white border border-gray-100 rounded-3xl shadow-2xl space-y-6 text-xs font-sans relative">
       <div className="flex items-center justify-between border-b pb-4">
         <Link
           href={`/gallery/${galleryId}`}
@@ -173,7 +166,6 @@ export default function PostWritePage() {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        {/* 제목 */}
         <div>
           <label className="block font-bold text-gray-700 mb-1">게시글 제목 *</label>
           <input
@@ -186,7 +178,6 @@ export default function PostWritePage() {
           />
         </div>
 
-        {/* 📁 파일 직접 첨부 */}
         <div>
           <label className="block font-bold text-gray-700 mb-1">첨부 파일 / 이미지 (선택)</label>
           <div className="p-4 border border-dashed border-gray-200 rounded-2xl bg-gray-50/50 space-y-2">
@@ -207,7 +198,6 @@ export default function PostWritePage() {
           </div>
         </div>
 
-        {/* 본문 */}
         <div>
           <label className="block font-bold text-gray-700 mb-1">내용 *</label>
           <textarea
@@ -230,6 +220,21 @@ export default function PostWritePage() {
           </button>
         </div>
       </form>
+
+      {/* 🍞 커스텀 플로팅 토스트 UI */}
+      {toast.show && (
+        <div
+          className={`fixed bottom-6 right-6 z-50 px-5 py-3.5 rounded-2xl shadow-2xl text-xs font-bold transition-all border animate-bounce ${
+            toast.type === 'error'
+              ? 'bg-rose-50 text-rose-800 border-rose-200'
+              : toast.type === 'success'
+              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+              : 'bg-gray-900 text-white border-gray-800'
+          }`}
+        >
+          {toast.message}
+        </div>
+      )}
     </div>
   );
 }
