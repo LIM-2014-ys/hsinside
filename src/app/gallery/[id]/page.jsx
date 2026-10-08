@@ -49,6 +49,13 @@ export default function GalleryDetailPage() {
     fetchGalleryAndPosts();
   }, [galleryId]);
 
+  // 이미지 파일 확장자 판별 함수
+  const isImageFile = (url, fileName) => {
+    if (!url) return false;
+    const targetStr = (fileName || url).toLowerCase();
+    return /\.(jpg|jpeg|png|gif|webp|svg|bmp)(\?.*)?$/i.test(targetStr);
+  };
+
   if (loading) {
     return (
       <div className="max-w-4xl mx-auto my-16 text-center text-gray-400 font-bold text-xs">
@@ -84,7 +91,7 @@ export default function GalleryDetailPage() {
         </Link>
       </div>
 
-      {/* 게시글 목록 테이블 (번호 제외) */}
+      {/* 게시글 목록 테이블 */}
       <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
         <div className="grid grid-cols-12 gap-2 px-4 py-2.5 bg-gray-50 border-b border-gray-100 text-gray-400 font-bold text-[11px]">
           <div className="col-span-7">제목</div>
@@ -98,26 +105,36 @@ export default function GalleryDetailPage() {
           </div>
         ) : (
           <div className="divide-y divide-gray-100">
-            {posts.map((post) => (
-              <Link
-                key={post.id}
-                href={`/gallery/${galleryId}/${post.id}`}
-                className="grid grid-cols-12 gap-2 px-4 py-3.5 items-center hover:bg-gray-50/80 transition text-gray-800"
-              >
-                <div className="col-span-7 font-bold text-gray-900 truncate pr-2">
-                  {post.title}
-                </div>
-                <div className="col-span-3 flex items-center gap-0.5 truncate">
-                  <span className="font-semibold text-gray-700 truncate">
-                    {post.author_name || post.author_email?.split('@')[0] || '익명'}
-                  </span>
-                  <AdminBadge email={post.author_email} />
-                </div>
-                <div className="col-span-2 text-right text-gray-400 text-[10px]">
-                  {new Date(post.created_at).toLocaleDateString('ko-KR')}
-                </div>
-              </Link>
-            ))}
+            {posts.map((post) => {
+              const hasFile = Boolean(post.file_url);
+              const isImg = isImageFile(post.file_url, post.file_name);
+
+              return (
+                <Link
+                  key={post.id}
+                  href={`/gallery/${galleryId}/${post.id}`}
+                  className="grid grid-cols-12 gap-2 px-4 py-3.5 items-center hover:bg-gray-50/80 transition text-gray-800"
+                >
+                  <div className="col-span-7 font-bold text-gray-900 flex items-center gap-1.5 pr-2 overflow-hidden">
+                    <span className="truncate">{post.title}</span>
+                    {hasFile && (
+                      <span className="shrink-0 text-[11px]" title={isImg ? '사진 첨부' : '파일 첨부'}>
+                        {isImg ? '🖼️' : '📎'}
+                      </span>
+                    )}
+                  </div>
+                  <div className="col-span-3 flex items-center gap-0.5 truncate">
+                    <span className="font-semibold text-gray-700 truncate">
+                      {post.author_name || post.author_email?.split('@')[0] || '익명'}
+                    </span>
+                    <AdminBadge email={post.author_email} />
+                  </div>
+                  <div className="col-span-2 text-right text-gray-400 text-[10px]">
+                    {new Date(post.created_at).toLocaleDateString('ko-KR')}
+                  </div>
+                </Link>
+              );
+            })}
           </div>
         )}
       </div>
