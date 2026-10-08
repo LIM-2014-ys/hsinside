@@ -5,10 +5,12 @@ export const ADMIN_EMAILS = [
   '2026ys6809@goe.go.kr',
 ];
 
-// 이메일이 관리자인지 확인하는 함수
-export const isAdminEmail = (email) => {
+/**
+ * 이메일이 관리자 이메일인지 확인하는 함수
+ * @param {string|null} email 
+ * @returns {boolean}
+ */
+export function isAdminEmail(email) {
   if (!email) return false;
-  return ADMIN_EMAILS.map((e) => e.toLowerCase().trim()).includes(
-    email.toLowerCase().trim()
-  );
-};
+  return ADMIN_EMAILS.includes(email.trim().toLowerCase());
+}
