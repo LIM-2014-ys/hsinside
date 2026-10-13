@@ -3,6 +3,7 @@ export const ADMIN_EMAILS = [
   'treetowood@goedu.kr',
   '2026ys6807@goe.go.kr',
   '2026ys6809@goe.go.kr',
+  '2026ys6805@goe.go.kr',
 ];
 
 /**
