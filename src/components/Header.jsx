@@ -55,10 +55,13 @@ export default function Header() {
         <div className="flex items-center gap-2 sm:gap-3">
           {user ? (
             <>
-              {/* OOO님 표기 */}
-              <span className="text-gray-700 font-bold text-xs truncate max-w-[120px] sm:max-w-[180px]">
+              {/* OOO님 표기 (클릭 시 /mypage/[id] 로 이동) */}
+              <Link
+                href={`/mypage/${user.id}`}
+                className="text-gray-700 font-bold text-xs truncate max-w-[120px] sm:max-w-[180px] hover:underline"
+              >
                 <span className="text-blue-600 font-extrabold">{displayName}</span>님
-              </span>
+              </Link>
 
               {/* 관리자 전용 배지 */}
               {isAdmin && (
@@ -67,9 +70,9 @@ export default function Header() {
                 </span>
               )}
 
-              {/* 마이페이지 버튼 */}
+              {/* 마이페이지 버튼 (클릭 시 /mypage/[id] 로 이동) */}
               <Link
-                href="/mypage"
+                href={`/mypage/${user.id}`}
                 className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-lg text-xs transition"
               >
                 마이페이지
