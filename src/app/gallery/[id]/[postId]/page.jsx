@@ -26,7 +26,7 @@ export default function PostDetailPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isReportOpen, setIsReportOpen] = useState(false);
 
-  // 사용자 정보 로드 및 알림 권한 요청
+  // 사용자 정보 로드 및 알림 권한
   useEffect(() => {
     const fetchUser = async () => {
       const { data: { user: currentUser } } = await supabase.auth.getUser();
