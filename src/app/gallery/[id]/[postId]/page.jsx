@@ -169,7 +169,7 @@ export default function PostDetailPage() {
     return /\.(jpg|jpeg|png|gif|webp|svg|bmp)(\?.*)?$/i.test(targetStr);
   };
 
-  // 유튜브 URL 파싱 및 Embed 플레이어 주소 추출 (웹 표준 URL API 사용)
+  // 유튜브 URL 파싱 및 Embed 플레이어 주소 추출
   const getYouTubeEmbedUrl = (urlStr) => {
     try {
       const validUrl = urlStr.startsWith('www.') ? `https://${urlStr}` : urlStr;
@@ -194,11 +194,10 @@ export default function PostDetailPage() {
     }
   };
 
-  // 범용 URL 감지 및 멘션, 하이퍼링크, 유튜브 플레이어 렌더링 함수
-  const renderContent = (content) => {
+  // 멘션 및 하이퍼링크 렌더링 함수 (isComment: 댓글 여부 구분)
+  const renderContent = (content, isComment = false) => {
     if (!content) return null;
 
-    // 공백 기반 URL 및 멘션 패턴 토큰 분리
     const tokenRegex = /((?:https?:\/\/|www\.)[^\s]+|@[^\s,.:;!?"'()\[\]{}]+)/g;
     const parts = content.split(tokenRegex);
     const youtubeEmbeds = [];
@@ -219,12 +218,11 @@ export default function PostDetailPage() {
         return part;
       }
 
-      // 2. 범용 URL 감지 및 하이퍼링크 처리
+      // 2. 범용 URL 감지 및 하이퍼링크 처리 (이모지 제거됨)
       if (part.startsWith('http://') || part.startsWith('https://') || part.startsWith('www.')) {
         let cleanUrl = part;
         let trailingPunct = '';
 
-        // 문장 끝 구두점(., !? 등) 분리
         const matchPunct = cleanUrl.match(/([.,;:!?)]+)$/);
         if (matchPunct) {
           trailingPunct = matchPunct[0];
@@ -233,14 +231,16 @@ export default function PostDetailPage() {
 
         const href = cleanUrl.startsWith('www.') ? `https://${cleanUrl}` : cleanUrl;
         
-        // 네이버 모바일 서브도메인 -> PC도메인 자동 정제
         const targetHref = href
           .replace('://m.sports.naver.com', '://sports.naver.com')
           .replace('://m.news.naver.com', '://news.naver.com');
 
-        const embedUrl = getYouTubeEmbedUrl(targetHref);
-        if (embedUrl && !youtubeEmbeds.includes(embedUrl)) {
-          youtubeEmbeds.push(embedUrl);
+        // 게시글 본문일 경우에만 유튜브 미디어 플레이어 추출
+        if (!isComment) {
+          const embedUrl = getYouTubeEmbedUrl(targetHref);
+          if (embedUrl && !youtubeEmbeds.includes(embedUrl)) {
+            youtubeEmbeds.push(embedUrl);
+          }
         }
 
         return (
@@ -251,7 +251,7 @@ export default function PostDetailPage() {
               rel="noopener noreferrer"
               className="text-blue-600 hover:text-blue-800 underline font-medium break-all active:text-blue-900"
             >
-              🔗 {cleanUrl}
+              {cleanUrl}
             </a>
             {trailingPunct}
           </span>
@@ -265,8 +265,8 @@ export default function PostDetailPage() {
       <div className="space-y-3">
         <div>{renderedText}</div>
 
-        {/* 유튜브 영상 플레이어 삽입 */}
-        {youtubeEmbeds.map((embedUrl, yIdx) => (
+        {/* 게시글 본문일 때만 유튜브 동영상 플레이어 삽입 */}
+        {!isComment && youtubeEmbeds.map((embedUrl, yIdx) => (
           <div key={yIdx} className="my-3 aspect-video w-full max-w-lg overflow-hidden rounded-xl border border-gray-100 shadow-xs bg-black">
             <iframe
               src={embedUrl}
@@ -483,9 +483,9 @@ export default function PostDetailPage() {
           </div>
         </div>
 
-        {/* 게시글 본문 */}
+        {/* 게시글 본문 (유튜브 영상 플레이어 삽입 포함) */}
         <div className="text-gray-800 leading-normal min-h-[60px] sm:min-h-[80px] whitespace-pre-wrap text-[11px] sm:text-[12px] pt-2 border-t border-gray-50 break-words select-text">
-          {renderContent(post.content)}
+          {renderContent(post.content, false)}
         </div>
 
         {hasImage && (
@@ -519,7 +519,7 @@ export default function PostDetailPage() {
         )}
       </div>
 
-      {/* 댓글 영역 */}
+      {/* 댓글 영역 (하단 댓글은 텍스트 하이퍼링크만 깔끔하게 연결) */}
       <div className="bg-white border border-gray-100 rounded-2xl p-4 sm:p-6 shadow-xs space-y-3">
         <h3 className="font-bold text-xs sm:text-sm text-gray-900">💬 댓글 ({comments.length})</h3>
 
@@ -562,7 +562,7 @@ export default function PostDetailPage() {
                       </span>
                     </div>
                     <div className="text-gray-700 text-[11px] sm:text-xs leading-snug break-words select-text">
-                      {renderContent(comment.content)}
+                      {renderContent(comment.content, true)}
                     </div>
                   </div>
 
