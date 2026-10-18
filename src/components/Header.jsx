@@ -67,7 +67,7 @@ export default function Header() {
                 </span>
               )}
 
-              {/* 마이페이지 버튼 (일반/어드민 공통 노출) */}
+              {/* 마이페이지 버튼 */}
               <Link
                 href="/mypage"
                 className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-lg text-xs transition"
@@ -84,12 +84,23 @@ export default function Header() {
               </button>
             </>
           ) : (
-            <Link
-              href="/login"
-              className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-xs transition shadow-sm"
-            >
-              로그인
-            </Link>
+            <>
+              {/* 회원가입 버튼 */}
+              <Link
+                href="/signup"
+                className="px-3.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-lg text-xs transition"
+              >
+                회원가입
+              </Link>
+
+              {/* 로그인 버튼 */}
+              <Link
+                href="/login"
+                className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-xs transition shadow-sm"
+              >
+                로그인
+              </Link>
+            </>
           )}
         </div>
       </div>
