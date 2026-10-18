@@ -9,7 +9,7 @@ export const metadata = {
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
-    statusBarStyle: 'default',
+    statusBarStyle: 'default', // iOS 상단바 깔끔하게 처리
     title: 'HSinside',
   },
   icons: {
@@ -19,7 +19,7 @@ export const metadata = {
 };
 
 export const viewport = {
-  themeColor: '#10b981',
+  themeColor: '#ffffff', // 👈 기존 '#10b981'(초록색)에서 '#ffffff'(흰색)로 변경!
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
