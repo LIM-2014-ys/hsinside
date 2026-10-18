@@ -1,68 +1,106 @@
 'use client';
 
-import Link from 'next/link';
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
+import { isAdminEmail } from '@/lib/admin';
 
 export default function Header() {
   const [user, setUser] = useState(null);
 
   useEffect(() => {
-    // 세션 정보 로드
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      setUser(user);
+    // 로그인 사용자 정보 세션 가져오기
+    const fetchUser = async () => {
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      setUser(currentUser);
+    };
+    fetchUser();
+
+    // 로그인/로그아웃 상태 실시간 감지
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_, session) => {
-      setUser(session?.user || null);
-    });
-
-    return () => subscription.unsubscribe();
+    return () => subscription?.unsubscribe();
   }, []);
 
-  const handleSignOut = async () => {
+  const handleLogout = async () => {
     await supabase.auth.signOut();
     window.location.href = '/';
   };
 
-  const nickname =
+  const isAdmin = isAdminEmail(user?.email);
+
+  // 사용자 닉네임/이름 추출
+  const displayName =
     user?.user_metadata?.nickname ||
     user?.user_metadata?.display_name ||
-    user?.email?.split('@')[0];
+    user?.user_metadata?.name ||
+    user?.user_metadata?.full_name ||
+    user?.email?.split('@')[0] ||
+    '회원';
 
   return (
-    <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b border-gray-100 shadow-2xs">
-      <div className="max-w-4xl mx-auto px-3 sm:px-4 h-12 sm:h-14 flex items-center justify-between gap-2">
-        {/* 로고 영역 (절대 줄바꿈되지 않음) */}
-        <Link 
-          href="/" 
-          className="flex items-center gap-1.5 shrink-0 font-black text-sm sm:text-base text-emerald-600 tracking-tight active:scale-95 transition"
+    <header className="bg-white border-b border-gray-100 shadow-sm py-3 px-4 sm:px-6 sticky top-0 z-40 font-sans">
+      <div className="max-w-4xl mx-auto flex items-center justify-between">
+        {/* 이모지 없는 슬림한 파란색 로고 */}
+        <Link
+          href="/"
+          className="text-xl sm:text-2xl font-black text-blue-600 tracking-tight hover:text-blue-700 transition"
         >
-          <span>💚</span>
-          <span>HSinside</span>
+          HSinside
         </Link>
 
-        {/* 내비게이션 & 사용자 메뉴 (모바일 대응 컴팩트 사이즈) */}
-        <div className="flex items-center gap-1.5 sm:gap-2 text-[11px] sm:text-xs font-bold">
+        {/* 우측 메뉴 영역 */}
+        <div className="flex items-center gap-2 sm:gap-3">
           {user ? (
             <>
-              <span className="text-gray-700 max-w-[90px] sm:max-w-[140px] truncate hidden xs:inline-block">
-                {nickname}님
+              {/* OOO님 표기 */}
+              <span className="text-gray-700 font-bold text-xs truncate max-w-[120px] sm:max-w-[180px]">
+                <span className="text-blue-600 font-extrabold">{displayName}</span>님
               </span>
+
+              {/* 관리자 전용 배지 */}
+              {isAdmin && (
+                <span className="hidden sm:inline-block px-2 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-bold rounded-md border border-amber-200">
+                  🛡️ 관리자
+                </span>
+              )}
+
+              {/* 마이페이지 버튼 */}
+              <Link
+                href="/mypage"
+                className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-lg text-xs transition"
+              >
+                마이페이지
+              </Link>
+
+              {/* 로그아웃 버튼 */}
               <button
-                onClick={handleSignOut}
-                className="px-2.5 py-1.5 bg-gray-100 active:bg-gray-200 text-gray-600 rounded-lg transition shrink-0 touch-manipulation"
+                onClick={handleLogout}
+                className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold rounded-lg text-xs transition"
               >
                 로그아웃
               </button>
             </>
           ) : (
-            <Link
-              href="/login"
-              className="px-3 py-1.5 bg-emerald-600 active:bg-emerald-700 text-white font-bold rounded-lg transition shrink-0 shadow-xs touch-manipulation"
-            >
-              로그인
-            </Link>
+            <>
+              {/* 회원가입 버튼 */}
+              <Link
+                href="/signup"
+                className="px-3.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-lg text-xs transition"
+              >
+                회원가입
+              </Link>
+
+              {/* 로그인 버튼 */}
+              <Link
+                href="/login"
+                className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-xs transition shadow-sm"
+              >
+                로그인
+              </Link>
+            </>
           )}
         </div>
       </div>
