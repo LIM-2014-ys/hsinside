@@ -18,7 +18,7 @@ export default function UserPublicProfilePage() {
   const [receivedDms, setReceivedDms] = useState([]);
   const [loading, setLoading] = useState(true);
   
-  // DM 보내기 모달 상태 (타인 프로필용)
+  // DM 보내기 모달 상태
   const [isDmOpen, setIsDmOpen] = useState(false);
   const [dmContent, setDmContent] = useState('');
   const [sendingDm, setSendingDm] = useState(false);
@@ -28,7 +28,6 @@ export default function UserPublicProfilePage() {
   const [isEditing, setIsEditing] = useState(false);
   const [editBio, setEditBio] = useState('');
   const [editAvatarUrl, setEditAvatarUrl] = useState('');
-  const [uploadingImage, setUploadingImage] = useState(false);
   const [updatingProfile, setUpdatingProfile] = useState(false);
 
   useEffect(() => {
@@ -100,43 +99,23 @@ export default function UserPublicProfilePage() {
     currentUser.email === targetUserIdentifier
   );
 
-  // 이미지 파일 직접 업로드 처리 함수
-  const handleImageFileUpload = async (e) => {
+  // 로컬 이미지 파일 선택 시 즉시 읽어서 프로필 이미지 데이터로 변환
+  const handleImageFileUpload = (e) => {
     const file = e.target.files?.[0];
-    if (!file || !currentUser) return;
+    if (!file) return;
 
-    // 파일 용량 제한 (5MB)
-    if (file.size > 5 * 1024 * 1024) {
-      alert('파일 크기는 5MB 이하만 가능합니다.');
+    // 용량 제한 (2MB 이하 추천)
+    if (file.size > 2 * 1024 * 1024) {
+      alert('프로필 이미지는 2MB 이하의 파일만 업로드할 수 있습니다.');
       return;
     }
 
-    setUploadingImage(true);
-    try {
-      const fileExt = file.name.split('.').pop();
-      const filePath = `avatars/${currentUser.id}_${Date.now()}.${fileExt}`;
-
-      // Supabase Storage 'avatars' 버킷에 업로드
-      const { error: uploadError } = await supabase.storage
-        .from('avatars')
-        .upload(filePath, file, { upsert: true });
-
-      if (uploadError) {
-        alert(`이미지 업로드 실패: ${uploadError.message}\n(URL 직접 입력도 이용 가능합니다)`);
-      } else {
-        // 업로드된 이미지 Public URL 가져오기
-        const { data: { publicUrl } } = supabase.storage
-          .from('avatars')
-          .getPublicUrl(filePath);
-
-        setEditAvatarUrl(publicUrl);
-      }
-    } catch (err) {
-      console.error('이미지 업로드 예외:', err);
-      alert('이미지 업로드 처리 중 오류가 발생했습니다.');
-    } finally {
-      setUploadingImage(false);
-    }
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      // 선택된 파일 데이터(Base64)를 아바타 URL에 즉시 반영
+      setEditAvatarUrl(reader.result);
+    };
+    reader.readAsDataURL(file);
   };
 
   // 프로필 저장 함수 (소개 메시지 & 프사)
@@ -160,7 +139,7 @@ export default function UserPublicProfilePage() {
             id: currentUser.id,
             email: currentUser.email,
             nickname: userNickname,
-            avatar_url: editAvatarUrl.trim(),
+            avatar_url: editAvatarUrl,
             bio: editBio.trim(),
             updated_at: new Date().toISOString(),
           },
@@ -169,10 +148,11 @@ export default function UserPublicProfilePage() {
       if (!error) {
         setProfile((prev) => ({
           ...prev,
-          avatar_url: editAvatarUrl.trim(),
+          avatar_url: editAvatarUrl,
           bio: editBio.trim(),
         }));
         setIsEditing(false);
+        alert('프로필이 성공적으로 저장되었습니다!');
       } else {
         alert(`프로필 저장 실패: ${error.message}`);
       }
@@ -306,27 +286,23 @@ export default function UserPublicProfilePage() {
         {/* 프로필 수정 폼 (본인 전용) */}
         {isSelf && isEditing && (
           <form onSubmit={handleUpdateProfile} className="text-left pt-4 border-t border-gray-100 space-y-3.5">
-            {/* 프로필 이미지 파일 업로드 */}
+            {/* 컴퓨터/폰 사진 파일 선택 */}
             <div>
               <label className="block text-[10px] font-bold text-gray-500 mb-1">
-                📸 프로필 이미지 변경 (파일 업로드)
+                📸 프로필 사진 선택 (내 기기에서 선택)
               </label>
               <input
                 type="file"
                 accept="image/*"
                 onChange={handleImageFileUpload}
-                disabled={uploadingImage}
                 className="w-full text-[11px] text-gray-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-[11px] file:font-bold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 touch-manipulation"
               />
-              {uploadingImage && (
-                <p className="text-[10px] text-emerald-600 font-semibold mt-1">⏳ 이미지 업로드 중...</p>
-              )}
             </div>
 
-            {/* 이미지 URL 직접 입력 (선택) */}
+            {/* 미리보기 지원 되는 이미지 URL */}
             <div>
               <label className="block text-[10px] font-bold text-gray-500 mb-1">
-                🔗 또는 이미지 URL 직접 입력
+                🔗 또는 웹 이미지 주소(URL) 입력
               </label>
               <input
                 type="url"
@@ -353,7 +329,7 @@ export default function UserPublicProfilePage() {
 
             <button
               type="submit"
-              disabled={updatingProfile || uploadingImage}
+              disabled={updatingProfile}
               className="w-full py-2.5 bg-emerald-600 active:bg-emerald-700 text-white font-bold rounded-xl transition text-xs disabled:opacity-50 touch-manipulation"
             >
               {updatingProfile ? '저장 중...' : '프로필 저장하기'}
