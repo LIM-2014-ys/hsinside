@@ -2,6 +2,29 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  @apply bg-gray-100 text-gray-900 min-h-screen flex justify-center p-5;
+@layer base {
+  html {
+    /* 모바일 자동 글자 확대 방지 */
+    -webkit-text-size-adjust: 100%;
+    /* 전체 기본 폰트 기준점 살짝 축소 */
+    font-size: 14px;
+  }
+
+  body {
+    /* 한국어 단어 단위 줄바꿈 적용 (글자가 어색하게 깨지는 현상 방지) */
+    word-break: keep-all;
+    overflow-wrap: break-word;
+    /* 기본 모바일 화면 가로 스크롤 방지 */
+    overflow-x: hidden;
+  }
+
+  /* 모바일 인풋 포커스 시 브라우저 강제 확대 방지 및 터치 최적화 */
+  input, textarea, select {
+    font-size: 14px !important;
+  }
+}
+
+/* 터치 하이라이트 잔상 제거 */
+* {
+  -webkit-tap-highlight-color: transparent;
 }
