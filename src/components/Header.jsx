@@ -50,6 +50,7 @@ export default function Header() {
         <div className="flex items-center gap-2 sm:gap-3">
           {user ? (
             <>
+              {/* OOO님 표기 클릭 시 /mypage/[user.id] 이동 */}
               <Link
                 href={`/mypage/${user.id}`}
                 className="text-gray-700 font-bold text-xs truncate max-w-[120px] sm:max-w-[180px] hover:underline"
@@ -63,6 +64,7 @@ export default function Header() {
                 </span>
               )}
 
+              {/* 마이페이지 버튼 클릭 시 /mypage/[user.id] 이동 */}
               <Link
                 href={`/mypage/${user.id}`}
                 className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-lg text-xs transition"
