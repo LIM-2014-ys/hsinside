@@ -420,7 +420,7 @@ export default function UserPublicProfilePage() {
                   }}
                   className="py-2.5 bg-gray-100 active:bg-gray-200 text-gray-700 font-bold rounded-xl transition text-xs touch-manipulation"
                 >
-                  {isEditing ? '수정 취소' : '⚙️ 프로필 수정'}
+                  {isEditing ? '수정 취소' : '프로필 수정'}
                 </button>
 
                 <button
@@ -430,7 +430,7 @@ export default function UserPublicProfilePage() {
                   }}
                   className="py-2.5 bg-emerald-50 active:bg-emerald-100 text-emerald-700 font-bold rounded-xl transition text-xs touch-manipulation"
                 >
-                  {isChangingPassword ? '변경 취소' : '🔒 비번 변경'}
+                  {isChangingPassword ? '변경 취소' : '비밀번호 변경'}
                 </button>
               </div>
 
@@ -440,7 +440,7 @@ export default function UserPublicProfilePage() {
                   onClick={() => setShowDeleteConfirm(true)}
                   className="w-full py-2.5 bg-rose-600 active:bg-rose-700 text-white font-bold rounded-xl transition text-xs shadow-xs touch-manipulation"
                 >
-                  🚪 회원 탈퇴하기
+                  회원 탈퇴하기
                 </button>
               ) : (
                 <div className="p-3 bg-rose-50 rounded-2xl border border-rose-100 space-y-2 text-left">
