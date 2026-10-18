@@ -2,6 +2,7 @@ import './globals.css';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import SessionManager from '@/components/SessionManager';
+import PushInitializer from '@/components/PushInitializer'; // 👈 추가
 
 export const metadata = {
   title: 'HSinside',
@@ -9,7 +10,7 @@ export const metadata = {
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
-    statusBarStyle: 'default', // iOS 상단바 깔끔하게 처리
+    statusBarStyle: 'default',
     title: 'HSinside',
   },
   icons: {
@@ -19,7 +20,7 @@ export const metadata = {
 };
 
 export const viewport = {
-  themeColor: '#ffffff', // 👈 기존 '#10b981'(초록색)에서 '#ffffff'(흰색)로 변경!
+  themeColor: '#ffffff',
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
@@ -30,15 +31,9 @@ export default function RootLayout({ children }) {
     <html lang="ko">
       <body className="bg-gray-50 text-gray-900 antialiased min-h-screen flex flex-col">
         <SessionManager>
-          {/* 상단 공통 헤더 */}
+          <PushInitializer /> {/* 👈 추가 */}
           <Header />
-
-          {/* 메인 콘텐츠 영역 */}
-          <main className="flex-1 w-full">
-            {children}
-          </main>
-
-          {/* 하단 공통 푸터 */}
+          <main className="flex-1 w-full">{children}</main>
           <Footer />
         </SessionManager>
       </body>
