@@ -25,9 +25,9 @@ export default function MyPage() {
   const [sending, setSending] = useState(false);
   const messagesEndRef = useRef(null);
 
-  // 📬 받은 메시지함 (Inbox) 상태
+  // 📬 DM 메시지 데이터 상태
   const [showInbox, setShowInbox] = useState(false);
-  const [receivedDms, setReceivedDms] = useState([]);
+  const [allDms, setAllDms] = useState([]);
 
   // 내 프로필 수정 상태
   const [isEditing, setIsEditing] = useState(false);
@@ -100,36 +100,42 @@ export default function MyPage() {
   const isSelf = currentUser && currentUser.id === targetUserId;
   const currentDisplayName = profile?.display_name || profile?.nickname || '익명';
 
-  // 📬 내가 받은 전체 DM 조회 & Realtime 실시간 수신
+  // 📬 내가 보낸/받은 전체 메시지 조회 & Realtime 실시간 대화방 갱신
   useEffect(() => {
     if (!currentUser?.email || !isSelf) return;
 
-    const fetchReceivedDms = async () => {
+    const fetchAllDms = async () => {
       const { data, error } = await supabase
         .from('direct_messages')
         .select('*')
-        .eq('receiver_email', currentUser.email)
+        .or(`receiver_email.eq.${currentUser.email},sender_email.eq.${currentUser.email}`)
         .order('created_at', { ascending: false });
 
       if (!error && data) {
-        setReceivedDms(data);
+        setAllDms(data);
       }
     };
 
-    fetchReceivedDms();
+    fetchAllDms();
 
+    // ⚡️ Realtime 전체 메시지 구독
     const channel = supabase
-      .channel(`inbox-realtime-${currentUser.email}`)
+      .channel(`realtime-dms-${currentUser.email}`)
       .on(
         'postgres_changes',
         {
           event: 'INSERT',
           schema: 'public',
           table: 'direct_messages',
-          filter: `receiver_email=eq.${currentUser.email}`,
         },
         (payload) => {
-          setReceivedDms((prev) => [payload.new, ...prev]);
+          const newDm = payload.new;
+          if (
+            newDm.receiver_email === currentUser.email ||
+            newDm.sender_email === currentUser.email
+          ) {
+            setAllDms((prev) => [newDm, ...prev.filter((m) => m.id !== newDm.id)]);
+          }
         }
       )
       .subscribe();
@@ -139,26 +145,29 @@ export default function MyPage() {
     };
   }, [currentUser, isSelf]);
 
-  // 👥 받은 메시지를 '발신자(상대방)'별로 그룹화하여 채팅방 목록 생성
+  // 👥 상대방별 대화방 그룹화 (최신 메시지 순)
   const conversationRooms = Object.values(
-    receivedDms.reduce((acc, dm) => {
-      const senderKey = dm.sender_email;
-      if (!acc[senderKey]) {
-        acc[senderKey] = {
-          sender_email: dm.sender_email,
-          sender_name: dm.sender_name || dm.sender_email?.split('@')[0] || '익명',
+    allDms.reduce((acc, dm) => {
+      const partnerEmail =
+        dm.sender_email === currentUser?.email ? dm.receiver_email : dm.sender_email;
+      const partnerName =
+        dm.sender_email === currentUser?.email
+          ? '상대방'
+          : dm.sender_name || dm.sender_email?.split('@')[0] || '익명';
+
+      if (!acc[partnerEmail]) {
+        acc[partnerEmail] = {
+          partner_email: partnerEmail,
+          partner_name: partnerName,
           latestMessage: dm.content,
           latestTime: dm.created_at,
-          count: 1,
         };
-      } else {
-        acc[senderKey].count += 1;
       }
       return acc;
     }, {})
   );
 
-  // 💬 특정 유저와의 1:1 대화창 열기
+  // 💬 1:1 대화창 열기
   const handleOpenChat = (email, name) => {
     if (!currentUser) {
       alert('DM을 보내려면 로그인해야 합니다.');
@@ -175,7 +184,7 @@ export default function MyPage() {
     setIsChatOpen(true);
   };
 
-  // 💬 선택된 상대와의 1:1 메시지 조회 & 실시간(Realtime) 동기화
+  // 💬 특정 상대와의 1:1 실시간 대화 내역 동기화
   useEffect(() => {
     if (!isChatOpen || !currentUser?.email || !activeChatPartner.email) return;
 
@@ -197,6 +206,7 @@ export default function MyPage() {
 
     fetchMessages();
 
+    // ⚡️ 1:1 대화창 전용 Realtime 구독
     const channel = supabase
       .channel(`chat-room-${currentUser.email}-${partnerEmail}`)
       .on(
@@ -263,6 +273,7 @@ export default function MyPage() {
           if (prev.some((m) => m.id === data.id)) return prev;
           return [...prev, data];
         });
+        setAllDms((prev) => [data, ...prev.filter((m) => m.id !== data.id)]);
       }
     } catch (err) {
       console.error('메시지 전송 오류:', err);
@@ -498,7 +509,7 @@ export default function MyPage() {
         <div className="pt-2 space-y-2">
           {isSelf ? (
             <>
-              {/* 📬 받은 메시지함 토글 버튼 */}
+              {/* 📬 메시지함 (상대방별 채팅방 목록) */}
               <button
                 onClick={() => {
                   setShowInbox(!showInbox);
@@ -507,7 +518,7 @@ export default function MyPage() {
                 }}
                 className="w-full py-2.5 bg-blue-50 active:bg-blue-100 text-blue-700 font-bold rounded-xl transition text-xs touch-manipulation flex items-center justify-center gap-1.5"
               >
-                📬 받은 메시지함 ({conversationRooms.length})
+                📬 메시지 목록 ({conversationRooms.length})
               </button>
 
               <div className="grid grid-cols-2 gap-2">
@@ -576,7 +587,7 @@ export default function MyPage() {
           )}
         </div>
 
-        {/* 📬 상대방별 1:1 채팅방 목록 */}
+        {/* 📬 대화 목록 (유저별 1:1 채팅방 진입) */}
         {isSelf && showInbox && (
           <div className="text-left pt-4 border-t border-gray-100 space-y-3">
             <h3 className="font-bold text-xs text-gray-900 flex items-center justify-between">
@@ -586,25 +597,20 @@ export default function MyPage() {
 
             {conversationRooms.length === 0 ? (
               <div className="p-4 text-center text-gray-400 text-[11px] bg-gray-50 rounded-2xl border border-dashed border-gray-200">
-                도착한 메시지가 없습니다.
+                메시지 내역이 없습니다.
               </div>
             ) : (
               <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
                 {conversationRooms.map((room) => (
                   <div
-                    key={room.sender_email}
-                    onClick={() => handleOpenChat(room.sender_email, room.sender_name)}
+                    key={room.partner_email}
+                    onClick={() => handleOpenChat(room.partner_email, room.partner_name)}
                     className="p-3 bg-gray-50 hover:bg-emerald-50/60 active:bg-emerald-100/80 rounded-2xl border border-gray-100 cursor-pointer transition space-y-1 group"
                   >
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <span className="font-bold text-gray-900 text-[12px] group-hover:text-emerald-700 transition truncate">
-                          {room.sender_name}님과의 대화
-                        </span>
-                        <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 font-bold text-[9px] rounded-full">
-                          {room.count}개의 메시지
-                        </span>
-                      </div>
+                      <span className="font-bold text-gray-900 text-[12px] group-hover:text-emerald-700 transition truncate">
+                        {room.partner_name}님과의 대화
+                      </span>
                       <span className="text-[9px] text-gray-400 shrink-0">
                         {new Date(room.latestTime).toLocaleTimeString('ko-KR', {
                           hour: '2-digit',
