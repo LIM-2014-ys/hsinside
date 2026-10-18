@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 
 export default function Footer() {
-  const [activeModal, setActiveModal] = useState(null); // 'terms' | 'privacy' | 'rules' | 'disclaimer' | null
+  const [activeModal, setActiveModal] = useState(null); // 'terms' | 'privacy' | 'overseas' | 'disclaimer' | null
 
   const closeModal = () => setActiveModal(null);
 
@@ -31,7 +31,7 @@ export default function Footer() {
           </div>
         </div>
 
-        {/* 중단: 방침 모음 링크 바 */}
+        {/* 중단: 방침 모음 링크 바 (커뮤니티 가이드라인 ➔ 개인정보 국외 이전 교체) */}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 pt-3 border-t border-gray-100 text-[11px]">
           <button
             type="button"
@@ -51,10 +51,10 @@ export default function Footer() {
           <span className="text-gray-300">|</span>
           <button
             type="button"
-            onClick={() => setActiveModal('rules')}
+            onClick={() => setActiveModal('overseas')}
             className="text-gray-600 hover:text-gray-900 transition font-medium"
           >
-            커뮤니티 가이드라인
+            개인정보 국외 이전
           </button>
           <span className="text-gray-300">|</span>
           <button
@@ -89,8 +89,8 @@ export default function Footer() {
             <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
               <h3 className="font-black text-sm text-gray-900 flex items-center gap-2">
                 {activeModal === 'terms' && '📜 서비스 이용약관 전문'}
-                {activeModal === 'privacy' && '🔒 개인정보 처리방침 전문'}
-                {activeModal === 'rules' && '🛡️ 커뮤니티 가이드라인'}
+                {activeModal === 'privacy' && '🔒 개인정보 처리방침 (수집/보유/파기)'}
+                {activeModal === 'overseas' && '🌐 개인정보 국외 이전 및 위탁 동의'}
                 {activeModal === 'disclaimer' && '⚠️ 책임의 한계와 고지'}
               </h3>
               <button
@@ -104,7 +104,7 @@ export default function Footer() {
 
             {/* 모달 본문 (스크롤) */}
             <div className="p-6 overflow-y-auto text-xs leading-relaxed space-y-4 text-gray-600 select-text">
-              {/* 1. 서비스 이용약관 (회원가입 전문과 100% 일치) */}
+              {/* 1. 서비스 이용약관 전문 */}
               {activeModal === 'terms' && (
                 <div className="space-y-3">
                   <section className="space-y-1">
@@ -162,68 +162,79 @@ export default function Footer() {
                 </div>
               )}
 
-              {/* 2. 개인정보 처리방침 (수집/이용 및 국외이전 전문) */}
+              {/* 2. 개인정보 처리방침 (파기 기한 및 방법 상세 강화) */}
               {activeModal === 'privacy' && (
                 <div className="space-y-3">
                   <section className="space-y-1">
-                    <h4 className="font-bold text-gray-900 text-xs border-b pb-1">1. 개인정보 수집 항목 및 방법</h4>
+                    <h4 className="font-bold text-gray-900 text-xs border-b pb-1">1. 수집하는 개인정보 항목</h4>
                     <p>- 필수 수집 항목: 이메일 주소, 비밀번호(암호화 해시 보관), 닉네임</p>
-                    <p>- 자동 수집 항목: IP 주소, 쿠키(Cookie), 이용 기록, 기기 식별자, 접속 로그, RLS 식별자(UUID)</p>
+                    <p>- 서비스 이용 과정에서 자동 생성되는 항목: 접속 IP 주소, 쿠키(Cookie), 접속 및 이용 서비스 기록, 기기 식별자, RLS 식별자(UUID)</p>
                   </section>
 
                   <section className="space-y-1">
-                    <h4 className="font-bold text-gray-900 text-xs border-b pb-1">2. 개인정보의 수집 및 이용 목적</h4>
-                    <p>- 회원 관리 (본인확인, 부정이용 방지, 민원처리)</p>
-                    <p>- 커뮤니티 서비스 제공 (게시글/댓글 작성, 알림 수신 동의 처리)</p>
-                    <p>- 서비스 개발 및 통계 분석</p>
-                  </section>
-
-                  <section className="space-y-1">
-                    <h4 className="font-bold text-gray-900 text-xs border-b pb-1">3. 개인정보 보유 및 이용기간</h4>
-                    <p>- 부정이용기록: 1년 (부정이용 방지 및 명예훼손 대응)</p>
-                    <p>- 서비스 접속 기록 (통신비밀보호법): 3개월</p>
-                    <p>- 회원 탈퇴 시 지체 없이 파기</p>
-                  </section>
-
-                  <section className="space-y-1">
-                    <h4 className="font-bold text-gray-900 text-xs border-b pb-1">4. 개인정보 국외 이전 및 처리위탁</h4>
-                    <p>hsinside는 글로벌 클라우드 인프라 운용을 위해 아래와 같이 개인정보 처리를 위탁/이전합니다:</p>
-                    <div className="p-2.5 bg-gray-50 rounded-xl border border-gray-100 text-[11px] space-y-1">
-                      <p>• 이전 대상: Supabase Inc. (미국 AWS Cloud Infrastructure)</p>
-                      <p>• 이전 항목: 이메일, 닉네임, 암호화 비밀번호, 계정 ID(UUID), 서비스 이용기록, 업로드 파일</p>
-                      <p>• 이전 방법: 회원가입 시 TLS/SSL 암호화 보안 전송</p>
+                    <h4 className="font-bold text-gray-900 text-xs border-b pb-1">2. 개인정보 보유 및 파기 기한 (자동 파기 로직)</h4>
+                    <p>회사는 원칙적으로 개인정보 수집 및 이용목적이 달성된 후에는 해당 정보를 지체 없이 파기합니다. 단, 다음 사유에 대해서는 명시한 기간 동안 보관 후 시스템에서 자동으로 파기됩니다:</p>
+                    <div className="p-3 bg-gray-50 rounded-2xl border border-gray-100 text-[11px] space-y-1.5 my-2">
+                      <p className="font-bold text-gray-800">
+                        • 회원 탈퇴 시: <span className="text-rose-600 font-extrabold">회원 탈퇴 즉시 수집된 모든 개인정보 지체 없이 완전히 삭제/파기</span>
+                      </p>
+                      <p className="font-bold text-gray-800">
+                        • 서비스 접속 기록 (통신비밀보호법): <span className="text-blue-600 font-extrabold">보관 후 3개월 뒤 시스템 자동 파기</span>
+                      </p>
+                      <p className="font-bold text-gray-800">
+                        • 부정 이용 및 징계 기록 (명예훼손/도배 방지): <span className="text-amber-600 font-extrabold">보관 후 1년 뒤 시스템 자동 파기</span>
+                      </p>
                     </div>
                   </section>
 
                   <section className="space-y-1">
-                    <h4 className="font-bold text-gray-900 text-xs border-b pb-1">5. 동의 거부권 안내</h4>
-                    <p>이용자는 개인정보 수집 및 국외 이전 동의를 거부할 권리가 있으나, 거부 시 회원가입 및 서비스 이용이 제한됩니다.</p>
+                    <h4 className="font-bold text-gray-900 text-xs border-b pb-1">3. 개인정보 파기 절차 및 파기 방법</h4>
+                    <p><strong>가. 파기 절차:</strong> 이용자가 회원가입 등을 위해 입력한 정보는 목적이 달성되거나 보유 기간(접속 기록 3개월, 부정 이용 기록 1년)이 경과한 후 DB 자동 스케줄러 및 탈퇴 트레이스를 통해 즉시 파기 대상이 됩니다.</p>
+                    <p><strong>나. 기술적 파기 방법:</strong></p>
+                    <ul className="list-disc list-inside text-[11px] pl-1 space-y-0.5 text-gray-500">
+                      <li>전자적 파일 형태로 저장된 개인정보는 기록을 재생할 수 없는 기술적 방법(데이터베이스 행 즉시 삭제, 영구 암호화 파기 및 RLS 식별자 파기)을 사용하여 완전히 삭제 처리합니다.</li>
+                      <li>종이에 출력된 문서 형태의 개인정보가 있는 경우 분쇄기로 분쇄하거나 소각하여 파기합니다.</li>
+                    </ul>
+                  </section>
+
+                  <section className="space-y-1">
+                    <h4 className="font-bold text-gray-900 text-xs border-b pb-1">4. 동의 거부권 안내</h4>
+                    <p>이용자는 개인정보 수집 및 이용 동의를 거부할 권리가 있습니다. 단, 필수 항목 거부 시 회원가입 및 서비스 이용이 제한됩니다.</p>
                   </section>
                 </div>
               )}
 
-              {/* 3. 커뮤니티 가이드라인 */}
-              {activeModal === 'rules' && (
-                <div className="space-y-2">
-                  <p className="font-bold text-gray-900 text-xs">🤝 클린 커뮤니티 준수 사항 (제5조 기반)</p>
-                  <ul className="space-y-2 text-[11px] text-gray-600 font-medium">
-                    <li className="p-2.5 bg-gray-50 rounded-xl border border-gray-100">
-                      <strong className="text-gray-900 block mb-0.5">1. 상호 존중 및 비방 금지</strong>
-                      인신공격, 모욕, 혐오 표현 및 타인을 비방하는 게시글과 댓글은 즉시 제재됩니다.
-                    </li>
-                    <li className="p-2.5 bg-gray-50 rounded-xl border border-gray-100">
-                      <strong className="text-gray-900 block mb-0.5">2. 불법/유해물 게시 제한</strong>
-                      음란물, 사기성 광고, 악성 프로그램 공유, 저작권 침해 자료 배포를 금지합니다.
-                    </li>
-                    <li className="p-2.5 bg-gray-50 rounded-xl border border-gray-100">
-                      <strong className="text-gray-900 block mb-0.5">3. 매크로 및 도배 방지</strong>
-                      자동화 프로그램을 이용한 도배 및 정상적인 게시판 이용을 방해하는 행위는 계정 영구 정지 사유가 됩니다.
-                    </li>
-                  </ul>
+              {/* 3. 개인정보 국외 이전 전문 (커뮤니티 가이드라인 위치에 대체) */}
+              {activeModal === 'overseas' && (
+                <div className="space-y-3">
+                  <section className="space-y-1">
+                    <h4 className="font-bold text-gray-900 text-xs border-b pb-1">1. 개인정보 국외 이전의 목적 및 개요</h4>
+                    <p>hsinside는 글로벌 클라우드 인프라 및 보안 데이터베이스 시스템을 통해 서비스를 제공하기 위해 아래와 같이 회원 개인정보 처리를 국외 전문 서비스 업체에 위탁 및 이전합니다.</p>
+                  </section>
+
+                  <section className="space-y-1">
+                    <h4 className="font-bold text-gray-900 text-xs border-b pb-1">2. 이전되는 개인정보 상세 조항</h4>
+                    <div className="p-3 bg-gray-50 rounded-2xl border border-gray-100 text-[11px] space-y-1.5">
+                      <p><strong>• 이전 받는 자:</strong> Supabase Inc. (https://supabase.com / privacy@supabase.com)</p>
+                      <p><strong>• 이전 국가:</strong> 미국 (AWS Cloud Infrastructure)</p>
+                      <p><strong>• 이전 항목:</strong> 이메일, 닉네임, 암호화된 비밀번호, 계정 ID(UUID), 접속 및 이용 기록, 스토리지 업로드 파일</p>
+                      <p><strong>• 이전 방법:</strong> 회원가입 및 서비스 이용 시점에 암호화된 보안 통신(TLS/SSL)을 통한 실시간 전송</p>
+                    </div>
+                  </section>
+
+                  <section className="space-y-1">
+                    <h4 className="font-bold text-gray-900 text-xs border-b pb-1">3. 보유 및 파기 기간</h4>
+                    <p>위탁 기관(Supabase Inc.)은 회원 탈퇴 시 또는 서비스 위탁 계약 종료 시까지 안전하게 암호화하여 보관하며, 목적 달성 즉시 복구 불가능한 상태로 완전 파기합니다.</p>
+                  </section>
+
+                  <section className="space-y-1">
+                    <h4 className="font-bold text-gray-900 text-xs border-b pb-1">4. 동의 거부권 안내</h4>
+                    <p>이용자는 개인정보 국외 이전에 동의하지 않을 권리가 있으나, 클라우드 DB 인프라 기반 플랫폼 특성상 거부 시 회원가입이 불가능합니다.</p>
+                  </section>
                 </div>
               )}
 
-              {/* 4. 책임의 한계와 고지 (상세 고지) */}
+              {/* 4. 책임의 한계와 고지 */}
               {activeModal === 'disclaimer' && (
                 <div className="space-y-3">
                   <section className="space-y-1">
