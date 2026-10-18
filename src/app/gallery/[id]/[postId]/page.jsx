@@ -73,11 +73,12 @@ export default function PostDetailPage() {
 
         const { data: profileData } = await supabase
           .from('profiles')
-          .select('nickname');
+          .select('display_name, nickname');
 
         if (profileData) {
           profileData.forEach((p) => {
-            if (p.nickname) nameSet.add(p.nickname.trim());
+            const name = p.display_name || p.nickname;
+            if (name) nameSet.add(name.trim());
           });
         }
 
@@ -104,8 +105,8 @@ export default function PostDetailPage() {
     if (!postId || !user || !post) return;
 
     const currentNickname =
-      user?.user_metadata?.nickname ||
       user?.user_metadata?.display_name ||
+      user?.user_metadata?.nickname ||
       user?.user_metadata?.name ||
       user?.user_metadata?.full_name ||
       user?.email?.split('@')[0];
@@ -303,8 +304,8 @@ export default function PostDetailPage() {
 
     try {
       const commentAuthorName = 
-        user?.user_metadata?.nickname ||
         user?.user_metadata?.display_name ||
+        user?.user_metadata?.nickname ||
         user?.user_metadata?.name ||
         user?.user_metadata?.full_name ||
         user?.email?.split('@')[0] ||
@@ -318,7 +319,7 @@ export default function PostDetailPage() {
             content: newComment.trim(),
             author_name: commentAuthorName,
             author_email: user?.email || null,
-            user_id: user?.id || null,
+            user_id: user?.id || null, // 작성자 UUID 저장
           },
         ])
         .select('*')
@@ -386,6 +387,7 @@ export default function PostDetailPage() {
   }
 
   const hasImage = isImageFile(post.file_url, post.file_name);
+  const postAuthorUuid = post.user_id || post.author_id;
 
   return (
     <div className="max-w-4xl mx-auto my-4 sm:my-8 px-3 sm:px-4 font-sans text-xs space-y-4 sm:space-y-6">
@@ -465,11 +467,11 @@ export default function PostDetailPage() {
           </h1>
 
           <div className="flex items-center justify-between text-gray-400 text-[10px] sm:text-[11px] mt-2 pt-2 border-t border-gray-50 gap-2 min-w-0">
-            {/* 게시글 작성자 닉네임 클릭 -> 마이페이지(UUID) 이동 */}
+            {/* 🔗 게시글 작성자 닉네임 클릭 -> 마이페이지(UUID) 이동 */}
             <div className="flex items-center gap-1 truncate min-w-0">
-              {post.user_id ? (
+              {postAuthorUuid ? (
                 <Link
-                  href={`/mypage/${post.user_id}`}
+                  href={`/mypage/${postAuthorUuid}`}
                   className="font-bold text-gray-700 hover:text-emerald-600 hover:underline truncate active:text-emerald-700 transition"
                 >
                   {post.author_name || '익명'}
@@ -551,15 +553,16 @@ export default function PostDetailPage() {
             comments.map((comment) => {
               const isCommentAuthor = user?.email && comment.author_email === user.email;
               const canDeleteComment = isCommentAuthor || isAdmin;
+              const commentAuthorUuid = comment.user_id || comment.author_id;
 
               return (
                 <div key={comment.id} className="py-2.5 flex items-start justify-between gap-2">
                   <div className="space-y-0.5 flex-1 min-w-0">
                     <div className="flex items-center gap-1 flex-wrap">
-                      {/* 댓글 작성자 닉네임 클릭 -> 마이페이지(UUID) 이동 */}
-                      {comment.user_id ? (
+                      {/* 🔗 댓글 작성자 닉네임 클릭 -> 마이페이지(UUID) 이동 */}
+                      {commentAuthorUuid ? (
                         <Link
-                          href={`/mypage/${comment.user_id}`}
+                          href={`/mypage/${commentAuthorUuid}`}
                           className="font-bold text-gray-900 text-[11px] hover:text-emerald-600 hover:underline truncate max-w-[140px] transition"
                         >
                           {comment.author_name || '익명'}
@@ -601,7 +604,7 @@ export default function PostDetailPage() {
       {/* 신고 모달 */}
       <ReportModal
         postId={postId}
-        postAuthorId={post.user_id || post.author_id}
+        postAuthorId={postAuthorUuid}
         isOpen={isReportOpen}
         onClose={() => setIsReportOpen(false)}
       />
