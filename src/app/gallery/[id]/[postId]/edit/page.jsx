@@ -88,7 +88,6 @@ export default function PostEditPage() {
         .update({
           title: title.trim(),
           content: content.trim(),
-          updated_at: new Date().toISOString(),
         })
         .eq('id', postId);
 
