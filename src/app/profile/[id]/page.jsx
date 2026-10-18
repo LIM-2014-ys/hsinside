@@ -23,12 +23,23 @@ export default function UserPublicProfilePage() {
   const [sending, setSending] = useState(false);
   const messagesEndRef = useRef(null);
 
-  // 내 프로필 수정 및 회원 탈퇴 상태
+  // 내 프로필 수정 상태
   const [isEditing, setIsEditing] = useState(false);
   const [editNickname, setEditNickname] = useState('');
+  const [nicknameCheckMsg, setNicknameCheckMsg] = useState({ type: '', text: '' });
+  const [isNicknameAvailable, setIsNicknameAvailable] = useState(true);
   const [editBio, setEditBio] = useState('');
   const [editAvatarUrl, setEditAvatarUrl] = useState('');
   const [updatingProfile, setUpdatingProfile] = useState(false);
+
+  // 비밀번호 변경 상태
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordStatus, setPasswordStatus] = useState({ type: '', message: '' });
+  const [updatingPassword, setUpdatingPassword] = useState(false);
+
+  // 회원 탈퇴 상태
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
 
@@ -84,6 +95,45 @@ export default function UserPublicProfilePage() {
 
   const targetEmail = profile?.email || (targetUserIdentifier.includes('@') ? targetUserIdentifier : null);
   const isSelf = currentUser && (currentUser.email === targetEmail || currentUser.id === targetUserIdentifier);
+
+  // 닉네임 중복 확인 함수
+  const handleCheckNicknameDuplicate = async () => {
+    const trimmed = editNickname.trim();
+    if (!trimmed) {
+      setNicknameCheckMsg({ type: 'error', text: '닉네임을 입력해 주세요.' });
+      setIsNicknameAvailable(false);
+      return;
+    }
+
+    // 기존 본인 닉네임과 동일한 경우
+    if (trimmed === profile?.nickname) {
+      setNicknameCheckMsg({ type: 'success', text: '현재 사용 중인 닉네임입니다.' });
+      setIsNicknameAvailable(true);
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('nickname', trimmed)
+        .neq('id', currentUser?.id);
+
+      if (error) {
+        setNicknameCheckMsg({ type: 'error', text: '중복 확인 중 오류가 발생했습니다.' });
+        setIsNicknameAvailable(false);
+      } else if (data && data.length > 0) {
+        setNicknameCheckMsg({ type: 'error', text: '❌ 이미 사용 중인 닉네임입니다.' });
+        setIsNicknameAvailable(false);
+      } else {
+        setNicknameCheckMsg({ type: 'success', text: '✅ 사용 가능한 닉네임입니다!' });
+        setIsNicknameAvailable(true);
+      }
+    } catch {
+      setNicknameCheckMsg({ type: 'error', text: '중복 확인 중 오류가 발생했습니다.' });
+      setIsNicknameAvailable(false);
+    }
+  };
 
   // 채팅 메시지 목록 로드 & 실시간(Realtime) 감지
   useEffect(() => {
@@ -200,13 +250,18 @@ export default function UserPublicProfilePage() {
     reader.readAsDataURL(file);
   };
 
-  // 내 프로필 업데이트
+  // 내 프로필 업데이트 (닉네임 중복 체크 후 진행)
   const handleUpdateProfile = async (e) => {
     e.preventDefault();
     if (!currentUser) return;
 
     if (!editNickname.trim()) {
       alert('닉네임을 입력해 주세요.');
+      return;
+    }
+
+    if (!isNicknameAvailable) {
+      alert('닉네임 중복 확인을 먼저 완료해 주세요.');
       return;
     }
 
@@ -225,6 +280,11 @@ export default function UserPublicProfilePage() {
           },
         ]);
 
+      // Supabase Auth 메타데이터에도 닉네임 동기화
+      await supabase.auth.updateUser({
+        data: { nickname: editNickname.trim() },
+      });
+
       if (!error) {
         setProfile((prev) => ({
           ...prev,
@@ -233,6 +293,7 @@ export default function UserPublicProfilePage() {
           bio: editBio.trim(),
         }));
         setIsEditing(false);
+        setNicknameCheckMsg({ type: '', text: '' });
         alert('프로필 정보가 성공적으로 변경되었습니다!');
       } else {
         alert(`저장 실패: ${error.message}`);
@@ -244,19 +305,56 @@ export default function UserPublicProfilePage() {
     }
   };
 
+  // 비밀번호 변경 처리
+  const handleChangePassword = async (e) => {
+    e.preventDefault();
+    setPasswordStatus({ type: '', message: '' });
+
+    if (newPassword.length < 6) {
+      setPasswordStatus({ type: 'error', message: '비밀번호는 최소 6자리 이상이어야 합니다.' });
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setPasswordStatus({ type: 'error', message: '비밀번호 확인이 일치하지 않습니다.' });
+      return;
+    }
+
+    setUpdatingPassword(true);
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+
+      if (error) {
+        setPasswordStatus({ type: 'error', message: `변경 실패: ${error.message}` });
+      } else {
+        setPasswordStatus({ type: 'success', message: '🔒 비밀번호가 성공적으로 변경되었습니다!' });
+        setNewPassword('');
+        setConfirmPassword('');
+        setTimeout(() => {
+          setIsChangingPassword(false);
+          setPasswordStatus({ type: '', message: '' });
+        }, 1500);
+      }
+    } catch {
+      setPasswordStatus({ type: 'error', message: '비밀번호 변경 처리 중 오류가 발생했습니다.' });
+    } finally {
+      setUpdatingPassword(false);
+    }
+  };
+
   // 회원 탈퇴 처리 함수
   const handleDeleteAccount = async () => {
     if (!currentUser) return;
 
     setDeletingAccount(true);
     try {
-      // 1. profiles 테이블에서 내 프로필 제거
       await supabase
         .from('profiles')
         .delete()
         .eq('id', currentUser.id);
 
-      // 2. Supabase Auth 로그아웃 처리
       await supabase.auth.signOut();
 
       alert('회원 탈퇴가 완료되었습니다. 이용해 주셔서 감사합니다.');
@@ -313,18 +411,33 @@ export default function UserPublicProfilePage() {
         <div className="pt-2 space-y-2">
           {isSelf ? (
             <>
-              <button
-                onClick={() => setIsEditing(!isEditing)}
-                className="w-full py-2.5 bg-gray-100 active:bg-gray-200 text-gray-700 font-bold rounded-xl transition text-xs touch-manipulation"
-              >
-                {isEditing ? '취소' : '⚙️ 프로필 수정'}
-              </button>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => {
+                    setIsEditing(!isEditing);
+                    setIsChangingPassword(false);
+                  }}
+                  className="py-2.5 bg-gray-100 active:bg-gray-200 text-gray-700 font-bold rounded-xl transition text-xs touch-manipulation"
+                >
+                  {isEditing ? '수정 취소' : '⚙️ 프로필 수정'}
+                </button>
+
+                <button
+                  onClick={() => {
+                    setIsChangingPassword(!isChangingPassword);
+                    setIsEditing(false);
+                  }}
+                  className="py-2.5 bg-emerald-50 active:bg-emerald-100 text-emerald-700 font-bold rounded-xl transition text-xs touch-manipulation"
+                >
+                  {isChangingPassword ? '변경 취소' : '🔒 비번 변경'}
+                </button>
+              </div>
 
               {/* 회원 탈퇴 버튼 */}
               {!showDeleteConfirm ? (
                 <button
                   onClick={() => setShowDeleteConfirm(true)}
-                  className="w-full py-2 text-rose-500 hover:text-rose-700 font-semibold transition text-[11px] touch-manipulation"
+                  className="w-full py-1.5 text-rose-500 hover:text-rose-700 font-semibold transition text-[11px] touch-manipulation"
                 >
                   🚪 회원 탈퇴하기
                 </button>
@@ -370,19 +483,39 @@ export default function UserPublicProfilePage() {
           )}
         </div>
 
-        {/* 내 프로필 수정 폼 */}
+        {/* 내 프로필 수정 폼 (닉네임 중복확인 포함) */}
         {isSelf && isEditing && (
           <form onSubmit={handleUpdateProfile} className="text-left pt-4 border-t border-gray-100 space-y-3.5">
             <div>
-              <label className="block text-[10px] font-bold text-gray-500 mb-1">🏷️ 닉네임 설정</label>
-              <input
-                type="text"
-                placeholder="사용할 닉네임을 입력해 주세요"
-                value={editNickname}
-                onChange={(e) => setEditNickname(e.target.value)}
-                required
-                className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-xs text-gray-800 touch-manipulation font-semibold"
-              />
+              <label className="block text-[10px] font-bold text-gray-500 mb-1">🏷️ 닉네임 변경 및 중복 확인</label>
+              <div className="flex gap-1.5">
+                <input
+                  type="text"
+                  placeholder="새 닉네임 입력"
+                  value={editNickname}
+                  onChange={(e) => {
+                    setEditNickname(e.target.value);
+                    setIsNicknameAvailable(false);
+                    setNicknameCheckMsg({ type: '', text: '' });
+                  }}
+                  required
+                  className="flex-1 min-w-0 px-3 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-xs text-gray-800 touch-manipulation font-semibold"
+                />
+                <button
+                  type="button"
+                  onClick={handleCheckNicknameDuplicate}
+                  className="px-3 py-2 bg-gray-100 active:bg-gray-200 text-gray-700 font-bold rounded-xl transition text-[11px] shrink-0 touch-manipulation"
+                >
+                  중복 확인
+                </button>
+              </div>
+              {nicknameCheckMsg.text && (
+                <p className={`text-[10px] font-semibold mt-1 ${
+                  nicknameCheckMsg.type === 'error' ? 'text-rose-600' : 'text-emerald-600'
+                }`}>
+                  {nicknameCheckMsg.text}
+                </p>
+              )}
             </div>
 
             <div>
@@ -423,6 +556,55 @@ export default function UserPublicProfilePage() {
               className="w-full py-2.5 bg-emerald-600 active:bg-emerald-700 text-white font-bold rounded-xl transition text-xs disabled:opacity-50 touch-manipulation"
             >
               {updatingProfile ? '저장 중...' : '프로필 저장하기'}
+            </button>
+          </form>
+        )}
+
+        {/* 비밀번호 변경 폼 */}
+        {isSelf && isChangingPassword && (
+          <form onSubmit={handleChangePassword} className="text-left pt-4 border-t border-gray-100 space-y-3">
+            <h3 className="font-bold text-xs text-gray-900 mb-2">🔒 비밀번호 변경</h3>
+
+            {passwordStatus.message && (
+              <div className={`p-2.5 rounded-xl text-[11px] font-semibold ${
+                passwordStatus.type === 'error'
+                  ? 'bg-rose-50 text-rose-600 border border-rose-200'
+                  : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+              }`}>
+                {passwordStatus.message}
+              </div>
+            )}
+
+            <div>
+              <label className="block text-[10px] font-bold text-gray-500 mb-1">새 비밀번호 (6자리 이상)</label>
+              <input
+                type="password"
+                placeholder="새 비밀번호 입력"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                required
+                className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-xs text-gray-800 touch-manipulation"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-bold text-gray-500 mb-1">새 비밀번호 확인</label>
+              <input
+                type="password"
+                placeholder="새 비밀번호 다시 입력"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                required
+                className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-xs text-gray-800 touch-manipulation"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={updatingPassword || !newPassword || !confirmPassword}
+              className="w-full py-2.5 bg-emerald-600 active:bg-emerald-700 text-white font-bold rounded-xl transition text-xs disabled:opacity-50 touch-manipulation"
+            >
+              {updatingPassword ? '변경 처리 중...' : '비밀번호 변경하기'}
             </button>
           </form>
         )}
