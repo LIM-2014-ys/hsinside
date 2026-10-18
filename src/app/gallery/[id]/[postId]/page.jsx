@@ -468,7 +468,7 @@ export default function PostDetailPage() {
             <div className="flex items-center gap-1 truncate min-w-0">
               {post.author_email ? (
                 <Link
-                  href={`/profile/${encodeURIComponent(post.author_email)}`}
+                  href={`/mypage/${encodeURIComponent(post.author_email)}`}
                   className="font-bold text-gray-700 hover:text-emerald-600 hover:underline truncate active:text-emerald-700 transition"
                 >
                   {post.author_name || '익명'}
@@ -558,7 +558,7 @@ export default function PostDetailPage() {
                       {/* 댓글 작성자 닉네임 클릭 -> 공개 마이페이지로 이동 */}
                       {comment.author_email ? (
                         <Link
-                          href={`/profile/${encodeURIComponent(comment.author_email)}`}
+                          href={`/mypage/${encodeURIComponent(comment.author_email)}`}
                           className="font-bold text-gray-900 text-[11px] hover:text-emerald-600 hover:underline truncate max-w-[140px] transition"
                         >
                           {comment.author_name || '익명'}
