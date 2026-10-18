@@ -318,6 +318,7 @@ export default function PostDetailPage() {
             content: newComment.trim(),
             author_name: commentAuthorName,
             author_email: user?.email || null,
+            user_id: user?.id || null,
           },
         ])
         .select('*')
@@ -464,11 +465,11 @@ export default function PostDetailPage() {
           </h1>
 
           <div className="flex items-center justify-between text-gray-400 text-[10px] sm:text-[11px] mt-2 pt-2 border-t border-gray-50 gap-2 min-w-0">
-            {/* 게시글 작성자 닉네임 클릭 -> 공개 마이페이지로 이동 */}
+            {/* 게시글 작성자 닉네임 클릭 -> 마이페이지(UUID) 이동 */}
             <div className="flex items-center gap-1 truncate min-w-0">
-              {post.author_email ? (
+              {post.user_id ? (
                 <Link
-                  href={`/mypage/${encodeURIComponent(post.author_email)}`}
+                  href={`/mypage/${post.user_id}`}
                   className="font-bold text-gray-700 hover:text-emerald-600 hover:underline truncate active:text-emerald-700 transition"
                 >
                   {post.author_name || '익명'}
@@ -555,10 +556,10 @@ export default function PostDetailPage() {
                 <div key={comment.id} className="py-2.5 flex items-start justify-between gap-2">
                   <div className="space-y-0.5 flex-1 min-w-0">
                     <div className="flex items-center gap-1 flex-wrap">
-                      {/* 댓글 작성자 닉네임 클릭 -> 공개 마이페이지로 이동 */}
-                      {comment.author_email ? (
+                      {/* 댓글 작성자 닉네임 클릭 -> 마이페이지(UUID) 이동 */}
+                      {comment.user_id ? (
                         <Link
-                          href={`/mypage/${encodeURIComponent(comment.author_email)}`}
+                          href={`/mypage/${comment.user_id}`}
                           className="font-bold text-gray-900 text-[11px] hover:text-emerald-600 hover:underline truncate max-w-[140px] transition"
                         >
                           {comment.author_name || '익명'}
