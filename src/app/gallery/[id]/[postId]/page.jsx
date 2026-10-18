@@ -169,17 +169,28 @@ export default function PostDetailPage() {
     return /\.(jpg|jpeg|png|gif|webp|svg|bmp)(\?.*)?$/i.test(targetStr);
   };
 
-  // 게시글 본문 및 댓글의 @닉네임 중 '등록된 닉네임'만 멘션 하이라이트 렌더링
+  // 유튜브 URL 추출 및 Embed 링크 생성
+  const getYouTubeEmbedUrl = (url) => {
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+    const match = url.match(regExp);
+    return (match && match[2].length === 11) ? `https://www.youtube.com/embed/${match[2]}` : null;
+  };
+
+  // 멘션, 일반 하이퍼링크, 유튜브 동영상 자동 삽입 렌더링 함수
   const renderContent = (content) => {
     if (!content) return null;
 
-    const mentionRegex = /(@[^\s,.:;!?"'()\[\]{}]+)/g;
-    const parts = content.split(mentionRegex);
+    // 멘션(@닉네임) 및 URL(http://, https://, www.) 감지
+    const tokenRegex = /(@[^\s,.:;!?"'()\[\]{}]+|(?:https?:\/\/|www\.)[^\s,.:;!?"'()\[\]{}]+)/g;
+    const parts = content.split(tokenRegex);
+    const youtubeEmbeds = [];
 
-    return parts.map((part, idx) => {
+    const renderedText = parts.map((part, idx) => {
+      if (!part) return null;
+
+      // 1. 등록된 닉네임 멘션 처리
       if (part.startsWith('@')) {
         const rawNickname = part.slice(1).trim();
-        // 등록된 닉네임 목록에 존재하는 경우에만 멘션 스타일 적용
         if (registeredNicknames.has(rawNickname)) {
           return (
             <span key={idx} className="text-emerald-600 font-bold bg-emerald-50 px-1 py-0.5 rounded break-all">
@@ -188,8 +199,50 @@ export default function PostDetailPage() {
           );
         }
       }
+
+      // 2. 하이퍼링크 및 유튜브 동영상 링크 처리
+      if (part.startsWith('http://') || part.startsWith('https://') || part.startsWith('www.')) {
+        const href = part.startsWith('www.') ? `https://${part}` : part;
+        const embedUrl = getYouTubeEmbedUrl(href);
+
+        if (embedUrl) {
+          youtubeEmbeds.push(embedUrl);
+        }
+
+        return (
+          <a
+            key={idx}
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-600 hover:text-blue-800 underline font-medium break-all"
+          >
+            🔗 {part}
+          </a>
+        );
+      }
+
       return part;
     });
+
+    return (
+      <div className="space-y-3">
+        <div>{renderedText}</div>
+
+        {/* 유튜브 영상 자동 삽입 플레이어 */}
+        {youtubeEmbeds.map((embedUrl, yIdx) => (
+          <div key={yIdx} className="my-3 aspect-video w-full max-w-lg overflow-hidden rounded-xl border border-gray-100 shadow-xs bg-black">
+            <iframe
+              src={embedUrl}
+              title={`YouTube video player ${yIdx + 1}`}
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+              className="w-full h-full border-0"
+            />
+          </div>
+        ))}
+      </div>
+    );
   };
 
   const handleDeletePost = async () => {
@@ -394,7 +447,7 @@ export default function PostDetailPage() {
           </div>
         </div>
 
-        {/* 게시글 본문에서도 renderContent 적용하여 멘션 하이라이트 지원 */}
+        {/* 게시글 본문 (하이퍼링크, 유튜브 삽입, 멘션 지원) */}
         <div className="text-gray-800 leading-normal min-h-[60px] sm:min-h-[80px] whitespace-pre-wrap text-[11px] sm:text-[12px] pt-2 border-t border-gray-50 break-words select-text">
           {renderContent(post.content)}
         </div>
@@ -472,9 +525,9 @@ export default function PostDetailPage() {
                         {new Date(comment.created_at).toLocaleDateString('ko-KR')}
                       </span>
                     </div>
-                    <p className="text-gray-700 text-[11px] sm:text-xs leading-snug break-words select-text">
+                    <div className="text-gray-700 text-[11px] sm:text-xs leading-snug break-words select-text">
                       {renderContent(comment.content)}
-                    </p>
+                    </div>
                   </div>
 
                   {canDeleteComment && (
