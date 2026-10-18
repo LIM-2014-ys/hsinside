@@ -17,8 +17,9 @@ export default function MyPage() {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // DM 채팅 상태 (1:1 보낼 때)
+  // 💬 1:1 채팅 상태 (대화 상대 선택 및 실시간 대화)
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [activeChatPartner, setActiveChatPartner] = useState({ email: '', name: '' });
   const [messages, setMessages] = useState([]);
   const [inputMessage, setInputMessage] = useState('');
   const [sending, setSending] = useState(false);
@@ -98,7 +99,6 @@ export default function MyPage() {
   }, [targetUserId]);
 
   const isSelf = currentUser && currentUser.id === targetUserId;
-  const targetEmail = profile?.email;
   const currentDisplayName = profile?.display_name || profile?.nickname || '익명';
 
   // 📬 내가 받은 DM 목록 조회 & 실시간 감지 (본인 페이지일 때 실행)
@@ -141,7 +141,120 @@ export default function MyPage() {
     };
   }, [currentUser, isSelf]);
 
-  // 닉네임(display_name) 중복 확인
+  // 💬 채팅 열기 핸들러 (타인 프로필 또는 받은 메시지함에서 클릭 시)
+  const handleOpenChat = (email, name) => {
+    if (!currentUser) {
+      alert('DM을 보내려면 로그인해야 합니다.');
+      return;
+    }
+    if (!email) {
+      alert('상대방 이메일 정보가 없습니다.');
+      return;
+    }
+    setActiveChatPartner({
+      email,
+      name: name || email.split('@')[0] || '익명',
+    });
+    setIsChatOpen(true);
+  };
+
+  // 💬 선택된 상대와의 1:1 대화 내역 로드 & 실시간(Realtime) 동기화
+  useEffect(() => {
+    if (!isChatOpen || !currentUser?.email || !activeChatPartner.email) return;
+
+    const partnerEmail = activeChatPartner.email;
+
+    const fetchMessages = async () => {
+      const { data, error } = await supabase
+        .from('direct_messages')
+        .select('*')
+        .or(
+          `and(sender_email.eq.${currentUser.email},receiver_email.eq.${partnerEmail}),and(sender_email.eq.${partnerEmail},receiver_email.eq.${currentUser.email})`
+        )
+        .order('created_at', { ascending: true });
+
+      if (!error && data) {
+        setMessages(data);
+      }
+    };
+
+    fetchMessages();
+
+    const channel = supabase
+      .channel(`dm-chat-${currentUser.email}-${partnerEmail}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'direct_messages' },
+        (payload) => {
+          const newDm = payload.new;
+          const isRelated =
+            (newDm.sender_email === currentUser.email && newDm.receiver_email === partnerEmail) ||
+            (newDm.sender_email === partnerEmail && newDm.receiver_email === currentUser.email);
+
+          if (isRelated) {
+            setMessages((prev) => {
+              if (prev.some((m) => m.id === newDm.id)) return prev;
+              return [...prev, newDm];
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [isChatOpen, currentUser, activeChatPartner]);
+
+  useEffect(() => {
+    if (isChatOpen) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, isChatOpen]);
+
+  // 💬 메시지 전송
+  const handleSendMessage = async (e) => {
+    e.preventDefault();
+    if (!inputMessage.trim() || !currentUser?.email || !activeChatPartner.email || sending) return;
+
+    setSending(true);
+    const contentToSend = inputMessage.trim();
+    setInputMessage('');
+
+    try {
+      const senderName =
+        currentUser.user_metadata?.display_name ||
+        currentUser.user_metadata?.nickname ||
+        currentUser.email?.split('@')[0] ||
+        '익명';
+
+      const { data, error } = await supabase
+        .from('direct_messages')
+        .insert([
+          {
+            sender_email: currentUser.email,
+            sender_name: senderName,
+            receiver_email: activeChatPartner.email,
+            content: contentToSend,
+          },
+        ])
+        .select('*')
+        .single();
+
+      if (!error && data) {
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === data.id)) return prev;
+          return [...prev, data];
+        });
+      }
+    } catch (err) {
+      console.error('메시지 전송 오류:', err);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  // 닉네임 중복 확인
   const handleCheckNicknameDuplicate = async () => {
     const trimmed = editNickname.trim();
     if (!trimmed) {
@@ -185,101 +298,7 @@ export default function MyPage() {
     }
   };
 
-  // 채팅 메시지 로드 & Realtime (특정 유저와의 1:1 대화)
-  useEffect(() => {
-    if (!isChatOpen || !currentUser?.email || !targetEmail) return;
-
-    const fetchMessages = async () => {
-      const { data, error } = await supabase
-        .from('direct_messages')
-        .select('*')
-        .or(
-          `and(sender_email.eq.${currentUser.email},receiver_email.eq.${targetEmail}),and(sender_email.eq.${targetEmail},receiver_email.eq.${currentUser.email})`
-        )
-        .order('created_at', { ascending: true });
-
-      if (!error && data) {
-        setMessages(data);
-      }
-    };
-
-    fetchMessages();
-
-    const channel = supabase
-      .channel(`dm-chat-${currentUser.email}-${targetEmail}`)
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'direct_messages' },
-        (payload) => {
-          const newDm = payload.new;
-          const isRelated =
-            (newDm.sender_email === currentUser.email && newDm.receiver_email === targetEmail) ||
-            (newDm.sender_email === targetEmail && newDm.receiver_email === currentUser.email);
-
-          if (isRelated) {
-            setMessages((prev) => {
-              if (prev.some((m) => m.id === newDm.id)) return prev;
-              return [...prev, newDm];
-            });
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [isChatOpen, currentUser, targetEmail]);
-
-  useEffect(() => {
-    if (isChatOpen) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [messages, isChatOpen]);
-
-  // DM 전송
-  const handleSendMessage = async (e) => {
-    e.preventDefault();
-    if (!inputMessage.trim() || !currentUser?.email || !targetEmail || sending) return;
-
-    setSending(true);
-    const contentToSend = inputMessage.trim();
-    setInputMessage('');
-
-    try {
-      const senderName =
-        currentUser.user_metadata?.display_name ||
-        currentUser.user_metadata?.nickname ||
-        currentUser.email?.split('@')[0] ||
-        '익명';
-
-      const { data, error } = await supabase
-        .from('direct_messages')
-        .insert([
-          {
-            sender_email: currentUser.email,
-            sender_name: senderName,
-            receiver_email: targetEmail,
-            content: contentToSend,
-          },
-        ])
-        .select('*')
-        .single();
-
-      if (!error && data) {
-        setMessages((prev) => {
-          if (prev.some((m) => m.id === data.id)) return prev;
-          return [...prev, data];
-        });
-      }
-    } catch (err) {
-      console.error('메시지 전송 오류:', err);
-    } finally {
-      setSending(false);
-    }
-  };
-
-  // 프로필 이미지 파일 선택 업로드
+  // 프로필 이미지 업로드
   const handleImageFileUpload = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -296,7 +315,7 @@ export default function MyPage() {
     reader.readAsDataURL(file);
   };
 
-  // 내 프로필 업데이트
+  // 프로필 정보 업데이트
   const handleUpdateProfile = async (e) => {
     e.preventDefault();
     if (!currentUser) return;
@@ -520,13 +539,7 @@ export default function MyPage() {
             </>
           ) : (
             <button
-              onClick={() => {
-                if (!currentUser) {
-                  alert('DM을 보내려면 로그인해야 합니다.');
-                  return;
-                }
-                setIsChatOpen(true);
-              }}
+              onClick={() => handleOpenChat(profile?.email, currentDisplayName)}
               className="w-full py-2.5 bg-emerald-600 active:bg-emerald-700 text-white font-bold rounded-xl transition text-xs shadow-xs touch-manipulation flex items-center justify-center gap-1.5"
             >
               💬 메시지 보내기 (DM)
@@ -534,7 +547,7 @@ export default function MyPage() {
           )}
         </div>
 
-        {/* 📬 받은 메시지 목록 (Inbox) */}
+        {/* 📬 받은 메시지 목록 (Inbox) & 답장하기 버튼 */}
         {isSelf && showInbox && (
           <div className="text-left pt-4 border-t border-gray-100 space-y-3">
             <h3 className="font-bold text-xs text-gray-900 flex items-center justify-between">
@@ -551,7 +564,7 @@ export default function MyPage() {
                 {receivedDms.map((dm) => (
                   <div
                     key={dm.id}
-                    className="p-3 bg-gray-50 hover:bg-gray-100/80 rounded-2xl border border-gray-100 transition space-y-1"
+                    className="p-3 bg-gray-50 hover:bg-gray-100/80 rounded-2xl border border-gray-100 transition space-y-2"
                   >
                     <div className="flex items-center justify-between">
                       <span className="font-bold text-gray-800 text-[11px]">
@@ -569,6 +582,15 @@ export default function MyPage() {
                     <p className="text-[11px] text-gray-600 break-words leading-relaxed">
                       {dm.content}
                     </p>
+                    {/* 💬 클릭 시 1:1 채팅창으로 전환 */}
+                    <div className="text-right pt-1">
+                      <button
+                        onClick={() => handleOpenChat(dm.sender_email, dm.sender_name)}
+                        className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-[10px] transition shadow-2xs"
+                      >
+                        💬 1:1 대화 / 답장하기
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -709,24 +731,20 @@ export default function MyPage() {
         )}
       </div>
 
-      {/* DM 모달 채팅창 */}
+      {/* 💬 실시간 1:1 DM 모달 대화창 */}
       {isChatOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 z-50">
           <div className="bg-white w-full max-w-sm h-[85vh] max-h-[650px] rounded-3xl flex flex-col overflow-hidden shadow-2xl border border-gray-100">
             <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between bg-white shrink-0">
               <div className="flex items-center gap-2.5 min-w-0">
-                <div className="w-9 h-9 rounded-full overflow-hidden bg-emerald-50 border border-emerald-100 shrink-0">
-                  {profile?.avatar_url ? (
-                    <img src={profile.avatar_url} alt="프사" className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-sm">👤</div>
-                  )}
+                <div className="w-9 h-9 rounded-full overflow-hidden bg-emerald-50 border border-emerald-100 shrink-0 flex items-center justify-center text-sm font-bold text-emerald-800">
+                  💬
                 </div>
                 <div className="min-w-0">
                   <h3 className="font-black text-xs text-gray-900 truncate">
-                    {currentDisplayName}
+                    {activeChatPartner.name}
                   </h3>
-                  <p className="text-[9px] text-emerald-600 font-semibold">● 대화 중</p>
+                  <p className="text-[9px] text-emerald-600 font-semibold">● 1:1 대화 중</p>
                 </div>
               </div>
 
@@ -743,7 +761,7 @@ export default function MyPage() {
                 <div className="h-full flex flex-col items-center justify-center text-center space-y-2 text-gray-400">
                   <span className="text-3xl">💬</span>
                   <p className="text-[11px] font-medium">
-                    {currentDisplayName}님에게 첫 메시지를 보내보세요!
+                    {activeChatPartner.name}님에게 첫 메시지를 보내보세요!
                   </p>
                 </div>
               ) : (
