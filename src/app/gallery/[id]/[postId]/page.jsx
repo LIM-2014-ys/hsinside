@@ -23,8 +23,6 @@ export default function PostDetailPage() {
   const [submittingComment, setSubmittingComment] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  
-  // 🚨 신고 모달 열림/닫힘 상태
   const [isReportOpen, setIsReportOpen] = useState(false);
 
   // 사용자 정보 로드 및 크롬 알림 권한 요청
@@ -150,14 +148,16 @@ export default function PostDetailPage() {
     return /\.(jpg|jpeg|png|gif|webp|svg|bmp)(\?.*)?$/i.test(targetStr);
   };
 
-  // 댓글 본문의 @닉네임 하이라이트 렌더링
+  // 댓글 본문의 @닉네임 하이라이트 렌더링 (이모지 및 유니코드 전체 지원)
   const renderCommentContent = (content) => {
     if (!content) return null;
-    const mentionRegex = /(@[a-zA-Z0-9가-힣_-]+)/g;
+
+    // 공백 및 주요 문장부호(, . : ; ! ? " ' () [] {}) 전까지의 모든 유니코드/이모지를 멘션으로 인식
+    const mentionRegex = /(@[^\s,.:;!?"'()\[\]{}]+)/g;
     const parts = content.split(mentionRegex);
 
     return parts.map((part, idx) => {
-      if (mentionRegex.test(part)) {
+      if (part.startsWith('@')) {
         return (
           <span key={idx} className="text-emerald-600 font-bold bg-emerald-50 px-1 py-0.5 rounded">
             {part}
@@ -228,7 +228,7 @@ export default function PostDetailPage() {
       }
     } catch {
       setErrorMessage('댓글 작성 중 오류가 발생했습니다.');
-    } finally {
+    } fontically {
       setSubmittingComment(false);
     }
   };
@@ -297,7 +297,7 @@ export default function PostDetailPage() {
         </Link>
 
         <div className="flex items-center gap-2">
-          {/* 🚨 타인의 게시물일 경우 신고 버튼 노출 */}
+          {/* 타인의 게시물일 경우 신고 버튼 노출 */}
           {!isPostAuthor && (
             <button
               type="button"
@@ -467,7 +467,7 @@ export default function PostDetailPage() {
         </div>
       </div>
 
-      {/* 🚨 신고 모달 컴포넌트 연결 */}
+      {/* 신고 모달 컴포넌트 연결 */}
       <ReportModal
         postId={postId}
         postAuthorId={post.user_id || post.author_id}
