@@ -44,7 +44,7 @@ export default function MyPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
 
-  // 유저 데이터 및 프로필 조회 (UUID 전용 쿼리)
+  // 유저 데이터 및 프로필 조회 (UUID & display_name 매핑)
   useEffect(() => {
     const fetchUserData = async () => {
       setLoading(true);
@@ -52,7 +52,7 @@ export default function MyPage() {
         const { data: { user: authUser } } = await supabase.auth.getUser();
         setCurrentUser(authUser);
 
-        // profiles 테이블에서 UUID(id) 단일 조건으로 검색
+        // profiles 테이블에서 UUID(id) 기반 조회
         const { data: profileData } = await supabase
           .from('profiles')
           .select('*')
@@ -61,20 +61,22 @@ export default function MyPage() {
 
         if (profileData) {
           setProfile(profileData);
-          setEditNickname(profileData.nickname || profileData.display_name || '');
+          // DB의 display_name 컬럼을 닉네임으로 매핑
+          const currentDisplayName = profileData.display_name || profileData.nickname || '';
+          setEditNickname(currentDisplayName);
           setEditBio(profileData.bio || '');
           setEditAvatarUrl(profileData.avatar_url || '');
         } else if (authUser && authUser.id === targetUserId) {
           const initialNickname =
-            authUser.user_metadata?.nickname ||
             authUser.user_metadata?.display_name ||
+            authUser.user_metadata?.nickname ||
             authUser.email?.split('@')[0] ||
             '회원';
 
           setProfile({
             id: authUser.id,
             email: authUser.email,
-            nickname: initialNickname,
+            display_name: initialNickname,
             avatar_url: null,
             bio: '안녕하세요!',
           });
@@ -94,8 +96,9 @@ export default function MyPage() {
 
   const isSelf = currentUser && currentUser.id === targetUserId;
   const targetEmail = profile?.email;
+  const currentDisplayName = profile?.display_name || profile?.nickname || '익명';
 
-  // 닉네임 중복 확인 로직 (보존)
+  // 닉네임(display_name) 중복 확인 로직 (핵심 수정 ⭐️)
   const handleCheckNicknameDuplicate = async () => {
     const trimmed = editNickname.trim();
     if (!trimmed) {
@@ -104,17 +107,19 @@ export default function MyPage() {
       return;
     }
 
-    if (trimmed.toLowerCase() === profile?.nickname?.toLowerCase()) {
+    // 본인 기존 닉네임 동일 여부 확인
+    if (trimmed.toLowerCase() === currentDisplayName.toLowerCase()) {
       setNicknameCheckMsg({ type: 'success', text: '현재 본인의 닉네임입니다.' });
       setIsNicknameChecked(true);
       return;
     }
 
     try {
+      // ✅ DB의 display_name 컬럼으로 ilike 중복 검사
       const { data, error } = await supabase
         .from('profiles')
-        .select('id, nickname')
-        .ilike('nickname', trimmed);
+        .select('id, display_name')
+        .ilike('display_name', trimmed);
 
       if (error) {
         console.error('중복 확인 쿼리 오류:', error);
@@ -123,6 +128,7 @@ export default function MyPage() {
         return;
       }
 
+      // 본인 제외 타인 중복 여부 판별
       const otherUserMatches = data ? data.filter((item) => item.id !== currentUser?.id) : [];
 
       if (otherUserMatches.length > 0) {
@@ -202,8 +208,8 @@ export default function MyPage() {
 
     try {
       const senderName =
-        currentUser.user_metadata?.nickname ||
         currentUser.user_metadata?.display_name ||
+        currentUser.user_metadata?.nickname ||
         currentUser.email?.split('@')[0] ||
         '익명';
 
@@ -250,7 +256,7 @@ export default function MyPage() {
     reader.readAsDataURL(file);
   };
 
-  // 내 프로필 업데이트
+  // 내 프로필 업데이트 (display_name 컬럼으로 저장 ⭐️)
   const handleUpdateProfile = async (e) => {
     e.preventDefault();
     if (!currentUser) return;
@@ -262,20 +268,21 @@ export default function MyPage() {
       return;
     }
 
-    if (trimmedNickname.toLowerCase() !== profile?.nickname?.toLowerCase() && !isNicknameChecked) {
+    if (trimmedNickname.toLowerCase() !== currentDisplayName.toLowerCase() && !isNicknameChecked) {
       alert('닉네임 중복 확인을 진행해 주세요.');
       return;
     }
 
     setUpdatingProfile(true);
     try {
+      // ✅ profiles 테이블에 display_name 컬럼으로 저장
       const { error } = await supabase
         .from('profiles')
         .upsert([
           {
             id: currentUser.id,
             email: currentUser.email,
-            nickname: trimmedNickname,
+            display_name: trimmedNickname,
             avatar_url: editAvatarUrl,
             bio: editBio.trim(),
             updated_at: new Date().toISOString(),
@@ -283,13 +290,13 @@ export default function MyPage() {
         ]);
 
       await supabase.auth.updateUser({
-        data: { nickname: trimmedNickname },
+        data: { display_name: trimmedNickname },
       });
 
       if (!error) {
         setProfile((prev) => ({
           ...prev,
-          nickname: trimmedNickname,
+          display_name: trimmedNickname,
           avatar_url: editAvatarUrl,
           bio: editBio.trim(),
         }));
@@ -390,7 +397,7 @@ export default function MyPage() {
 
         <div className="space-y-1">
           <div className="flex items-center justify-center gap-1.5">
-            <h1 className="text-base font-black text-gray-900">{profile?.nickname || '익명'}</h1>
+            <h1 className="text-base font-black text-gray-900">{currentDisplayName}</h1>
             <AdminBadge email={profile?.email} />
           </div>
           {profile?.email && <p className="text-[11px] text-gray-400 font-medium">{profile.email}</p>}
@@ -487,7 +494,7 @@ export default function MyPage() {
                   onChange={(e) => {
                     const val = e.target.value;
                     setEditNickname(val);
-                    if (val.trim().toLowerCase() === profile?.nickname?.toLowerCase()) {
+                    if (val.trim().toLowerCase() === currentDisplayName.toLowerCase()) {
                       setIsNicknameChecked(true);
                       setNicknameCheckMsg({ type: 'success', text: '현재 본인의 닉네임입니다.' });
                     } else {
@@ -622,7 +629,7 @@ export default function MyPage() {
                 </div>
                 <div className="min-w-0">
                   <h3 className="font-black text-xs text-gray-900 truncate">
-                    {profile?.nickname || '익명'}
+                    {currentDisplayName}
                   </h3>
                   <p className="text-[9px] text-emerald-600 font-semibold">● 대화 중</p>
                 </div>
@@ -641,7 +648,7 @@ export default function MyPage() {
                 <div className="h-full flex flex-col items-center justify-center text-center space-y-2 text-gray-400">
                   <span className="text-3xl">💬</span>
                   <p className="text-[11px] font-medium">
-                    {profile?.nickname}님에게 첫 메시지를 보내보세요!
+                    {currentDisplayName}님에게 첫 메시지를 보내보세요!
                   </p>
                 </div>
               ) : (
