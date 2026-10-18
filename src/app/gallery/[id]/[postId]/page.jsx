@@ -25,7 +25,7 @@ export default function PostDetailPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isReportOpen, setIsReportOpen] = useState(false);
 
-  // 사용자 정보 로드 및 알림 권한 요청
+  // 사용자 정보 로드 및 크롬 알림 권한 요청
   useEffect(() => {
     const fetchUser = async () => {
       const { data: { user: currentUser } } = await supabase.auth.getUser();
@@ -142,7 +142,7 @@ export default function PostDetailPage() {
     return /\.(jpg|jpeg|png|gif|webp|svg|bmp)(\?.*)?$/i.test(targetStr);
   };
 
-  // 댓글 본문의 @닉네임 하이라이트 렌더링
+  // 댓글 본문의 @닉네임 하이라이트 렌더링 (이모지 및 모든 유니코드 문자 지원)
   const renderCommentContent = (content) => {
     if (!content) return null;
 
@@ -250,7 +250,7 @@ export default function PostDetailPage() {
 
   if (loading) {
     return (
-      <div className="max-w-4xl mx-auto my-12 text-center text-gray-400 font-bold text-xs sm:text-sm px-4">
+      <div className="max-w-4xl mx-auto my-12 text-center text-gray-400 font-bold text-xs px-4">
         📄 게시글을 불러오는 중입니다...
       </div>
     );
@@ -258,7 +258,7 @@ export default function PostDetailPage() {
 
   if (!post) {
     return (
-      <div className="max-w-4xl mx-auto my-12 text-center text-gray-400 font-bold text-xs sm:text-sm space-y-3 px-4">
+      <div className="max-w-4xl mx-auto my-12 text-center text-gray-400 font-bold text-xs space-y-3 px-4">
         <p>존재하지 않거나 삭제된 게시글입니다.</p>
         <Link
           href={`/gallery/${galleryId}`}
@@ -273,18 +273,18 @@ export default function PostDetailPage() {
   const hasImage = isImageFile(post.file_url, post.file_name);
 
   return (
-    <div className="max-w-4xl mx-auto my-4 sm:my-8 px-3 sm:px-4 font-sans text-xs sm:text-sm space-y-4 sm:space-y-6 select-none sm:select-auto">
+    <div className="max-w-4xl mx-auto my-4 sm:my-8 px-3 sm:px-4 font-sans text-xs sm:text-sm space-y-4 sm:space-y-6">
       {errorMessage && (
         <div className="p-3 bg-rose-50 border border-rose-200 text-rose-600 font-semibold rounded-xl text-xs">
           ⚠️ {errorMessage}
         </div>
       )}
 
-      {/* 상단 네비게이션 & 버튼 영역 (모바일 대응 flex-wrap, touch target 최적화) */}
+      {/* 상단 네비게이션 & 신고/수정/삭제 버튼 */}
       <div className="flex items-center justify-between gap-2 border-b pb-3 sm:pb-4">
         <Link
           href={`/gallery/${galleryId}`}
-          className="px-3 py-2 bg-gray-100 active:bg-gray-200 hover:bg-gray-200 text-gray-700 font-bold rounded-xl transition text-[11px] sm:text-xs shrink-0 touch-manipulation"
+          className="px-3 py-1.5 bg-gray-100 active:bg-gray-200 hover:bg-gray-200 text-gray-700 font-bold rounded-xl transition text-[11px] shrink-0 touch-manipulation"
         >
           ← 갤러리 목록
         </Link>
@@ -294,7 +294,7 @@ export default function PostDetailPage() {
             <button
               type="button"
               onClick={() => setIsReportOpen(true)}
-              className="px-3 py-2 bg-gray-100 active:bg-rose-50 text-gray-600 hover:text-rose-600 border border-transparent hover:border-rose-200 font-bold rounded-xl transition text-[11px] sm:text-xs flex items-center gap-1 active:scale-95 touch-manipulation"
+              className="px-3 py-1.5 bg-gray-100 active:bg-rose-50 text-gray-600 hover:text-rose-600 border border-transparent hover:border-rose-200 font-bold rounded-xl transition text-[11px] flex items-center gap-1 active:scale-95 touch-manipulation"
             >
               🚨 신고
             </button>
@@ -304,7 +304,7 @@ export default function PostDetailPage() {
             <div className="flex items-center gap-1.5 sm:gap-2">
               <Link
                 href={`/gallery/${galleryId}/${postId}/edit`}
-                className="px-3 py-2 bg-emerald-50 active:bg-emerald-100 hover:bg-emerald-100 text-emerald-700 font-bold rounded-xl transition text-[11px] sm:text-xs touch-manipulation"
+                className="px-3 py-1.5 bg-emerald-50 active:bg-emerald-100 hover:bg-emerald-100 text-emerald-700 font-bold rounded-xl transition text-[11px] touch-manipulation"
               >
                 ✏️ 수정
               </Link>
@@ -312,7 +312,7 @@ export default function PostDetailPage() {
               {!showDeleteConfirm ? (
                 <button
                   onClick={() => setShowDeleteConfirm(true)}
-                  className={`px-3 py-2 font-bold rounded-xl transition text-[11px] sm:text-xs touch-manipulation ${
+                  className={`px-3 py-1.5 font-bold rounded-xl transition text-[11px] touch-manipulation ${
                     isAdmin && !isPostAuthor
                       ? 'bg-rose-100 text-rose-700 active:bg-rose-200'
                       : 'bg-gray-100 text-gray-600 active:bg-gray-200'
@@ -342,10 +342,10 @@ export default function PostDetailPage() {
         </div>
       </div>
 
-      {/* 게시글 본문 카드 (모바일 패딩 및 줄바꿈 최적화) */}
+      {/* 게시글 본문 카드 */}
       <div className="bg-white border border-gray-100 rounded-2xl p-4 sm:p-6 shadow-xs space-y-4">
         <div>
-          <h1 className="text-lg sm:text-xl font-black text-gray-900 leading-snug break-words">
+          <h1 className="text-base sm:text-lg font-black text-gray-900 leading-snug break-words">
             {post.title}
           </h1>
 
@@ -395,23 +395,23 @@ export default function PostDetailPage() {
         )}
       </div>
 
-      {/* 댓글 영역 (모바일 입력창 및 터치 영역 확대) */}
-      <div className="bg-white border border-gray-100 rounded-2xl p-4 sm:p-6 shadow-xs space-y-4">
+      {/* 댓글 영역 */}
+      <div className="bg-white border border-gray-100 rounded-2xl p-4 sm:p-6 shadow-xs space-y-3">
         <h3 className="font-bold text-xs sm:text-sm text-gray-900">💬 댓글 ({comments.length})</h3>
 
-        <form onSubmit={handleAddComment} className="flex gap-1.5 sm:gap-2">
+        <form onSubmit={handleAddComment} className="flex gap-1.5">
           <input
             type="text"
             placeholder={user ? "댓글 입력... (@닉네임 멘션)" : "로그인 후 작성 가능"}
             disabled={!user || submittingComment}
             value={newComment}
             onChange={(e) => setNewComment(e.target.value)}
-            className="flex-1 min-w-0 px-3 py-2.5 sm:px-3.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 text-xs disabled:bg-gray-50 touch-manipulation"
+            className="flex-1 min-w-0 px-3 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 text-[11px] placeholder:text-[10px] sm:placeholder:text-[11px] text-gray-800 disabled:bg-gray-50 touch-manipulation"
           />
           <button
             type="submit"
             disabled={!user || submittingComment || !newComment.trim()}
-            className="px-3.5 sm:px-4 py-2.5 bg-emerald-600 active:bg-emerald-700 text-white font-bold rounded-xl transition text-xs shrink-0 disabled:opacity-50 touch-manipulation"
+            className="px-3.5 py-2 bg-emerald-600 active:bg-emerald-700 text-white font-bold rounded-xl transition text-[11px] shrink-0 disabled:opacity-50 touch-manipulation"
           >
             등록
           </button>
@@ -419,17 +419,17 @@ export default function PostDetailPage() {
 
         <div className="divide-y divide-gray-100 pt-1">
           {comments.length === 0 ? (
-            <p className="text-center py-6 text-gray-400 font-medium text-xs">등록된 댓글이 없습니다.</p>
+            <p className="text-center py-5 text-gray-400 font-medium text-[11px]">등록된 댓글이 없습니다.</p>
           ) : (
             comments.map((comment) => {
               const isCommentAuthor = user?.email && comment.author_email === user.email;
               const canDeleteComment = isCommentAuthor || isAdmin;
 
               return (
-                <div key={comment.id} className="py-2.5 sm:py-3 flex items-start justify-between gap-2 sm:gap-4">
-                  <div className="space-y-1 flex-1 min-w-0">
+                <div key={comment.id} className="py-2.5 flex items-start justify-between gap-2">
+                  <div className="space-y-0.5 flex-1 min-w-0">
                     <div className="flex items-center gap-1 flex-wrap">
-                      <span className="font-bold text-gray-900 text-[11px] sm:text-xs truncate max-w-[150px]">
+                      <span className="font-bold text-gray-900 text-[11px] truncate max-w-[140px]">
                         {comment.author_name || '익명'}
                       </span>
                       <AdminBadge email={comment.author_email} />
@@ -437,7 +437,7 @@ export default function PostDetailPage() {
                         {new Date(comment.created_at).toLocaleDateString('ko-KR')}
                       </span>
                     </div>
-                    <p className="text-gray-700 text-xs leading-normal break-words select-text">
+                    <p className="text-gray-700 text-[11px] sm:text-xs leading-snug break-words select-text">
                       {renderCommentContent(comment.content)}
                     </p>
                   </div>
@@ -445,7 +445,7 @@ export default function PostDetailPage() {
                   {canDeleteComment && (
                     <button
                       onClick={() => handleDeleteComment(comment.id)}
-                      className={`text-[10px] px-2 py-1 font-bold rounded-lg transition shrink-0 touch-manipulation ${
+                      className={`text-[10px] px-2 py-0.5 font-bold rounded-lg transition shrink-0 touch-manipulation ${
                         isAdmin && !isCommentAuthor
                           ? 'bg-rose-50 text-rose-600 active:bg-rose-100'
                           : 'text-gray-400 active:text-rose-600 hover:text-rose-600 active:bg-gray-50'
@@ -461,7 +461,7 @@ export default function PostDetailPage() {
         </div>
       </div>
 
-      {/* 신고 모달 */}
+      {/* 신고 모달 컴포넌트 */}
       <ReportModal
         postId={postId}
         postAuthorId={post.user_id || post.author_id}
