@@ -17,7 +17,7 @@ export default function MyPage() {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // 💬 1:1 채팅 상태 (대화 상대 선택 및 실시간 대화)
+  // 💬 1:1 실시간 채팅 모달 상태
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [activeChatPartner, setActiveChatPartner] = useState({ email: '', name: '' });
   const [messages, setMessages] = useState([]);
@@ -57,7 +57,6 @@ export default function MyPage() {
         const { data: { user: authUser } } = await supabase.auth.getUser();
         setCurrentUser(authUser);
 
-        // profiles 테이블에서 UUID(id) 기반 조회
         const { data: profileData } = await supabase
           .from('profiles')
           .select('*')
@@ -101,7 +100,7 @@ export default function MyPage() {
   const isSelf = currentUser && currentUser.id === targetUserId;
   const currentDisplayName = profile?.display_name || profile?.nickname || '익명';
 
-  // 📬 내가 받은 DM 목록 조회 & 실시간 감지 (본인 페이지일 때 실행)
+  // 📬 내가 받은 전체 DM 조회 & Realtime 실시간 수신
   useEffect(() => {
     if (!currentUser?.email || !isSelf) return;
 
@@ -119,9 +118,8 @@ export default function MyPage() {
 
     fetchReceivedDms();
 
-    // 실시간 새 DM 수신 구독
     const channel = supabase
-      .channel(`inbox-${currentUser.email}`)
+      .channel(`inbox-realtime-${currentUser.email}`)
       .on(
         'postgres_changes',
         {
@@ -141,7 +139,26 @@ export default function MyPage() {
     };
   }, [currentUser, isSelf]);
 
-  // 💬 채팅 열기 핸들러
+  // 👥 받은 메시지를 '발신자(상대방)'별로 그룹화하여 채팅방 목록 생성
+  const conversationRooms = Object.values(
+    receivedDms.reduce((acc, dm) => {
+      const senderKey = dm.sender_email;
+      if (!acc[senderKey]) {
+        acc[senderKey] = {
+          sender_email: dm.sender_email,
+          sender_name: dm.sender_name || dm.sender_email?.split('@')[0] || '익명',
+          latestMessage: dm.content,
+          latestTime: dm.created_at,
+          count: 1,
+        };
+      } else {
+        acc[senderKey].count += 1;
+      }
+      return acc;
+    }, {})
+  );
+
+  // 💬 특정 유저와의 1:1 대화창 열기
   const handleOpenChat = (email, name) => {
     if (!currentUser) {
       alert('DM을 보내려면 로그인해야 합니다.');
@@ -158,7 +175,7 @@ export default function MyPage() {
     setIsChatOpen(true);
   };
 
-  // 💬 선택된 상대와의 1:1 대화 내역 로드 & 실시간(Realtime) 동기화
+  // 💬 선택된 상대와의 1:1 메시지 조회 & 실시간(Realtime) 동기화
   useEffect(() => {
     if (!isChatOpen || !currentUser?.email || !activeChatPartner.email) return;
 
@@ -181,7 +198,7 @@ export default function MyPage() {
     fetchMessages();
 
     const channel = supabase
-      .channel(`dm-chat-${currentUser.email}-${partnerEmail}`)
+      .channel(`chat-room-${currentUser.email}-${partnerEmail}`)
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'direct_messages' },
@@ -212,7 +229,7 @@ export default function MyPage() {
     }
   }, [messages, isChatOpen]);
 
-  // 💬 메시지 전송
+  // 💬 실시간 메시지 전송
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!inputMessage.trim() || !currentUser?.email || !activeChatPartner.email || sending) return;
@@ -262,7 +279,6 @@ export default function MyPage() {
       return;
     }
 
-    // 공백 포함 여부 검사
     if (/\s/.test(editNickname)) {
       setNicknameCheckMsg({ type: 'error', text: '❌ 닉네임에 공백을 포함할 수 없습니다.' });
       setIsNicknameChecked(false);
@@ -323,7 +339,7 @@ export default function MyPage() {
     reader.readAsDataURL(file);
   };
 
-  // 내 프로필 업데이트
+  // 프로필 저장
   const handleUpdateProfile = async (e) => {
     e.preventDefault();
     if (!currentUser) return;
@@ -491,7 +507,7 @@ export default function MyPage() {
                 }}
                 className="w-full py-2.5 bg-blue-50 active:bg-blue-100 text-blue-700 font-bold rounded-xl transition text-xs touch-manipulation flex items-center justify-center gap-1.5"
               >
-                📬 받은 메시지함 ({receivedDms.length})
+                📬 받은 메시지함 ({conversationRooms.length})
               </button>
 
               <div className="grid grid-cols-2 gap-2">
@@ -560,49 +576,45 @@ export default function MyPage() {
           )}
         </div>
 
-        {/* 📬 받은 메시지 목록 (Inbox) */}
+        {/* 📬 상대방별 1:1 채팅방 목록 */}
         {isSelf && showInbox && (
           <div className="text-left pt-4 border-t border-gray-100 space-y-3">
             <h3 className="font-bold text-xs text-gray-900 flex items-center justify-between">
-              <span>📬 받은 메시지 목록</span>
-              <span className="text-[10px] text-gray-400 font-normal">총 {receivedDms.length}개</span>
+              <span>📬 1:1 대화 목록</span>
+              <span className="text-[10px] text-gray-400 font-normal">총 {conversationRooms.length}개 대화방</span>
             </h3>
 
-            {receivedDms.length === 0 ? (
+            {conversationRooms.length === 0 ? (
               <div className="p-4 text-center text-gray-400 text-[11px] bg-gray-50 rounded-2xl border border-dashed border-gray-200">
-                받은 메시지가 없습니다.
+                도착한 메시지가 없습니다.
               </div>
             ) : (
               <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-                {receivedDms.map((dm) => (
+                {conversationRooms.map((room) => (
                   <div
-                    key={dm.id}
-                    className="p-3 bg-gray-50 hover:bg-gray-100/80 rounded-2xl border border-gray-100 transition space-y-2"
+                    key={room.sender_email}
+                    onClick={() => handleOpenChat(room.sender_email, room.sender_name)}
+                    className="p-3 bg-gray-50 hover:bg-emerald-50/60 active:bg-emerald-100/80 rounded-2xl border border-gray-100 cursor-pointer transition space-y-1 group"
                   >
                     <div className="flex items-center justify-between">
-                      <span className="font-bold text-gray-800 text-[11px]">
-                        {dm.sender_name || dm.sender_email?.split('@')[0] || '익명'}
-                      </span>
-                      <span className="text-[9px] text-gray-400">
-                        {new Date(dm.created_at).toLocaleString('ko-KR', {
-                          month: 'numeric',
-                          day: 'numeric',
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="font-bold text-gray-900 text-[12px] group-hover:text-emerald-700 transition truncate">
+                          {room.sender_name}님과의 대화
+                        </span>
+                        <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 font-bold text-[9px] rounded-full">
+                          {room.count}개의 메시지
+                        </span>
+                      </div>
+                      <span className="text-[9px] text-gray-400 shrink-0">
+                        {new Date(room.latestTime).toLocaleTimeString('ko-KR', {
                           hour: '2-digit',
                           minute: '2-digit',
                         })}
                       </span>
                     </div>
-                    <p className="text-[11px] text-gray-600 break-words leading-relaxed">
-                      {dm.content}
+                    <p className="text-[11px] text-gray-500 group-hover:text-gray-700 truncate font-medium">
+                      최근: "{room.latestMessage}"
                     </p>
-                    <div className="text-right pt-1">
-                      <button
-                        onClick={() => handleOpenChat(dm.sender_email, dm.sender_name)}
-                        className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-[10px] transition shadow-2xs"
-                      >
-                        💬 1:1 대화 / 답장하기
-                      </button>
-                    </div>
                   </div>
                 ))}
               </div>
@@ -747,7 +759,7 @@ export default function MyPage() {
         )}
       </div>
 
-      {/* 💬 실시간 1:1 DM 모달 대화창 */}
+      {/* 💬 실시간 1:1 대화 모달 창 */}
       {isChatOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 z-50">
           <div className="bg-white w-full max-w-sm h-[85vh] max-h-[650px] rounded-3xl flex flex-col overflow-hidden shadow-2xl border border-gray-100">
@@ -760,7 +772,7 @@ export default function MyPage() {
                   <h3 className="font-black text-xs text-gray-900 truncate">
                     {activeChatPartner.name}
                   </h3>
-                  <p className="text-[9px] text-emerald-600 font-semibold">● 1:1 대화 중</p>
+                  <p className="text-[9px] text-emerald-600 font-semibold">● 실시간 대화 중</p>
                 </div>
               </div>
 
