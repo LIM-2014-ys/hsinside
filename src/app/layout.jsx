@@ -1,6 +1,7 @@
 import './globals.css';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
+import SessionManager from '@/components/SessionManager';
 
 export const metadata = {
   title: 'HSinside',
@@ -28,16 +29,18 @@ export default function RootLayout({ children }) {
   return (
     <html lang="ko">
       <body className="bg-gray-50 text-gray-900 antialiased min-h-screen flex flex-col">
-        {/* 상단 공통 헤더 */}
-        <Header />
+        <SessionManager>
+          {/* 상단 공통 헤더 */}
+          <Header />
 
-        {/* 메인 콘텐츠 영역 */}
-        <main className="flex-1 w-full">
-          {children}
-        </main>
+          {/* 메인 콘텐츠 영역 */}
+          <main className="flex-1 w-full">
+            {children}
+          </main>
 
-        {/* 하단 공통 푸터 */}
-        <Footer />
+          {/* 하단 공통 푸터 */}
+          <Footer />
+        </SessionManager>
       </body>
     </html>
   );
