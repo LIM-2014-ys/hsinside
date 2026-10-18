@@ -96,7 +96,7 @@ export default function UserPublicProfilePage() {
   const targetEmail = profile?.email || (targetUserIdentifier.includes('@') ? targetUserIdentifier : null);
   const isSelf = currentUser && (currentUser.email === targetEmail || currentUser.id === targetUserIdentifier);
 
-  // 닉네임 중복 확인 함수 (대소문자 무시 ilike 처리)
+  // 닉네임 중복 확인 함수 (정확한 타인 계정 중복 검사)
   const handleCheckNicknameDuplicate = async () => {
     const trimmed = editNickname.trim();
     if (!trimmed) {
@@ -105,6 +105,7 @@ export default function UserPublicProfilePage() {
       return;
     }
 
+    // 본인의 현재 닉네임과 동일한 경우
     if (trimmed.toLowerCase() === profile?.nickname?.toLowerCase()) {
       setNicknameCheckMsg({ type: 'success', text: '현재 본인의 닉네임입니다.' });
       setIsNicknameChecked(true);
@@ -112,18 +113,23 @@ export default function UserPublicProfilePage() {
     }
 
     try {
-      // .ilike 로 대소문자 구분 없이 중복 검사
+      // 1. 대소문자 구분 없이 전체 DB에서 닉네임 조회
       const { data, error } = await supabase
         .from('profiles')
         .select('id, nickname')
-        .ilike('nickname', trimmed)
-        .neq('id', currentUser?.id);
+        .ilike('nickname', trimmed);
 
       if (error) {
         console.error('중복 확인 쿼리 오류:', error);
         setNicknameCheckMsg({ type: 'error', text: '중복 확인 중 오류가 발생했습니다.' });
         setIsNicknameChecked(false);
-      } else if (data && data.length > 0) {
+        return;
+      }
+
+      // 2. 검색 결과 중 '내 계정 ID'가 아닌 다른 유저의 닉네임만 필터링
+      const otherUserMatches = data ? data.filter((item) => item.id !== currentUser?.id) : [];
+
+      if (otherUserMatches.length > 0) {
         setNicknameCheckMsg({ type: 'error', text: '❌ 이미 사용 중인 닉네임입니다.' });
         setIsNicknameChecked(false);
       } else {
@@ -131,7 +137,7 @@ export default function UserPublicProfilePage() {
         setIsNicknameChecked(true);
       }
     } catch (err) {
-      console.error('중복 확인 예외:', err);
+      console.error('중복 확인 예외 발생:', err);
       setNicknameCheckMsg({ type: 'error', text: '중복 확인 중 오류가 발생했습니다.' });
       setIsNicknameChecked(false);
     }
