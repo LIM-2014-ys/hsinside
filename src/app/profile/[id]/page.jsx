@@ -26,6 +26,8 @@ export default function UserPublicProfilePage() {
   // 내 프로필 수정 상태
   const [isEditing, setIsEditing] = useState(false);
   const [editNickname, setEditNickname] = useState('');
+  const [isNicknameChecked, setIsNicknameChecked] = useState(true);
+  const [nicknameCheckMsg, setNicknameCheckMsg] = useState({ type: '', text: '' });
   const [editBio, setEditBio] = useState('');
   const [editAvatarUrl, setEditAvatarUrl] = useState('');
   const [updatingProfile, setUpdatingProfile] = useState(false);
@@ -93,6 +95,44 @@ export default function UserPublicProfilePage() {
 
   const targetEmail = profile?.email || (targetUserIdentifier.includes('@') ? targetUserIdentifier : null);
   const isSelf = currentUser && (currentUser.email === targetEmail || currentUser.id === targetUserIdentifier);
+
+  // 닉네임 중복 확인 함수
+  const handleCheckNicknameDuplicate = async () => {
+    const trimmed = editNickname.trim();
+    if (!trimmed) {
+      setNicknameCheckMsg({ type: 'error', text: '닉네임을 입력해 주세요.' });
+      setIsNicknameChecked(false);
+      return;
+    }
+
+    if (trimmed === profile?.nickname) {
+      setNicknameCheckMsg({ type: 'success', text: '현재 본인의 닉네임입니다.' });
+      setIsNicknameChecked(true);
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('nickname', trimmed)
+        .neq('id', currentUser?.id);
+
+      if (error) {
+        setNicknameCheckMsg({ type: 'error', text: '중복 확인 중 오류가 발생했습니다.' });
+        setIsNicknameChecked(false);
+      } else if (data && data.length > 0) {
+        setNicknameCheckMsg({ type: 'error', text: '❌ 이미 사용 중인 닉네임입니다.' });
+        setIsNicknameChecked(false);
+      } else {
+        setNicknameCheckMsg({ type: 'success', text: '✅ 사용 가능한 닉네임입니다!' });
+        setIsNicknameChecked(true);
+      }
+    } catch {
+      setNicknameCheckMsg({ type: 'error', text: '중복 확인 중 오류가 발생했습니다.' });
+      setIsNicknameChecked(false);
+    }
+  };
 
   // 채팅 메시지 목록 로드 & 실시간(Realtime) 감지
   useEffect(() => {
@@ -214,8 +254,15 @@ export default function UserPublicProfilePage() {
     e.preventDefault();
     if (!currentUser) return;
 
-    if (!editNickname.trim()) {
+    const trimmedNickname = editNickname.trim();
+
+    if (!trimmedNickname) {
       alert('닉네임을 입력해 주세요.');
+      return;
+    }
+
+    if (trimmedNickname !== profile?.nickname && !isNicknameChecked) {
+      alert('닉네임 중복 확인을 진행해 주세요.');
       return;
     }
 
@@ -227,7 +274,7 @@ export default function UserPublicProfilePage() {
           {
             id: currentUser.id,
             email: currentUser.email,
-            nickname: editNickname.trim(),
+            nickname: trimmedNickname,
             avatar_url: editAvatarUrl,
             bio: editBio.trim(),
             updated_at: new Date().toISOString(),
@@ -235,17 +282,18 @@ export default function UserPublicProfilePage() {
         ]);
 
       await supabase.auth.updateUser({
-        data: { nickname: editNickname.trim() },
+        data: { nickname: trimmedNickname },
       });
 
       if (!error) {
         setProfile((prev) => ({
           ...prev,
-          nickname: editNickname.trim(),
+          nickname: trimmedNickname,
           avatar_url: editAvatarUrl,
           bio: editBio.trim(),
         }));
         setIsEditing(false);
+        setNicknameCheckMsg({ type: '', text: '' });
         alert('프로필 정보가 성공적으로 저장되었습니다!');
       } else {
         alert(`저장 실패: ${error.message}`);
@@ -368,6 +416,7 @@ export default function UserPublicProfilePage() {
                   onClick={() => {
                     setIsEditing(!isEditing);
                     setIsChangingPassword(false);
+                    setNicknameCheckMsg({ type: '', text: '' });
                   }}
                   className="py-2.5 bg-gray-100 active:bg-gray-200 text-gray-700 font-bold rounded-xl transition text-xs touch-manipulation"
                 >
@@ -435,19 +484,45 @@ export default function UserPublicProfilePage() {
           )}
         </div>
 
-        {/* 내 프로필 수정 폼 */}
+        {/* 내 프로필 수정 폼 (닉네임 중복 확인 포함) */}
         {isSelf && isEditing && (
           <form onSubmit={handleUpdateProfile} className="text-left pt-4 border-t border-gray-100 space-y-3.5">
             <div>
-              <label className="block text-[10px] font-bold text-gray-500 mb-1">🏷️ 닉네임 설정</label>
-              <input
-                type="text"
-                placeholder="사용할 닉네임을 입력해 주세요"
-                value={editNickname}
-                onChange={(e) => setEditNickname(e.target.value)}
-                required
-                className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-xs text-gray-800 touch-manipulation font-semibold"
-              />
+              <label className="block text-[10px] font-bold text-gray-500 mb-1">🏷️ 닉네임 변경 및 중복 확인</label>
+              <div className="flex gap-1.5">
+                <input
+                  type="text"
+                  placeholder="새 닉네임 입력"
+                  value={editNickname}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setEditNickname(val);
+                    if (val.trim() === profile?.nickname) {
+                      setIsNicknameChecked(true);
+                      setNicknameCheckMsg({ type: 'success', text: '현재 본인의 닉네임입니다.' });
+                    } else {
+                      setIsNicknameChecked(false);
+                      setNicknameCheckMsg({ type: '', text: '' });
+                    }
+                  }}
+                  required
+                  className="flex-1 min-w-0 px-3 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-xs text-gray-800 touch-manipulation font-semibold"
+                />
+                <button
+                  type="button"
+                  onClick={handleCheckNicknameDuplicate}
+                  className="px-3 py-2 bg-gray-100 active:bg-gray-200 text-gray-700 font-bold rounded-xl transition text-[11px] shrink-0 touch-manipulation"
+                >
+                  중복 확인
+                </button>
+              </div>
+              {nicknameCheckMsg.text && (
+                <p className={`text-[10px] font-semibold mt-1 ${
+                  nicknameCheckMsg.type === 'error' ? 'text-rose-600' : 'text-emerald-600'
+                }`}>
+                  {nicknameCheckMsg.text}
+                </p>
+              )}
             </div>
 
             <div>
