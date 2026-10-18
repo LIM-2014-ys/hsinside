@@ -51,10 +51,11 @@ export default function UserPublicProfilePage() {
         const { data: { user: authUser } } = await supabase.auth.getUser();
         setCurrentUser(authUser);
 
+        // email, id, nickname 모두 조회 가능하도록 확장
         const { data: profileData } = await supabase
           .from('profiles')
           .select('*')
-          .or(`email.eq.${targetUserIdentifier},id.eq.${targetUserIdentifier}`)
+          .or(`email.eq.${targetUserIdentifier},id.eq.${targetUserIdentifier},nickname.eq.${targetUserIdentifier}`)
           .maybeSingle();
 
         if (profileData) {
@@ -74,7 +75,8 @@ export default function UserPublicProfilePage() {
             defaultNickname;
 
           setProfile({
-            email: targetUserIdentifier.includes('@') ? targetUserIdentifier : null,
+            id: authUser?.id || null,
+            email: targetUserIdentifier.includes('@') ? targetUserIdentifier : authUser?.email,
             nickname: initialNickname,
             avatar_url: null,
             bio: '안녕하세요!',
@@ -94,9 +96,13 @@ export default function UserPublicProfilePage() {
   }, [targetUserIdentifier]);
 
   const targetEmail = profile?.email || (targetUserIdentifier.includes('@') ? targetUserIdentifier : null);
-  const isSelf = currentUser && (currentUser.email === targetEmail || currentUser.id === targetUserIdentifier);
+  const isSelf = currentUser && (
+    currentUser.id === profile?.id ||
+    currentUser.email === targetEmail ||
+    currentUser.id === targetUserIdentifier
+  );
 
-  // 닉네임 중복 확인 함수 (정확한 타인 계정 중복 검사)
+  // 닉네임 중복 확인 함수
   const handleCheckNicknameDuplicate = async () => {
     const trimmed = editNickname.trim();
     if (!trimmed) {
@@ -105,7 +111,6 @@ export default function UserPublicProfilePage() {
       return;
     }
 
-    // 본인의 현재 닉네임과 동일한 경우
     if (trimmed.toLowerCase() === profile?.nickname?.toLowerCase()) {
       setNicknameCheckMsg({ type: 'success', text: '현재 본인의 닉네임입니다.' });
       setIsNicknameChecked(true);
@@ -113,7 +118,6 @@ export default function UserPublicProfilePage() {
     }
 
     try {
-      // 1. 대소문자 구분 없이 전체 DB에서 닉네임 조회
       const { data, error } = await supabase
         .from('profiles')
         .select('id, nickname')
@@ -126,7 +130,6 @@ export default function UserPublicProfilePage() {
         return;
       }
 
-      // 2. 검색 결과 중 '내 계정 ID'가 아닌 다른 유저의 닉네임만 필터링
       const otherUserMatches = data ? data.filter((item) => item.id !== currentUser?.id) : [];
 
       if (otherUserMatches.length > 0) {
@@ -258,7 +261,7 @@ export default function UserPublicProfilePage() {
     reader.readAsDataURL(file);
   };
 
-  // 내 프로필 업데이트
+  // 내 프로필 업데이트 (DB 저장 + URL 갱신)
   const handleUpdateProfile = async (e) => {
     e.preventDefault();
     if (!currentUser) return;
@@ -304,6 +307,9 @@ export default function UserPublicProfilePage() {
         setIsEditing(false);
         setNicknameCheckMsg({ type: '', text: '' });
         alert('프로필 정보가 성공적으로 저장되었습니다!');
+
+        // 닉네임 변경 후 URL 갱신하여 새로고침 시에도 데이터 유지
+        router.replace(`/profile/${encodeURIComponent(trimmedNickname)}`);
       } else {
         alert(`저장 실패: ${error.message}`);
       }
@@ -443,7 +449,6 @@ export default function UserPublicProfilePage() {
                 </button>
               </div>
 
-              {/* 빨간 배경 + 흰 글씨 회원 탈퇴 버튼 */}
               {!showDeleteConfirm ? (
                 <button
                   onClick={() => setShowDeleteConfirm(true)}
@@ -493,7 +498,7 @@ export default function UserPublicProfilePage() {
           )}
         </div>
 
-        {/* 내 프로필 수정 폼 (닉네임 중복 확인 포함) */}
+        {/* 내 프로필 수정 폼 */}
         {isSelf && isEditing && (
           <form onSubmit={handleUpdateProfile} className="text-left pt-4 border-t border-gray-100 space-y-3.5">
             <div>
