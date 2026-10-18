@@ -25,7 +25,7 @@ export default function PostDetailPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isReportOpen, setIsReportOpen] = useState(false);
 
-  // 사용자 정보 로드 및 크롬 알림 권한 요청
+  // 사용자 정보 로드 및 알림 권한 요청
   useEffect(() => {
     const fetchUser = async () => {
       const { data: { user: currentUser } } = await supabase.auth.getUser();
@@ -33,7 +33,6 @@ export default function PostDetailPage() {
     };
     fetchUser();
 
-    // 크롬 알림 권한 요청
     if (typeof window !== 'undefined' && 'Notification' in window) {
       if (Notification.permission === 'default') {
         Notification.requestPermission();
@@ -101,13 +100,11 @@ export default function PostDetailPage() {
         (payload) => {
           const newC = payload.new;
 
-          // 댓글 리스트 실시간 업데이트 (중복 방지)
           setComments((prev) => {
             if (prev.some((c) => c.id === newC.id)) return prev;
             return [...prev, newC];
           });
 
-          // 자기가 쓴 댓글이 아닐 때만 알림 작동
           if (newC.author_email !== user.email) {
             const hasNotificationPermission =
               typeof window !== 'undefined' &&
@@ -117,15 +114,12 @@ export default function PostDetailPage() {
             if (hasNotificationPermission) {
               const commenterName = newC.author_name || '익명';
 
-              // 1. 내가 작성한 게시물에 새 댓글이 달린 경우
               if (post.author_email && post.author_email === user.email) {
                 new Notification('💬 게시물 댓글 알림', {
                   body: `${commenterName}님이 회원님의 게시물에 댓글을 달았습니다: "${newC.content}"`,
                   icon: '/favicon.ico',
                 });
-              }
-              // 2. 댓글에서 내 닉네임이 멘션된 경우 (게시물 작성자 알림과 중복 발송 방지)
-              else if (currentNickname && newC.content.includes(`@${currentNickname}`)) {
+              } else if (currentNickname && newC.content.includes(`@${currentNickname}`)) {
                 new Notification('💬 멘션 알림', {
                   body: `${commenterName}님이 회원님을 멘션했습니다: "${newC.content}"`,
                   icon: '/favicon.ico',
@@ -148,18 +142,17 @@ export default function PostDetailPage() {
     return /\.(jpg|jpeg|png|gif|webp|svg|bmp)(\?.*)?$/i.test(targetStr);
   };
 
-  // 댓글 본문의 @닉네임 하이라이트 렌더링 (이모지 및 유니코드 전체 지원)
+  // 댓글 본문의 @닉네임 하이라이트 렌더링
   const renderCommentContent = (content) => {
     if (!content) return null;
 
-    // 공백 및 주요 문장부호(, . : ; ! ? " ' () [] {}) 전까지의 모든 유니코드/이모지를 멘션으로 인식
     const mentionRegex = /(@[^\s,.:;!?"'()\[\]{}]+)/g;
     const parts = content.split(mentionRegex);
 
     return parts.map((part, idx) => {
       if (part.startsWith('@')) {
         return (
-          <span key={idx} className="text-emerald-600 font-bold bg-emerald-50 px-1 py-0.5 rounded">
+          <span key={idx} className="text-emerald-600 font-bold bg-emerald-50 px-1 py-0.5 rounded break-all">
             {part}
           </span>
         );
@@ -257,7 +250,7 @@ export default function PostDetailPage() {
 
   if (loading) {
     return (
-      <div className="max-w-4xl mx-auto my-16 text-center text-gray-400 font-bold text-xs">
+      <div className="max-w-4xl mx-auto my-12 text-center text-gray-400 font-bold text-xs sm:text-sm px-4">
         📄 게시글을 불러오는 중입니다...
       </div>
     );
@@ -265,11 +258,11 @@ export default function PostDetailPage() {
 
   if (!post) {
     return (
-      <div className="max-w-4xl mx-auto my-16 text-center text-gray-400 font-bold text-xs space-y-3">
+      <div className="max-w-4xl mx-auto my-12 text-center text-gray-400 font-bold text-xs sm:text-sm space-y-3 px-4">
         <p>존재하지 않거나 삭제된 게시글입니다.</p>
         <Link
           href={`/gallery/${galleryId}`}
-          className="inline-block px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl text-xs"
+          className="inline-block px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl text-xs transition"
         >
           목록으로 돌아가기
         </Link>
@@ -280,66 +273,65 @@ export default function PostDetailPage() {
   const hasImage = isImageFile(post.file_url, post.file_name);
 
   return (
-    <div className="max-w-4xl mx-auto my-8 px-4 font-sans text-xs space-y-6">
+    <div className="max-w-4xl mx-auto my-4 sm:my-8 px-3 sm:px-4 font-sans text-xs sm:text-sm space-y-4 sm:space-y-6 select-none sm:select-auto">
       {errorMessage && (
         <div className="p-3 bg-rose-50 border border-rose-200 text-rose-600 font-semibold rounded-xl text-xs">
           ⚠️ {errorMessage}
         </div>
       )}
 
-      {/* 상단 네비게이션 & 신고/수정/삭제 버튼 */}
-      <div className="flex items-center justify-between border-b pb-4">
+      {/* 상단 네비게이션 & 버튼 영역 (모바일 대응 flex-wrap, touch target 최적화) */}
+      <div className="flex items-center justify-between gap-2 border-b pb-3 sm:pb-4">
         <Link
           href={`/gallery/${galleryId}`}
-          className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl transition text-[11px]"
+          className="px-3 py-2 bg-gray-100 active:bg-gray-200 hover:bg-gray-200 text-gray-700 font-bold rounded-xl transition text-[11px] sm:text-xs shrink-0 touch-manipulation"
         >
-          ← 갤러리 목록으로
+          ← 갤러리 목록
         </Link>
 
-        <div className="flex items-center gap-2">
-          {/* 타인의 게시물일 경우 신고 버튼 노출 */}
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap justify-end">
           {!isPostAuthor && (
             <button
               type="button"
               onClick={() => setIsReportOpen(true)}
-              className="px-3 py-1.5 bg-gray-100 hover:bg-rose-50 text-gray-600 hover:text-rose-600 border border-transparent hover:border-rose-200 font-bold rounded-xl transition text-[11px] flex items-center gap-1 active:scale-95"
+              className="px-3 py-2 bg-gray-100 active:bg-rose-50 text-gray-600 hover:text-rose-600 border border-transparent hover:border-rose-200 font-bold rounded-xl transition text-[11px] sm:text-xs flex items-center gap-1 active:scale-95 touch-manipulation"
             >
               🚨 신고
             </button>
           )}
 
           {canModifyPost && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2">
               <Link
                 href={`/gallery/${galleryId}/${postId}/edit`}
-                className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold rounded-xl transition text-[11px]"
+                className="px-3 py-2 bg-emerald-50 active:bg-emerald-100 hover:bg-emerald-100 text-emerald-700 font-bold rounded-xl transition text-[11px] sm:text-xs touch-manipulation"
               >
-                ✏️ 게시글 수정
+                ✏️ 수정
               </Link>
 
               {!showDeleteConfirm ? (
                 <button
                   onClick={() => setShowDeleteConfirm(true)}
-                  className={`px-3 py-1.5 font-bold rounded-xl transition text-[11px] ${
+                  className={`px-3 py-2 font-bold rounded-xl transition text-[11px] sm:text-xs touch-manipulation ${
                     isAdmin && !isPostAuthor
-                      ? 'bg-rose-100 text-rose-700 hover:bg-rose-200'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      ? 'bg-rose-100 text-rose-700 active:bg-rose-200'
+                      : 'bg-gray-100 text-gray-600 active:bg-gray-200'
                   }`}
                 >
                   {isAdmin && !isPostAuthor ? '🛡️ 관리자 삭제' : '🗑️ 삭제'}
                 </button>
               ) : (
-                <div className="flex items-center gap-1.5 bg-rose-50 p-1 rounded-xl border border-rose-200">
-                  <span className="text-rose-700 text-[10px] font-bold px-1">삭제할까요?</span>
+                <div className="flex items-center gap-1 bg-rose-50 p-1 rounded-xl border border-rose-200">
+                  <span className="text-rose-700 text-[10px] sm:text-[11px] font-bold px-1">삭제할까요?</span>
                   <button
                     onClick={handleDeletePost}
-                    className="px-2 py-1 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-lg text-[10px] transition"
+                    className="px-2.5 py-1 bg-rose-600 active:bg-rose-700 text-white font-bold rounded-lg text-[10px] sm:text-[11px] transition touch-manipulation"
                   >
                     확인
                   </button>
                   <button
                     onClick={() => setShowDeleteConfirm(false)}
-                    className="px-2 py-1 bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold rounded-lg text-[10px] transition"
+                    className="px-2.5 py-1 bg-gray-200 active:bg-gray-300 text-gray-700 font-bold rounded-lg text-[10px] sm:text-[11px] transition touch-manipulation"
                   >
                     취소
                   </button>
@@ -350,41 +342,43 @@ export default function PostDetailPage() {
         </div>
       </div>
 
-      {/* 게시글 본문 */}
-      <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm space-y-4">
+      {/* 게시글 본문 카드 (모바일 패딩 및 줄바꿈 최적화) */}
+      <div className="bg-white border border-gray-100 rounded-2xl p-4 sm:p-6 shadow-xs space-y-4">
         <div>
-          <h1 className="text-xl font-black text-gray-900 leading-snug">{post.title}</h1>
+          <h1 className="text-lg sm:text-xl font-black text-gray-900 leading-snug break-words">
+            {post.title}
+          </h1>
 
-          <div className="flex items-center justify-between text-gray-400 text-[11px] mt-2 pt-2 border-t border-gray-50">
-            <div className="flex items-center">
-              <span className="font-bold text-gray-700">
+          <div className="flex items-center justify-between text-gray-400 text-[10px] sm:text-[11px] mt-2 pt-2 border-t border-gray-50 flex-wrap gap-1">
+            <div className="flex items-center gap-1 truncate max-w-[70%]">
+              <span className="font-bold text-gray-700 truncate">
                 {post.author_name || '익명'}
               </span>
               <AdminBadge email={post.author_email} />
             </div>
-            <span>{new Date(post.created_at).toLocaleString('ko-KR')}</span>
+            <span className="shrink-0">{new Date(post.created_at).toLocaleString('ko-KR')}</span>
           </div>
         </div>
 
-        <div className="text-gray-800 leading-relaxed min-h-[100px] whitespace-pre-wrap text-xs pt-2 border-t border-gray-50">
+        <div className="text-gray-800 leading-relaxed min-h-[80px] sm:min-h-[100px] whitespace-pre-wrap text-xs sm:text-sm pt-2 border-t border-gray-50 break-words select-text">
           {post.content}
         </div>
 
         {hasImage && (
-          <div className="pt-4 border-t border-gray-50 flex justify-center bg-gray-50/50 rounded-2xl p-2 border border-gray-100/80">
+          <div className="pt-3 border-t border-gray-50 flex justify-center bg-gray-50/50 rounded-xl p-1.5 sm:p-2 border border-gray-100/80">
             <img
               src={post.file_url}
               alt={post.file_name || '첨부 이미지'}
-              className="max-w-full h-auto rounded-xl shadow-sm object-contain max-h-[600px]"
+              className="max-w-full h-auto rounded-lg sm:rounded-xl shadow-xs object-contain max-h-[70vh] sm:max-h-[600px] w-full"
             />
           </div>
         )}
 
         {post.file_url && (
-          <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between bg-gray-50/70 p-3 rounded-xl border border-gray-100">
-            <div className="flex items-center gap-2 truncate pr-2">
-              <span className="text-sm">{hasImage ? '🖼️' : '📎'}</span>
-              <span className="font-semibold text-gray-700 truncate text-xs">
+          <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between bg-gray-50/70 p-2.5 sm:p-3 rounded-xl border border-gray-100">
+            <div className="flex items-center gap-1.5 truncate pr-2">
+              <span className="text-xs sm:text-sm shrink-0">{hasImage ? '🖼️' : '📎'}</span>
+              <span className="font-semibold text-gray-700 truncate text-[11px] sm:text-xs">
                 {post.file_name || '첨부파일'}
               </span>
             </div>
@@ -393,7 +387,7 @@ export default function PostDetailPage() {
               target="_blank"
               rel="noopener noreferrer"
               download
-              className="px-3 py-1.5 bg-white border border-gray-200 hover:bg-gray-100 text-gray-700 font-bold rounded-lg text-[11px] shrink-0 transition"
+              className="px-2.5 py-1.5 bg-white border border-gray-200 active:bg-gray-100 hover:bg-gray-100 text-gray-700 font-bold rounded-lg text-[10px] sm:text-[11px] shrink-0 transition touch-manipulation"
             >
               다운로드
             </a>
@@ -401,49 +395,49 @@ export default function PostDetailPage() {
         )}
       </div>
 
-      {/* 댓글 영역 */}
-      <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm space-y-4">
-        <h3 className="font-bold text-sm text-gray-900">💬 댓글 ({comments.length})</h3>
+      {/* 댓글 영역 (모바일 입력창 및 터치 영역 확대) */}
+      <div className="bg-white border border-gray-100 rounded-2xl p-4 sm:p-6 shadow-xs space-y-4">
+        <h3 className="font-bold text-xs sm:text-sm text-gray-900">💬 댓글 ({comments.length})</h3>
 
-        <form onSubmit={handleAddComment} className="flex gap-2">
+        <form onSubmit={handleAddComment} className="flex gap-1.5 sm:gap-2">
           <input
             type="text"
-            placeholder={user ? "댓글을 입력하세요. (@닉네임 으로 멘션 가능)" : "로그인 후 댓글을 작성할 수 있습니다."}
+            placeholder={user ? "댓글 입력... (@닉네임 멘션)" : "로그인 후 작성 가능"}
             disabled={!user || submittingComment}
             value={newComment}
             onChange={(e) => setNewComment(e.target.value)}
-            className="flex-1 px-3.5 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 text-xs disabled:bg-gray-50"
+            className="flex-1 min-w-0 px-3 py-2.5 sm:px-3.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 text-xs disabled:bg-gray-50 touch-manipulation"
           />
           <button
             type="submit"
             disabled={!user || submittingComment || !newComment.trim()}
-            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition text-xs disabled:opacity-50"
+            className="px-3.5 sm:px-4 py-2.5 bg-emerald-600 active:bg-emerald-700 text-white font-bold rounded-xl transition text-xs shrink-0 disabled:opacity-50 touch-manipulation"
           >
             등록
           </button>
         </form>
 
-        <div className="divide-y divide-gray-100 pt-2">
+        <div className="divide-y divide-gray-100 pt-1">
           {comments.length === 0 ? (
-            <p className="text-center py-6 text-gray-400 font-medium">등록된 댓글이 없습니다.</p>
+            <p className="text-center py-6 text-gray-400 font-medium text-xs">등록된 댓글이 없습니다.</p>
           ) : (
             comments.map((comment) => {
               const isCommentAuthor = user?.email && comment.author_email === user.email;
               const canDeleteComment = isCommentAuthor || isAdmin;
 
               return (
-                <div key={comment.id} className="py-3 flex items-start justify-between gap-4">
-                  <div className="space-y-1 flex-1">
-                    <div className="flex items-center gap-1">
-                      <span className="font-bold text-gray-900 text-[11px]">
+                <div key={comment.id} className="py-2.5 sm:py-3 flex items-start justify-between gap-2 sm:gap-4">
+                  <div className="space-y-1 flex-1 min-w-0">
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <span className="font-bold text-gray-900 text-[11px] sm:text-xs truncate max-w-[150px]">
                         {comment.author_name || '익명'}
                       </span>
                       <AdminBadge email={comment.author_email} />
-                      <span className="text-gray-400 text-[10px] ml-1">
+                      <span className="text-gray-400 text-[9px] sm:text-[10px] ml-0.5">
                         {new Date(comment.created_at).toLocaleDateString('ko-KR')}
                       </span>
                     </div>
-                    <p className="text-gray-700 text-xs leading-normal">
+                    <p className="text-gray-700 text-xs leading-normal break-words select-text">
                       {renderCommentContent(comment.content)}
                     </p>
                   </div>
@@ -451,10 +445,10 @@ export default function PostDetailPage() {
                   {canDeleteComment && (
                     <button
                       onClick={() => handleDeleteComment(comment.id)}
-                      className={`text-[10px] px-2 py-1 font-bold rounded-lg transition ${
+                      className={`text-[10px] px-2 py-1 font-bold rounded-lg transition shrink-0 touch-manipulation ${
                         isAdmin && !isCommentAuthor
-                          ? 'bg-rose-50 text-rose-600 hover:bg-rose-100'
-                          : 'text-gray-400 hover:text-rose-600 hover:bg-gray-50'
+                          ? 'bg-rose-50 text-rose-600 active:bg-rose-100'
+                          : 'text-gray-400 active:text-rose-600 hover:text-rose-600 active:bg-gray-50'
                       }`}
                     >
                       {isAdmin && !isCommentAuthor ? '🛡️ 관리자 삭제' : '삭제'}
@@ -467,7 +461,7 @@ export default function PostDetailPage() {
         </div>
       </div>
 
-      {/* 신고 모달 컴포넌트 연결 */}
+      {/* 신고 모달 */}
       <ReportModal
         postId={postId}
         postAuthorId={post.user_id || post.author_id}
