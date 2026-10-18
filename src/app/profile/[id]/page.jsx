@@ -96,7 +96,7 @@ export default function UserPublicProfilePage() {
   const targetEmail = profile?.email || (targetUserIdentifier.includes('@') ? targetUserIdentifier : null);
   const isSelf = currentUser && (currentUser.email === targetEmail || currentUser.id === targetUserIdentifier);
 
-  // 닉네임 중복 확인 함수
+  // 닉네임 중복 확인 함수 (대소문자 무시 ilike 처리)
   const handleCheckNicknameDuplicate = async () => {
     const trimmed = editNickname.trim();
     if (!trimmed) {
@@ -105,20 +105,22 @@ export default function UserPublicProfilePage() {
       return;
     }
 
-    if (trimmed === profile?.nickname) {
+    if (trimmed.toLowerCase() === profile?.nickname?.toLowerCase()) {
       setNicknameCheckMsg({ type: 'success', text: '현재 본인의 닉네임입니다.' });
       setIsNicknameChecked(true);
       return;
     }
 
     try {
+      // .ilike 로 대소문자 구분 없이 중복 검사
       const { data, error } = await supabase
         .from('profiles')
-        .select('id')
-        .eq('nickname', trimmed)
+        .select('id, nickname')
+        .ilike('nickname', trimmed)
         .neq('id', currentUser?.id);
 
       if (error) {
+        console.error('중복 확인 쿼리 오류:', error);
         setNicknameCheckMsg({ type: 'error', text: '중복 확인 중 오류가 발생했습니다.' });
         setIsNicknameChecked(false);
       } else if (data && data.length > 0) {
@@ -128,7 +130,8 @@ export default function UserPublicProfilePage() {
         setNicknameCheckMsg({ type: 'success', text: '✅ 사용 가능한 닉네임입니다!' });
         setIsNicknameChecked(true);
       }
-    } catch {
+    } catch (err) {
+      console.error('중복 확인 예외:', err);
       setNicknameCheckMsg({ type: 'error', text: '중복 확인 중 오류가 발생했습니다.' });
       setIsNicknameChecked(false);
     }
@@ -261,7 +264,7 @@ export default function UserPublicProfilePage() {
       return;
     }
 
-    if (trimmedNickname !== profile?.nickname && !isNicknameChecked) {
+    if (trimmedNickname.toLowerCase() !== profile?.nickname?.toLowerCase() && !isNicknameChecked) {
       alert('닉네임 중복 확인을 진행해 주세요.');
       return;
     }
@@ -420,7 +423,7 @@ export default function UserPublicProfilePage() {
                   }}
                   className="py-2.5 bg-gray-100 active:bg-gray-200 text-gray-700 font-bold rounded-xl transition text-xs touch-manipulation"
                 >
-                  {isEditing ? '수정 취소' : '프로필 수정'}
+                  {isEditing ? '수정 취소' : '⚙️ 프로필 수정'}
                 </button>
 
                 <button
@@ -430,7 +433,7 @@ export default function UserPublicProfilePage() {
                   }}
                   className="py-2.5 bg-emerald-50 active:bg-emerald-100 text-emerald-700 font-bold rounded-xl transition text-xs touch-manipulation"
                 >
-                  {isChangingPassword ? '변경 취소' : '비밀번호 변경'}
+                  {isChangingPassword ? '변경 취소' : '🔒 비번 변경'}
                 </button>
               </div>
 
@@ -440,7 +443,7 @@ export default function UserPublicProfilePage() {
                   onClick={() => setShowDeleteConfirm(true)}
                   className="w-full py-2.5 bg-rose-600 active:bg-rose-700 text-white font-bold rounded-xl transition text-xs shadow-xs touch-manipulation"
                 >
-                  회원 탈퇴하기
+                  🚪 회원 탈퇴하기
                 </button>
               ) : (
                 <div className="p-3 bg-rose-50 rounded-2xl border border-rose-100 space-y-2 text-left">
@@ -497,7 +500,7 @@ export default function UserPublicProfilePage() {
                   onChange={(e) => {
                     const val = e.target.value;
                     setEditNickname(val);
-                    if (val.trim() === profile?.nickname) {
+                    if (val.trim().toLowerCase() === profile?.nickname?.toLowerCase()) {
                       setIsNicknameChecked(true);
                       setNicknameCheckMsg({ type: 'success', text: '현재 본인의 닉네임입니다.' });
                     } else {
