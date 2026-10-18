@@ -61,7 +61,7 @@ export default function GalleryRequestPage() {
             reason: reason.trim() || null,
             applicant_email: user.email,
             applicant_name: applicantName,
-            status: 'pending', // pending, approved, rejected
+            status: 'pending',
           },
         ]);
 
