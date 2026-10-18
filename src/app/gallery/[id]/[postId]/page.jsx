@@ -169,19 +169,37 @@ export default function PostDetailPage() {
     return /\.(jpg|jpeg|png|gif|webp|svg|bmp)(\?.*)?$/i.test(targetStr);
   };
 
-  // 유튜브 URL 추출 및 Embed 링크 생성
-  const getYouTubeEmbedUrl = (url) => {
-    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
-    const match = url.match(regExp);
-    return (match && match[2].length === 11) ? `https://www.youtube.com/embed/${match[2]}` : null;
+  // 유튜브 URL 파싱 및 Embed 플레이어 주소 추출 (웹 표준 URL API 사용)
+  const getYouTubeEmbedUrl = (urlStr) => {
+    try {
+      const validUrl = urlStr.startsWith('www.') ? `https://${urlStr}` : urlStr;
+      const parsed = new URL(validUrl);
+      let videoId = null;
+
+      if (parsed.hostname.includes('youtube.com')) {
+        if (parsed.pathname.startsWith('/shorts/')) {
+          videoId = parsed.pathname.split('/shorts/')[1]?.split('/')[0]?.split('?')[0];
+        } else if (parsed.pathname.startsWith('/embed/')) {
+          videoId = parsed.pathname.split('/embed/')[1]?.split('/')[0]?.split('?')[0];
+        } else {
+          videoId = parsed.searchParams.get('v');
+        }
+      } else if (parsed.hostname.includes('youtu.be')) {
+        videoId = parsed.pathname.slice(1).split('/')[0]?.split('?')[0];
+      }
+
+      return (videoId && videoId.length === 11) ? `https://www.youtube.com/embed/${videoId}` : null;
+    } catch {
+      return null;
+    }
   };
 
-  // 멘션, 일반 하이퍼링크, 유튜브 동영상 자동 삽입 렌더링 함수
+  // 범용 URL 감지 및 멘션, 하이퍼링크, 유튜브 플레이어 렌더링 함수
   const renderContent = (content) => {
     if (!content) return null;
 
-    // 멘션(@닉네임) 및 URL(http://, https://, www.) 감지
-    const tokenRegex = /(@[^\s,.:;!?"'()\[\]{}]+|(?:https?:\/\/|www\.)[^\s,.:;!?"'()\[\]{}]+)/g;
+    // 공백 기반 URL 및 멘션 패턴 토큰 분리
+    const tokenRegex = /((?:https?:\/\/|www\.)[^\s]+|@[^\s,.:;!?"'()\[\]{}]+)/g;
     const parts = content.split(tokenRegex);
     const youtubeEmbeds = [];
 
@@ -198,27 +216,45 @@ export default function PostDetailPage() {
             </span>
           );
         }
+        return part;
       }
 
-      // 2. 하이퍼링크 및 유튜브 동영상 링크 처리
+      // 2. 범용 URL 감지 및 하이퍼링크 처리
       if (part.startsWith('http://') || part.startsWith('https://') || part.startsWith('www.')) {
-        const href = part.startsWith('www.') ? `https://${part}` : part;
-        const embedUrl = getYouTubeEmbedUrl(href);
+        let cleanUrl = part;
+        let trailingPunct = '';
 
-        if (embedUrl) {
+        // 문장 끝 구두점(., !? 등) 분리
+        const matchPunct = cleanUrl.match(/([.,;:!?)]+)$/);
+        if (matchPunct) {
+          trailingPunct = matchPunct[0];
+          cleanUrl = cleanUrl.slice(0, -trailingPunct.length);
+        }
+
+        const href = cleanUrl.startsWith('www.') ? `https://${cleanUrl}` : cleanUrl;
+        
+        // 네이버 모바일 서브도메인 -> PC도메인 자동 정제
+        const targetHref = href
+          .replace('://m.sports.naver.com', '://sports.naver.com')
+          .replace('://m.news.naver.com', '://news.naver.com');
+
+        const embedUrl = getYouTubeEmbedUrl(targetHref);
+        if (embedUrl && !youtubeEmbeds.includes(embedUrl)) {
           youtubeEmbeds.push(embedUrl);
         }
 
         return (
-          <a
-            key={idx}
-            href={href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-600 hover:text-blue-800 underline font-medium break-all"
-          >
-            🔗 {part}
-          </a>
+          <span key={idx}>
+            <a
+              href={targetHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-600 hover:text-blue-800 underline font-medium break-all active:text-blue-900"
+            >
+              🔗 {cleanUrl}
+            </a>
+            {trailingPunct}
+          </span>
         );
       }
 
@@ -229,7 +265,7 @@ export default function PostDetailPage() {
       <div className="space-y-3">
         <div>{renderedText}</div>
 
-        {/* 유튜브 영상 자동 삽입 플레이어 */}
+        {/* 유튜브 영상 플레이어 삽입 */}
         {youtubeEmbeds.map((embedUrl, yIdx) => (
           <div key={yIdx} className="my-3 aspect-video w-full max-w-lg overflow-hidden rounded-xl border border-gray-100 shadow-xs bg-black">
             <iframe
@@ -447,7 +483,7 @@ export default function PostDetailPage() {
           </div>
         </div>
 
-        {/* 게시글 본문 (하이퍼링크, 유튜브 삽입, 멘션 지원) */}
+        {/* 게시글 본문 */}
         <div className="text-gray-800 leading-normal min-h-[60px] sm:min-h-[80px] whitespace-pre-wrap text-[11px] sm:text-[12px] pt-2 border-t border-gray-50 break-words select-text">
           {renderContent(post.content)}
         </div>
