@@ -25,7 +25,7 @@ export default function PostDetailPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isReportOpen, setIsReportOpen] = useState(false);
 
-  // 사용자 정보 로드 및 크롬 알림 권한 요청
+  // 사용자 정보 로드 및 알림 권한 요청
   useEffect(() => {
     const fetchUser = async () => {
       const { data: { user: currentUser } } = await supabase.auth.getUser();
@@ -142,7 +142,7 @@ export default function PostDetailPage() {
     return /\.(jpg|jpeg|png|gif|webp|svg|bmp)(\?.*)?$/i.test(targetStr);
   };
 
-  // 댓글 본문의 @닉네임 하이라이트 렌더링 (이모지 및 모든 유니코드 문자 지원)
+  // 댓글 본문의 @닉네임 하이라이트 렌더링
   const renderCommentContent = (content) => {
     if (!content) return null;
 
@@ -280,7 +280,7 @@ export default function PostDetailPage() {
         </div>
       )}
 
-      {/* 상단 네비게이션 & 신고/수정/삭제 버튼 */}
+      {/* 상단 네비게이션 & 버튼 */}
       <div className="flex items-center justify-between gap-2 border-b pb-3 sm:pb-4">
         <Link
           href={`/gallery/${galleryId}`}
@@ -345,22 +345,26 @@ export default function PostDetailPage() {
       {/* 게시글 본문 카드 */}
       <div className="bg-white border border-gray-100 rounded-2xl p-4 sm:p-6 shadow-xs space-y-4">
         <div>
-          <h1 className="text-base sm:text-lg font-black text-gray-900 leading-snug break-words">
+          {/* 게시글 제목 폰트 크기 최적화 (모바일 15px / PC 17px) */}
+          <h1 className="text-[15px] sm:text-[17px] font-bold text-gray-900 leading-snug break-words">
             {post.title}
           </h1>
 
-          <div className="flex items-center justify-between text-gray-400 text-[10px] sm:text-[11px] mt-2 pt-2 border-t border-gray-50 flex-wrap gap-1">
-            <div className="flex items-center gap-1 truncate max-w-[70%]">
+          <div className="flex items-center justify-between text-gray-400 text-[10px] sm:text-[11px] mt-2 pt-2 border-t border-gray-50 gap-2 min-w-0">
+            <div className="flex items-center gap-1 truncate min-w-0">
               <span className="font-bold text-gray-700 truncate">
                 {post.author_name || '익명'}
               </span>
               <AdminBadge email={post.author_email} />
             </div>
-            <span className="shrink-0">{new Date(post.created_at).toLocaleString('ko-KR')}</span>
+            <span className="shrink-0 whitespace-nowrap text-gray-400">
+              {new Date(post.created_at).toLocaleString('ko-KR')}
+            </span>
           </div>
         </div>
 
-        <div className="text-gray-800 leading-relaxed min-h-[80px] sm:min-h-[100px] whitespace-pre-wrap text-xs sm:text-sm pt-2 border-t border-gray-50 break-words select-text">
+        {/* 게시글 본문 폰트 크기 및 행간 최적화 (모바일 13px / PC 14px) */}
+        <div className="text-gray-800 leading-relaxed min-h-[80px] sm:min-h-[100px] whitespace-pre-wrap text-[13px] sm:text-[14px] pt-3 border-t border-gray-50 break-words select-text">
           {post.content}
         </div>
 
@@ -433,7 +437,7 @@ export default function PostDetailPage() {
                         {comment.author_name || '익명'}
                       </span>
                       <AdminBadge email={comment.author_email} />
-                      <span className="text-gray-400 text-[9px] sm:text-[10px] ml-0.5">
+                      <span className="text-gray-400 text-[9px] sm:text-[10px] ml-0.5 whitespace-nowrap shrink-0">
                         {new Date(comment.created_at).toLocaleDateString('ko-KR')}
                       </span>
                     </div>
@@ -461,7 +465,7 @@ export default function PostDetailPage() {
         </div>
       </div>
 
-      {/* 신고 모달 컴포넌트 */}
+      {/* 신고 모달 */}
       <ReportModal
         postId={postId}
         postAuthorId={post.user_id || post.author_id}
