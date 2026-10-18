@@ -45,6 +45,7 @@ export default function Navbar() {
               <span className="text-gray-600 hidden sm:inline">
                 <strong className="text-gray-900">{user.user_metadata?.name || '회원'}</strong> 님
               </span>
+              {/* 마이페이지 버튼 클릭 시 /mypage/[user.id] 이동 */}
               <Link
                 href={`/mypage/${user.id}`}
                 className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded transition"
