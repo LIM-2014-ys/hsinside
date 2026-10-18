@@ -68,7 +68,7 @@ export default function PostDetailPage() {
           setComments(commentData);
         }
 
-        // 등록된 닉네임 수집 (profiles 테이블 + 게시글/댓글 작성자)
+        // 등록된 닉네임 수집
         const nameSet = new Set();
 
         const { data: profileData } = await supabase
@@ -169,7 +169,6 @@ export default function PostDetailPage() {
     return /\.(jpg|jpeg|png|gif|webp|svg|bmp)(\?.*)?$/i.test(targetStr);
   };
 
-  // 유튜브 URL 파싱 및 Embed 플레이어 주소 추출
   const getYouTubeEmbedUrl = (urlStr) => {
     try {
       const validUrl = urlStr.startsWith('www.') ? `https://${urlStr}` : urlStr;
@@ -194,7 +193,6 @@ export default function PostDetailPage() {
     }
   };
 
-  // 멘션 및 하이퍼링크 렌더링 함수 (isComment: 댓글 여부 구분)
   const renderContent = (content, isComment = false) => {
     if (!content) return null;
 
@@ -205,7 +203,6 @@ export default function PostDetailPage() {
     const renderedText = parts.map((part, idx) => {
       if (!part) return null;
 
-      // 1. 등록된 닉네임 멘션 처리
       if (part.startsWith('@')) {
         const rawNickname = part.slice(1).trim();
         if (registeredNicknames.has(rawNickname)) {
@@ -218,7 +215,6 @@ export default function PostDetailPage() {
         return part;
       }
 
-      // 2. 범용 URL 감지 및 하이퍼링크 처리 (이모지 제거됨)
       if (part.startsWith('http://') || part.startsWith('https://') || part.startsWith('www.')) {
         let cleanUrl = part;
         let trailingPunct = '';
@@ -230,12 +226,10 @@ export default function PostDetailPage() {
         }
 
         const href = cleanUrl.startsWith('www.') ? `https://${cleanUrl}` : cleanUrl;
-        
         const targetHref = href
           .replace('://m.sports.naver.com', '://sports.naver.com')
           .replace('://m.news.naver.com', '://news.naver.com');
 
-        // 게시글 본문일 경우에만 유튜브 미디어 플레이어 추출
         if (!isComment) {
           const embedUrl = getYouTubeEmbedUrl(targetHref);
           if (embedUrl && !youtubeEmbeds.includes(embedUrl)) {
@@ -265,7 +259,6 @@ export default function PostDetailPage() {
       <div className="space-y-3">
         <div>{renderedText}</div>
 
-        {/* 게시글 본문일 때만 유튜브 동영상 플레이어 삽입 */}
         {!isComment && youtubeEmbeds.map((embedUrl, yIdx) => (
           <div key={yIdx} className="my-3 aspect-video w-full max-w-lg overflow-hidden rounded-xl border border-gray-100 shadow-xs bg-black">
             <iframe
@@ -471,10 +464,20 @@ export default function PostDetailPage() {
           </h1>
 
           <div className="flex items-center justify-between text-gray-400 text-[10px] sm:text-[11px] mt-2 pt-2 border-t border-gray-50 gap-2 min-w-0">
+            {/* 게시글 작성자 닉네임 클릭 -> 공개 마이페이지로 이동 */}
             <div className="flex items-center gap-1 truncate min-w-0">
-              <span className="font-bold text-gray-700 truncate">
-                {post.author_name || '익명'}
-              </span>
+              {post.author_email ? (
+                <Link
+                  href={`/profile/${encodeURIComponent(post.author_email)}`}
+                  className="font-bold text-gray-700 hover:text-emerald-600 hover:underline truncate active:text-emerald-700 transition"
+                >
+                  {post.author_name || '익명'}
+                </Link>
+              ) : (
+                <span className="font-bold text-gray-700 truncate">
+                  {post.author_name || '익명'}
+                </span>
+              )}
               <AdminBadge email={post.author_email} />
             </div>
             <span className="shrink-0 whitespace-nowrap text-gray-400">
@@ -483,7 +486,6 @@ export default function PostDetailPage() {
           </div>
         </div>
 
-        {/* 게시글 본문 (유튜브 영상 플레이어 삽입 포함) */}
         <div className="text-gray-800 leading-normal min-h-[60px] sm:min-h-[80px] whitespace-pre-wrap text-[11px] sm:text-[12px] pt-2 border-t border-gray-50 break-words select-text">
           {renderContent(post.content, false)}
         </div>
@@ -519,7 +521,7 @@ export default function PostDetailPage() {
         )}
       </div>
 
-      {/* 댓글 영역 (하단 댓글은 텍스트 하이퍼링크만 깔끔하게 연결) */}
+      {/* 댓글 영역 */}
       <div className="bg-white border border-gray-100 rounded-2xl p-4 sm:p-6 shadow-xs space-y-3">
         <h3 className="font-bold text-xs sm:text-sm text-gray-900">💬 댓글 ({comments.length})</h3>
 
@@ -553,9 +555,19 @@ export default function PostDetailPage() {
                 <div key={comment.id} className="py-2.5 flex items-start justify-between gap-2">
                   <div className="space-y-0.5 flex-1 min-w-0">
                     <div className="flex items-center gap-1 flex-wrap">
-                      <span className="font-bold text-gray-900 text-[11px] truncate max-w-[140px]">
-                        {comment.author_name || '익명'}
-                      </span>
+                      {/* 댓글 작성자 닉네임 클릭 -> 공개 마이페이지로 이동 */}
+                      {comment.author_email ? (
+                        <Link
+                          href={`/profile/${encodeURIComponent(comment.author_email)}`}
+                          className="font-bold text-gray-900 text-[11px] hover:text-emerald-600 hover:underline truncate max-w-[140px] transition"
+                        >
+                          {comment.author_name || '익명'}
+                        </Link>
+                      ) : (
+                        <span className="font-bold text-gray-900 text-[11px] truncate max-w-[140px]">
+                          {comment.author_name || '익명'}
+                        </span>
+                      )}
                       <AdminBadge email={comment.author_email} />
                       <span className="text-gray-400 text-[9px] sm:text-[10px] ml-0.5 whitespace-nowrap shrink-0">
                         {new Date(comment.created_at).toLocaleDateString('ko-KR')}
