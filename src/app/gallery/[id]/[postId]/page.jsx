@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 import { isAdminEmail } from '@/lib/admin';
 import AdminBadge from '@/components/AdminBadge';
+import ReportModal from '@/components/ReportModal';
 
 export default function PostDetailPage() {
   const params = useParams();
@@ -22,6 +23,9 @@ export default function PostDetailPage() {
   const [submittingComment, setSubmittingComment] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  
+  // 🚨 신고 모달 열림/닫힘 상태
+  const [isReportOpen, setIsReportOpen] = useState(false);
 
   // 사용자 정보 로드 및 크롬 알림 권한 요청
   useEffect(() => {
@@ -283,7 +287,7 @@ export default function PostDetailPage() {
         </div>
       )}
 
-      {/* 상단 네비게이션 & 수정/삭제 버튼 */}
+      {/* 상단 네비게이션 & 신고/수정/삭제 버튼 */}
       <div className="flex items-center justify-between border-b pb-4">
         <Link
           href={`/gallery/${galleryId}`}
@@ -292,45 +296,58 @@ export default function PostDetailPage() {
           ← 갤러리 목록으로
         </Link>
 
-        {canModifyPost && (
-          <div className="flex items-center gap-2">
-            <Link
-              href={`/gallery/${galleryId}/${postId}/edit`}
-              className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold rounded-xl transition text-[11px]"
+        <div className="flex items-center gap-2">
+          {/* 🚨 타인의 게시물일 경우 신고 버튼 노출 */}
+          {!isPostAuthor && (
+            <button
+              type="button"
+              onClick={() => setIsReportOpen(true)}
+              className="px-3 py-1.5 bg-gray-100 hover:bg-rose-50 text-gray-600 hover:text-rose-600 border border-transparent hover:border-rose-200 font-bold rounded-xl transition text-[11px] flex items-center gap-1 active:scale-95"
             >
-              ✏️ 게시글 수정
-            </Link>
+              🚨 신고
+            </button>
+          )}
 
-            {!showDeleteConfirm ? (
-              <button
-                onClick={() => setShowDeleteConfirm(true)}
-                className={`px-3 py-1.5 font-bold rounded-xl transition text-[11px] ${
-                  isAdmin && !isPostAuthor
-                    ? 'bg-rose-100 text-rose-700 hover:bg-rose-200'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
+          {canModifyPost && (
+            <div className="flex items-center gap-2">
+              <Link
+                href={`/gallery/${galleryId}/${postId}/edit`}
+                className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold rounded-xl transition text-[11px]"
               >
-                {isAdmin && !isPostAuthor ? '🛡️ 관리자 삭제' : '🗑️ 삭제'}
-              </button>
-            ) : (
-              <div className="flex items-center gap-1.5 bg-rose-50 p-1 rounded-xl border border-rose-200">
-                <span className="text-rose-700 text-[10px] font-bold px-1">삭제할까요?</span>
+                ✏️ 게시글 수정
+              </Link>
+
+              {!showDeleteConfirm ? (
                 <button
-                  onClick={handleDeletePost}
-                  className="px-2 py-1 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-lg text-[10px] transition"
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className={`px-3 py-1.5 font-bold rounded-xl transition text-[11px] ${
+                    isAdmin && !isPostAuthor
+                      ? 'bg-rose-100 text-rose-700 hover:bg-rose-200'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
                 >
-                  확인
+                  {isAdmin && !isPostAuthor ? '🛡️ 관리자 삭제' : '🗑️ 삭제'}
                 </button>
-                <button
-                  onClick={() => setShowDeleteConfirm(false)}
-                  className="px-2 py-1 bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold rounded-lg text-[10px] transition"
-                >
-                  취소
-                </button>
-              </div>
-            )}
-          </div>
-        )}
+              ) : (
+                <div className="flex items-center gap-1.5 bg-rose-50 p-1 rounded-xl border border-rose-200">
+                  <span className="text-rose-700 text-[10px] font-bold px-1">삭제할까요?</span>
+                  <button
+                    onClick={handleDeletePost}
+                    className="px-2 py-1 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-lg text-[10px] transition"
+                  >
+                    확인
+                  </button>
+                  <button
+                    onClick={() => setShowDeleteConfirm(false)}
+                    className="px-2 py-1 bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold rounded-lg text-[10px] transition"
+                  >
+                    취소
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* 게시글 본문 */}
@@ -449,6 +466,14 @@ export default function PostDetailPage() {
           )}
         </div>
       </div>
+
+      {/* 🚨 신고 모달 컴포넌트 연결 */}
+      <ReportModal
+        postId={postId}
+        postAuthorId={post.user_id || post.author_id}
+        isOpen={isReportOpen}
+        onClose={() => setIsReportOpen(false)}
+      />
     </div>
   );
 }
