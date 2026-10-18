@@ -273,7 +273,7 @@ export default function PostDetailPage() {
   const hasImage = isImageFile(post.file_url, post.file_name);
 
   return (
-    <div className="max-w-4xl mx-auto my-4 sm:my-8 px-3 sm:px-4 font-sans text-xs sm:text-sm space-y-4 sm:space-y-6">
+    <div className="max-w-4xl mx-auto my-4 sm:my-8 px-3 sm:px-4 font-sans text-xs space-y-4 sm:space-y-6">
       {errorMessage && (
         <div className="p-3 bg-rose-50 border border-rose-200 text-rose-600 font-semibold rounded-xl text-xs">
           ⚠️ {errorMessage}
@@ -343,10 +343,10 @@ export default function PostDetailPage() {
       </div>
 
       {/* 게시글 본문 카드 */}
-      <div className="bg-white border border-gray-100 rounded-2xl p-4 sm:p-6 shadow-xs space-y-4">
+      <div className="bg-white border border-gray-100 rounded-2xl p-4 sm:p-6 shadow-xs space-y-3">
         <div>
-          {/* 게시글 제목 폰트 크기 최적화 (모바일 15px / PC 17px) */}
-          <h1 className="text-[15px] sm:text-[17px] font-bold text-gray-900 leading-snug break-words">
+          {/* 게시글 제목 폰트 크기 축소 (모바일 13px / PC 15px) */}
+          <h1 className="text-[13px] sm:text-[15px] font-bold text-gray-900 leading-snug break-words">
             {post.title}
           </h1>
 
@@ -363,8 +363,8 @@ export default function PostDetailPage() {
           </div>
         </div>
 
-        {/* 게시글 본문 폰트 크기 및 행간 최적화 (모바일 13px / PC 14px) */}
-        <div className="text-gray-800 leading-relaxed min-h-[80px] sm:min-h-[100px] whitespace-pre-wrap text-[13px] sm:text-[14px] pt-3 border-t border-gray-50 break-words select-text">
+        {/* 게시글 본문 폰트 크기 축소 (모바일 11px / PC 12px) */}
+        <div className="text-gray-800 leading-normal min-h-[60px] sm:min-h-[80px] whitespace-pre-wrap text-[11px] sm:text-[12px] pt-2 border-t border-gray-50 break-words select-text">
           {post.content}
         </div>
 
@@ -382,7 +382,7 @@ export default function PostDetailPage() {
           <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between bg-gray-50/70 p-2.5 sm:p-3 rounded-xl border border-gray-100">
             <div className="flex items-center gap-1.5 truncate pr-2">
               <span className="text-xs sm:text-sm shrink-0">{hasImage ? '🖼️' : '📎'}</span>
-              <span className="font-semibold text-gray-700 truncate text-[11px] sm:text-xs">
+              <span className="font-semibold text-gray-700 truncate text-[10px] sm:text-[11px]">
                 {post.file_name || '첨부파일'}
               </span>
             </div>
