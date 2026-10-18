@@ -3,28 +3,50 @@
 @tailwind utilities;
 
 @layer base {
+  /* 모바일 기기 자동 폰트 확대 방지 */
   html {
-    /* 모바일 자동 글자 확대 방지 */
     -webkit-text-size-adjust: 100%;
-    /* 전체 기본 폰트 기준점 살짝 축소 */
-    font-size: 14px;
+    text-size-adjust: 100%;
   }
 
+  /* 본문 줄바꿈 및 가로 스크롤 방지 설정 */
   body {
-    /* 한국어 단어 단위 줄바꿈 적용 (글자가 어색하게 깨지는 현상 방지) */
     word-break: keep-all;
     overflow-wrap: break-word;
-    /* 기본 모바일 화면 가로 스크롤 방지 */
     overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
-  /* 모바일 인풋 포커스 시 브라우저 강제 확대 방지 및 터치 최적화 */
-  input, textarea, select {
-    font-size: 14px !important;
+  /* 폼 요소(input, textarea) 폰트 상속 */
+  input,
+  textarea,
+  select,
+  button {
+    font-family: inherit;
   }
 }
 
 /* 터치 하이라이트 잔상 제거 */
 * {
   -webkit-tap-highlight-color: transparent;
+}
+
+/* 스크롤바 얇고 깔끔하게 최적화 */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #e5e7eb;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #d1d5db;
 }
