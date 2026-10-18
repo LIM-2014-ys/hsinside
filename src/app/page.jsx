@@ -1,19 +1,19 @@
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 import InstallPrompt from '@/components/InstallPrompt';
+import NotificationPrompt from '@/components/NotificationPrompt'; // 👈 추가
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 export default async function HomePage() {
-  // DB의 galleries 테이블에서 등록된 갤러리 목록 조회
   const { data: galleries, error } = await supabase
     .from('galleries')
     .select('*')
     .order('created_at', { ascending: true });
 
   return (
-    <div className="max-w-4xl mx-auto my-10 p-6 sm:p-8 bg-white border border-gray-100 rounded-3xl shadow-2xl space-y-8 font-sans text-xs">
+    <div className="max-w-4xl mx-auto my-10 p-6 sm:p-8 bg-white border border-gray-100 rounded-3xl shadow-2xl space-y-6 font-sans text-xs">
       {/* 헤더 */}
       <div className="flex items-center justify-between border-b pb-5">
         <div>
@@ -24,7 +24,6 @@ export default async function HomePage() {
             원하는 갤러리를 선택하여 게시글을 확인하고 작성해 보세요.
           </p>
         </div>
-        {/* 갤러리 신청 버튼 (/gallery-request) */}
         <Link
           href="/gallery-request"
           className="px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl transition shadow-md shadow-amber-500/20 text-xs flex items-center gap-1.5"
@@ -33,8 +32,11 @@ export default async function HomePage() {
         </Link>
       </div>
 
-      {/* 📱 PWA 앱 설치 안내 배너 */}
+      {/* 📱 PWA 앱 설치 배너 */}
       <InstallPrompt />
+
+      {/* 🔔 접속할 때마다 동의 안 되었으면 노출되는 알림 권한 배너 */}
+      <NotificationPrompt />
 
       {/* DB 조회 에러 처리 */}
       {error && (
@@ -43,7 +45,7 @@ export default async function HomePage() {
         </div>
       )}
 
-      {/* DB 갤러리 목록 출력 */}
+      {/* DB 갤러리 목록 */}
       {!error && galleries && galleries.length === 0 ? (
         <div className="text-center py-16 text-gray-400 font-medium">
           등록된 갤러리가 없습니다.
