@@ -8,7 +8,7 @@ import AdminBadge from '@/components/AdminBadge';
 
 export default function GalleryPage() {
   const params = useParams();
-  const router = router = useRouter();
+  const router = useRouter();
   const galleryId = params.id;
 
   const [posts, setPosts] = useState([]);
