@@ -23,14 +23,23 @@ export default function PostDetailPage() {
   const [errorMessage, setErrorMessage] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
+  // 사용자 정보 및 크롬 알림 권한 요청
   useEffect(() => {
     const fetchUser = async () => {
       const { data: { user: currentUser } } = await supabase.auth.getUser();
       setUser(currentUser);
     };
     fetchUser();
+
+    // 크롬 알림 권한 요청
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      if (Notification.permission === 'default') {
+        Notification.requestPermission();
+      }
+    }
   }, []);
 
+  // 게시글 및 댓글 초기 조회
   useEffect(() => {
     if (!postId) return;
 
@@ -66,10 +75,80 @@ export default function PostDetailPage() {
     fetchData();
   }, [postId]);
 
+  // Supabase Realtime: 실시간 댓글 감지 및 멘션 알림
+  useEffect(() => {
+    if (!postId || !user) return;
+
+    const currentNickname =
+      user?.user_metadata?.nickname ||
+      user?.user_metadata?.display_name ||
+      user?.user_metadata?.name ||
+      user?.user_metadata?.full_name ||
+      user?.email?.split('@')[0];
+
+    const channel = supabase
+      .channel(`comments-realtime-${postId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'comments',
+          filter: `post_id=eq.${postId}`,
+        },
+        (payload) => {
+          const newC = payload.new;
+
+          // 중복 추가 방지
+          setComments((prev) => {
+            if (prev.some((c) => c.id === newC.id)) return prev;
+            return [...prev, newC];
+          });
+
+          // 본인이 쓴 글이 아니고, @내닉네임 이 포함된 경우 크롬 알림 발생
+          if (
+            currentNickname &&
+            newC.author_email !== user.email &&
+            newC.content.includes(`@${currentNickname}`)
+          ) {
+            if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+              new Notification('💬 HSInside 멘션 알림', {
+                body: `${newC.author_name}님이 회원님을 멘션했습니다: "${newC.content}"`,
+                icon: '/favicon.ico',
+              });
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [postId, user]);
+
   const isImageFile = (url, fileName) => {
     if (!url) return false;
     const targetStr = (fileName || url).toLowerCase();
     return /\.(jpg|jpeg|png|gif|webp|svg|bmp)(\?.*)?$/i.test(targetStr);
+  };
+
+  // 댓글 본문의 @닉네임 하이라이트 렌더링 함수
+  const renderCommentContent = (content) => {
+    if (!content) return null;
+    const mentionRegex = /(@[a-zA-Z0-9가-힣_-]+)/g;
+    const parts = content.split(mentionRegex);
+
+    return parts.map((part, idx) => {
+      if (mentionRegex.test(part)) {
+        return (
+          <span key={idx} className="text-emerald-600 font-bold bg-emerald-50 px-1 py-0.5 rounded">
+            {part}
+          </span>
+        );
+      }
+      return part;
+    });
   };
 
   const handleDeletePost = async () => {
@@ -124,7 +203,10 @@ export default function PostDetailPage() {
       if (error) {
         setErrorMessage(`댓글 작성 실패: ${error.message}`);
       } else if (data) {
-        setComments([...comments, data]);
+        setComments((prev) => {
+          if (prev.some((c) => c.id === data.id)) return prev;
+          return [...prev, data];
+        });
         setNewComment('');
       }
     } catch {
@@ -199,7 +281,6 @@ export default function PostDetailPage() {
 
         {canModifyPost && (
           <div className="flex items-center gap-2">
-            {/* 수정 버튼 */}
             <Link
               href={`/gallery/${galleryId}/${postId}/edit`}
               className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold rounded-xl transition text-[11px]"
@@ -207,7 +288,6 @@ export default function PostDetailPage() {
               ✏️ 게시글 수정
             </Link>
 
-            {/* 삭제 버튼 */}
             {!showDeleteConfirm ? (
               <button
                 onClick={() => setShowDeleteConfirm(true)}
@@ -240,7 +320,7 @@ export default function PostDetailPage() {
         )}
       </div>
 
-      {/* 게시글 본문 카드가 들어가는 위치 */}
+      {/* 게시글 본문 */}
       <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm space-y-4">
         <div>
           <h1 className="text-xl font-black text-gray-900 leading-snug">{post.title}</h1>
@@ -256,12 +336,10 @@ export default function PostDetailPage() {
           </div>
         </div>
 
-        {/* 본문 텍스트 */}
         <div className="text-gray-800 leading-relaxed min-h-[100px] whitespace-pre-wrap text-xs pt-2 border-t border-gray-50">
           {post.content}
         </div>
 
-        {/* 이미지 바로 보기 */}
         {hasImage && (
           <div className="pt-4 border-t border-gray-50 flex justify-center bg-gray-50/50 rounded-2xl p-2 border border-gray-100/80">
             <img
@@ -272,7 +350,6 @@ export default function PostDetailPage() {
           </div>
         )}
 
-        {/* 일반 첨부파일 다운로드 바 */}
         {post.file_url && (
           <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between bg-gray-50/70 p-3 rounded-xl border border-gray-100">
             <div className="flex items-center gap-2 truncate pr-2">
@@ -294,14 +371,14 @@ export default function PostDetailPage() {
         )}
       </div>
 
-      {/* 댓글 영역 */}
+      {/* 댓글 및 멘션 영역 */}
       <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm space-y-4">
         <h3 className="font-bold text-sm text-gray-900">💬 댓글 ({comments.length})</h3>
 
         <form onSubmit={handleAddComment} className="flex gap-2">
           <input
             type="text"
-            placeholder={user ? '댓글을 작성해 보세요...' : '로그인 후 댓글을 작성할 수 있습니다.'}
+            placeholder={user ? "댓글을 입력하세요. (@닉네임 으로 멘션 가능)" : "로그인 후 댓글을 작성할 수 있습니다."}
             disabled={!user || submittingComment}
             value={newComment}
             onChange={(e) => setNewComment(e.target.value)}
@@ -336,7 +413,9 @@ export default function PostDetailPage() {
                         {new Date(comment.created_at).toLocaleDateString('ko-KR')}
                       </span>
                     </div>
-                    <p className="text-gray-700 text-xs leading-normal">{comment.content}</p>
+                    <p className="text-gray-700 text-xs leading-normal">
+                      {renderCommentContent(comment.content)}
+                    </p>
                   </div>
 
                   {canDeleteComment && (
