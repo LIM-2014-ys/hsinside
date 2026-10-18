@@ -23,7 +23,7 @@ export default function PostDetailPage() {
   const [errorMessage, setErrorMessage] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  // 사용자 정보 및 크롬 알림 권한 요청
+  // 사용자 정보 로드 및 크롬 알림 권한 요청
   useEffect(() => {
     const fetchUser = async () => {
       const { data: { user: currentUser } } = await supabase.auth.getUser();
@@ -39,7 +39,7 @@ export default function PostDetailPage() {
     }
   }, []);
 
-  // 게시글 및 댓글 초기 조회
+  // 게시글 및 댓글 데이터 조회
   useEffect(() => {
     if (!postId) return;
 
@@ -75,9 +75,9 @@ export default function PostDetailPage() {
     fetchData();
   }, [postId]);
 
-  // Supabase Realtime: 실시간 댓글 감지 및 멘션 알림
+  // Realtime 실시간 감지: 댓글 작성 알림 및 멘션 알림
   useEffect(() => {
-    if (!postId || !user) return;
+    if (!postId || !user || !post) return;
 
     const currentNickname =
       user?.user_metadata?.nickname ||
@@ -99,23 +99,36 @@ export default function PostDetailPage() {
         (payload) => {
           const newC = payload.new;
 
-          // 중복 추가 방지
+          // 댓글 리스트 실시간 업데이트 (중복 방지)
           setComments((prev) => {
             if (prev.some((c) => c.id === newC.id)) return prev;
             return [...prev, newC];
           });
 
-          // 본인이 쓴 글이 아니고, @내닉네임 이 포함된 경우 크롬 알림 발생
-          if (
-            currentNickname &&
-            newC.author_email !== user.email &&
-            newC.content.includes(`@${currentNickname}`)
-          ) {
-            if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-              new Notification('💬 HSInside 멘션 알림', {
-                body: `${newC.author_name}님이 회원님을 멘션했습니다: "${newC.content}"`,
-                icon: '/favicon.ico',
-              });
+          // 자기가 쓴 댓글이 아닐 때만 알림 작동
+          if (newC.author_email !== user.email) {
+            const hasNotificationPermission =
+              typeof window !== 'undefined' &&
+              'Notification' in window &&
+              Notification.permission === 'granted';
+
+            if (hasNotificationPermission) {
+              const commenterName = newC.author_name || '익명';
+
+              // 1. 내가 작성한 게시물에 새 댓글이 달린 경우
+              if (post.author_email && post.author_email === user.email) {
+                new Notification('💬 게시물 댓글 알림', {
+                  body: `${commenterName}님이 회원님의 게시물에 댓글을 달았습니다: "${newC.content}"`,
+                  icon: '/favicon.ico',
+                });
+              }
+              // 2. 댓글에서 내 닉네임이 멘션된 경우 (게시물 작성자 알림과 중복 발송 방지)
+              else if (currentNickname && newC.content.includes(`@${currentNickname}`)) {
+                new Notification('💬 멘션 알림', {
+                  body: `${commenterName}님이 회원님을 멘션했습니다: "${newC.content}"`,
+                  icon: '/favicon.ico',
+                });
+              }
             }
           }
         }
@@ -125,7 +138,7 @@ export default function PostDetailPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [postId, user]);
+  }, [postId, user, post]);
 
   const isImageFile = (url, fileName) => {
     if (!url) return false;
@@ -133,7 +146,7 @@ export default function PostDetailPage() {
     return /\.(jpg|jpeg|png|gif|webp|svg|bmp)(\?.*)?$/i.test(targetStr);
   };
 
-  // 댓글 본문의 @닉네임 하이라이트 렌더링 함수
+  // 댓글 본문의 @닉네임 하이라이트 렌더링
   const renderCommentContent = (content) => {
     if (!content) return null;
     const mentionRegex = /(@[a-zA-Z0-9가-힣_-]+)/g;
@@ -371,7 +384,7 @@ export default function PostDetailPage() {
         )}
       </div>
 
-      {/* 댓글 및 멘션 영역 */}
+      {/* 댓글 영역 */}
       <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm space-y-4">
         <h3 className="font-bold text-sm text-gray-900">💬 댓글 ({comments.length})</h3>
 
