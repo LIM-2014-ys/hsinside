@@ -23,12 +23,14 @@ export default function UserPublicProfilePage() {
   const [sending, setSending] = useState(false);
   const messagesEndRef = useRef(null);
 
-  // 내 프로필 수정 상태
+  // 내 프로필 수정 및 회원 탈퇴 상태
   const [isEditing, setIsEditing] = useState(false);
   const [editNickname, setEditNickname] = useState('');
   const [editBio, setEditBio] = useState('');
   const [editAvatarUrl, setEditAvatarUrl] = useState('');
   const [updatingProfile, setUpdatingProfile] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
 
   // 유저 데이터 및 프로필 조회
   useEffect(() => {
@@ -198,7 +200,7 @@ export default function UserPublicProfilePage() {
     reader.readAsDataURL(file);
   };
 
-  // 내 프로필 업데이트 (닉네임 설정 포함)
+  // 내 프로필 업데이트
   const handleUpdateProfile = async (e) => {
     e.preventDefault();
     if (!currentUser) return;
@@ -242,6 +244,32 @@ export default function UserPublicProfilePage() {
     }
   };
 
+  // 회원 탈퇴 처리 함수
+  const handleDeleteAccount = async () => {
+    if (!currentUser) return;
+
+    setDeletingAccount(true);
+    try {
+      // 1. profiles 테이블에서 내 프로필 제거
+      await supabase
+        .from('profiles')
+        .delete()
+        .eq('id', currentUser.id);
+
+      // 2. Supabase Auth 로그아웃 처리
+      await supabase.auth.signOut();
+
+      alert('회원 탈퇴가 완료되었습니다. 이용해 주셔서 감사합니다.');
+      router.push('/');
+    } catch (err) {
+      console.error('회원 탈퇴 오류:', err);
+      alert('회원 탈퇴 처리 중 오류가 발생했습니다.');
+    } finally {
+      setDeletingAccount(false);
+      setShowDeleteConfirm(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="max-w-md mx-auto my-12 text-center text-gray-400 font-bold text-xs px-4">
@@ -282,14 +310,50 @@ export default function UserPublicProfilePage() {
           {profile?.bio || '작성된 소개 메시지가 없습니다.'}
         </div>
 
-        <div className="pt-2">
+        <div className="pt-2 space-y-2">
           {isSelf ? (
-            <button
-              onClick={() => setIsEditing(!isEditing)}
-              className="w-full py-2.5 bg-gray-100 active:bg-gray-200 text-gray-700 font-bold rounded-xl transition text-xs touch-manipulation"
-            >
-              {isEditing ? '취소' : '⚙️ 프로필 수정'}
-            </button>
+            <>
+              <button
+                onClick={() => setIsEditing(!isEditing)}
+                className="w-full py-2.5 bg-gray-100 active:bg-gray-200 text-gray-700 font-bold rounded-xl transition text-xs touch-manipulation"
+              >
+                {isEditing ? '취소' : '⚙️ 프로필 수정'}
+              </button>
+
+              {/* 회원 탈퇴 버튼 */}
+              {!showDeleteConfirm ? (
+                <button
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="w-full py-2 text-rose-500 hover:text-rose-700 font-semibold transition text-[11px] touch-manipulation"
+                >
+                  🚪 회원 탈퇴하기
+                </button>
+              ) : (
+                <div className="p-3 bg-rose-50 rounded-2xl border border-rose-100 space-y-2 text-left">
+                  <p className="text-rose-700 font-bold text-[11px]">
+                    ⚠️ 정말로 탈퇴하시겠습니까?
+                  </p>
+                  <p className="text-rose-600/80 text-[10px] leading-snug">
+                    탈퇴 시 프로필 데이터가 삭제되며 서비스에서 로그아웃됩니다.
+                  </p>
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      onClick={handleDeleteAccount}
+                      disabled={deletingAccount}
+                      className="flex-1 py-1.5 bg-rose-600 active:bg-rose-700 text-white font-bold rounded-xl text-[11px] transition touch-manipulation disabled:opacity-50"
+                    >
+                      {deletingAccount ? '탈퇴 처리 중...' : '예, 탈퇴합니다'}
+                    </button>
+                    <button
+                      onClick={() => setShowDeleteConfirm(false)}
+                      className="flex-1 py-1.5 bg-gray-200 active:bg-gray-300 text-gray-700 font-bold rounded-xl text-[11px] transition touch-manipulation"
+                    >
+                      취소
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
           ) : (
             <button
               onClick={() => {
@@ -309,7 +373,6 @@ export default function UserPublicProfilePage() {
         {/* 내 프로필 수정 폼 */}
         {isSelf && isEditing && (
           <form onSubmit={handleUpdateProfile} className="text-left pt-4 border-t border-gray-100 space-y-3.5">
-            {/* 닉네임 설정 */}
             <div>
               <label className="block text-[10px] font-bold text-gray-500 mb-1">🏷️ 닉네임 설정</label>
               <input
@@ -322,7 +385,6 @@ export default function UserPublicProfilePage() {
               />
             </div>
 
-            {/* 프로필 사진 파일 선택 */}
             <div>
               <label className="block text-[10px] font-bold text-gray-500 mb-1">📸 프로필 사진 업로드</label>
               <input
@@ -333,7 +395,6 @@ export default function UserPublicProfilePage() {
               />
             </div>
 
-            {/* 웹 이미지 URL */}
             <div>
               <label className="block text-[10px] font-bold text-gray-500 mb-1">🔗 또는 웹 이미지 URL</label>
               <input
@@ -345,7 +406,6 @@ export default function UserPublicProfilePage() {
               />
             </div>
 
-            {/* 소개 메시지 */}
             <div>
               <label className="block text-[10px] font-bold text-gray-500 mb-1">✏️ 소개 메시지</label>
               <textarea
