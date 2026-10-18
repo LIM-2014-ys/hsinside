@@ -25,6 +25,7 @@ export default function UserPublicProfilePage() {
 
   // 내 프로필 수정 상태
   const [isEditing, setIsEditing] = useState(false);
+  const [editNickname, setEditNickname] = useState('');
   const [editBio, setEditBio] = useState('');
   const [editAvatarUrl, setEditAvatarUrl] = useState('');
   const [updatingProfile, setUpdatingProfile] = useState(false);
@@ -45,6 +46,7 @@ export default function UserPublicProfilePage() {
 
         if (profileData) {
           setProfile(profileData);
+          setEditNickname(profileData.nickname || '');
           setEditBio(profileData.bio || '');
           setEditAvatarUrl(profileData.avatar_url || '');
         } else {
@@ -52,12 +54,19 @@ export default function UserPublicProfilePage() {
             ? targetUserIdentifier.split('@')[0]
             : targetUserIdentifier;
 
+          const initialNickname =
+            authUser?.user_metadata?.nickname ||
+            authUser?.user_metadata?.display_name ||
+            authUser?.user_metadata?.name ||
+            defaultNickname;
+
           setProfile({
             email: targetUserIdentifier.includes('@') ? targetUserIdentifier : null,
-            nickname: defaultNickname,
+            nickname: initialNickname,
             avatar_url: null,
             bio: '안녕하세요!',
           });
+          setEditNickname(initialNickname);
         }
       } catch (err) {
         console.error('프로필 로드 오류:', err);
@@ -78,7 +87,6 @@ export default function UserPublicProfilePage() {
   useEffect(() => {
     if (!isChatOpen || !currentUser?.email || !targetEmail) return;
 
-    // 대화 내역 불러오기 (나 ↔ 상대방)
     const fetchMessages = async () => {
       const { data, error } = await supabase
         .from('direct_messages')
@@ -95,7 +103,6 @@ export default function UserPublicProfilePage() {
 
     fetchMessages();
 
-    // 실시간 메시지 수신 채널 구독
     const channel = supabase
       .channel(`dm-chat-${currentUser.email}-${targetEmail}`)
       .on(
@@ -126,7 +133,6 @@ export default function UserPublicProfilePage() {
     };
   }, [isChatOpen, currentUser, targetEmail]);
 
-  // 새 메시지 수신/전송 시 스크롤 최하단 이동
   useEffect(() => {
     if (isChatOpen) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -144,9 +150,8 @@ export default function UserPublicProfilePage() {
 
     try {
       const senderName =
+        profile?.nickname ||
         currentUser.user_metadata?.nickname ||
-        currentUser.user_metadata?.display_name ||
-        currentUser.user_metadata?.name ||
         currentUser.email?.split('@')[0] ||
         '익명';
 
@@ -193,27 +198,25 @@ export default function UserPublicProfilePage() {
     reader.readAsDataURL(file);
   };
 
-  // 내 프로필 업데이트
+  // 내 프로필 업데이트 (닉네임 설정 포함)
   const handleUpdateProfile = async (e) => {
     e.preventDefault();
     if (!currentUser) return;
 
+    if (!editNickname.trim()) {
+      alert('닉네임을 입력해 주세요.');
+      return;
+    }
+
     setUpdatingProfile(true);
     try {
-      const userNickname =
-        currentUser.user_metadata?.nickname ||
-        currentUser.user_metadata?.display_name ||
-        currentUser.user_metadata?.name ||
-        currentUser.email?.split('@')[0] ||
-        '익명';
-
       const { error } = await supabase
         .from('profiles')
         .upsert([
           {
             id: currentUser.id,
             email: currentUser.email,
-            nickname: userNickname,
+            nickname: editNickname.trim(),
             avatar_url: editAvatarUrl,
             bio: editBio.trim(),
             updated_at: new Date().toISOString(),
@@ -223,16 +226,17 @@ export default function UserPublicProfilePage() {
       if (!error) {
         setProfile((prev) => ({
           ...prev,
+          nickname: editNickname.trim(),
           avatar_url: editAvatarUrl,
           bio: editBio.trim(),
         }));
         setIsEditing(false);
-        alert('프로필이 저장되었습니다.');
+        alert('프로필 정보가 성공적으로 변경되었습니다!');
       } else {
         alert(`저장 실패: ${error.message}`);
       }
     } catch {
-      alert('오류가 발생했습니다.');
+      alert('프로필 저장 중 오류가 발생했습니다.');
     } finally {
       setUpdatingProfile(false);
     }
@@ -305,6 +309,20 @@ export default function UserPublicProfilePage() {
         {/* 내 프로필 수정 폼 */}
         {isSelf && isEditing && (
           <form onSubmit={handleUpdateProfile} className="text-left pt-4 border-t border-gray-100 space-y-3.5">
+            {/* 닉네임 설정 */}
+            <div>
+              <label className="block text-[10px] font-bold text-gray-500 mb-1">🏷️ 닉네임 설정</label>
+              <input
+                type="text"
+                placeholder="사용할 닉네임을 입력해 주세요"
+                value={editNickname}
+                onChange={(e) => setEditNickname(e.target.value)}
+                required
+                className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-xs text-gray-800 touch-manipulation font-semibold"
+              />
+            </div>
+
+            {/* 프로필 사진 파일 선택 */}
             <div>
               <label className="block text-[10px] font-bold text-gray-500 mb-1">📸 프로필 사진 업로드</label>
               <input
@@ -315,8 +333,9 @@ export default function UserPublicProfilePage() {
               />
             </div>
 
+            {/* 웹 이미지 URL */}
             <div>
-              <label className="block text-[10px] font-bold text-gray-500 mb-1">🔗 웹 이미지 URL</label>
+              <label className="block text-[10px] font-bold text-gray-500 mb-1">🔗 또는 웹 이미지 URL</label>
               <input
                 type="url"
                 placeholder="https://example.com/photo.jpg"
@@ -326,6 +345,7 @@ export default function UserPublicProfilePage() {
               />
             </div>
 
+            {/* 소개 메시지 */}
             <div>
               <label className="block text-[10px] font-bold text-gray-500 mb-1">✏️ 소개 메시지</label>
               <textarea
@@ -348,11 +368,10 @@ export default function UserPublicProfilePage() {
         )}
       </div>
 
-      {/* 인스타그램 스타일 채팅창 (DM Modal / Chat Window) */}
+      {/* 인스타그램 스타일 채팅창 */}
       {isChatOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 z-50">
           <div className="bg-white w-full max-w-sm h-[85vh] max-h-[650px] rounded-3xl flex flex-col overflow-hidden shadow-2xl border border-gray-100">
-            {/* 채팅 상단 헤더 */}
             <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between bg-white shrink-0">
               <div className="flex items-center gap-2.5 min-w-0">
                 <div className="w-9 h-9 rounded-full overflow-hidden bg-emerald-50 border border-emerald-100 shrink-0">
@@ -378,7 +397,6 @@ export default function UserPublicProfilePage() {
               </button>
             </div>
 
-            {/* 채팅 대화 내용 영역 (Scrollable) */}
             <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-gray-50/50">
               {messages.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center text-center space-y-2 text-gray-400">
@@ -420,7 +438,6 @@ export default function UserPublicProfilePage() {
               <div ref={messagesEndRef} />
             </div>
 
-            {/* 하단 입력 폼 (Instagram Style Input) */}
             <form
               onSubmit={handleSendMessage}
               className="p-3 bg-white border-t border-gray-100 flex items-center gap-2 shrink-0"
