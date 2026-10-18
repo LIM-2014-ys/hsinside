@@ -1,5 +1,6 @@
 import './globals.css';
 import Header from '@/components/Header';
+import Footer from '@/components/Footer';
 
 export const metadata = {
   title: 'HSinside',
@@ -34,6 +35,9 @@ export default function RootLayout({ children }) {
         <main className="flex-1 w-full">
           {children}
         </main>
+
+        {/* 하단 공통 푸터 */}
+        <Footer />
       </body>
     </html>
   );
