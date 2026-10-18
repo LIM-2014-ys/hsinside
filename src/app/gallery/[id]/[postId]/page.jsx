@@ -18,6 +18,7 @@ export default function PostDetailPage() {
   const [user, setUser] = useState(null);
   const [post, setPost] = useState(null);
   const [comments, setComments] = useState([]);
+  const [registeredNicknames, setRegisteredNicknames] = useState(new Set());
   const [newComment, setNewComment] = useState('');
   const [loading, setLoading] = useState(true);
   const [submittingComment, setSubmittingComment] = useState(false);
@@ -40,7 +41,7 @@ export default function PostDetailPage() {
     }
   }, []);
 
-  // 게시글 및 댓글 데이터 조회
+  // 게시글, 댓글 및 등록된 닉네임 데이터 조회
   useEffect(() => {
     if (!postId) return;
 
@@ -66,6 +67,28 @@ export default function PostDetailPage() {
         if (!commentError && commentData) {
           setComments(commentData);
         }
+
+        // 등록된 닉네임 수집 (profiles 테이블 + 게시글/댓글 작성자)
+        const nameSet = new Set();
+
+        const { data: profileData } = await supabase
+          .from('profiles')
+          .select('nickname');
+
+        if (profileData) {
+          profileData.forEach((p) => {
+            if (p.nickname) nameSet.add(p.nickname.trim());
+          });
+        }
+
+        if (postData?.author_name) nameSet.add(postData.author_name.trim());
+        if (commentData) {
+          commentData.forEach((c) => {
+            if (c.author_name) nameSet.add(c.author_name.trim());
+          });
+        }
+
+        setRegisteredNicknames(nameSet);
       } catch (err) {
         console.error('데이터 조회 오류:', err);
       } finally {
@@ -105,6 +128,10 @@ export default function PostDetailPage() {
             return [...prev, newC];
           });
 
+          if (newC.author_name) {
+            setRegisteredNicknames((prev) => new Set(prev).add(newC.author_name.trim()));
+          }
+
           if (newC.author_email !== user.email) {
             const hasNotificationPermission =
               typeof window !== 'undefined' &&
@@ -142,7 +169,7 @@ export default function PostDetailPage() {
     return /\.(jpg|jpeg|png|gif|webp|svg|bmp)(\?.*)?$/i.test(targetStr);
   };
 
-  // 댓글 본문의 @닉네임 하이라이트 렌더링
+  // 댓글 본문의 @닉네임 중 등록된 닉네임만 멘션 하이라이트 렌더링
   const renderCommentContent = (content) => {
     if (!content) return null;
 
@@ -151,11 +178,15 @@ export default function PostDetailPage() {
 
     return parts.map((part, idx) => {
       if (part.startsWith('@')) {
-        return (
-          <span key={idx} className="text-emerald-600 font-bold bg-emerald-50 px-1 py-0.5 rounded break-all">
-            {part}
-          </span>
-        );
+        const rawNickname = part.slice(1).trim();
+        // 등록된 닉네임 목록에 있는 경우만 멘션 스타일 적용
+        if (registeredNicknames.has(rawNickname)) {
+          return (
+            <span key={idx} className="text-emerald-600 font-bold bg-emerald-50 px-1 py-0.5 rounded break-all">
+              {part}
+            </span>
+          );
+        }
       }
       return part;
     });
@@ -217,6 +248,7 @@ export default function PostDetailPage() {
           if (prev.some((c) => c.id === data.id)) return prev;
           return [...prev, data];
         });
+        setRegisteredNicknames((prev) => new Set(prev).add(commentAuthorName.trim()));
         setNewComment('');
       }
     } catch {
@@ -345,7 +377,6 @@ export default function PostDetailPage() {
       {/* 게시글 본문 카드 */}
       <div className="bg-white border border-gray-100 rounded-2xl p-4 sm:p-6 shadow-xs space-y-3">
         <div>
-          {/* 게시글 제목 폰트 크기 축소 (모바일 13px / PC 15px) */}
           <h1 className="text-[13px] sm:text-[15px] font-bold text-gray-900 leading-snug break-words">
             {post.title}
           </h1>
@@ -363,7 +394,6 @@ export default function PostDetailPage() {
           </div>
         </div>
 
-        {/* 게시글 본문 폰트 크기 축소 (모바일 11px / PC 12px) */}
         <div className="text-gray-800 leading-normal min-h-[60px] sm:min-h-[80px] whitespace-pre-wrap text-[11px] sm:text-[12px] pt-2 border-t border-gray-50 break-words select-text">
           {post.content}
         </div>
