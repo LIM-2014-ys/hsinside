@@ -17,12 +17,16 @@ export default function MyPage() {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // DM 채팅 상태
+  // DM 채팅 상태 (1:1 보낼 때)
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [messages, setMessages] = useState([]);
   const [inputMessage, setInputMessage] = useState('');
   const [sending, setSending] = useState(false);
   const messagesEndRef = useRef(null);
+
+  // 📬 받은 메시지함 (Inbox) 상태
+  const [showInbox, setShowInbox] = useState(false);
+  const [receivedDms, setReceivedDms] = useState([]);
 
   // 내 프로필 수정 상태
   const [isEditing, setIsEditing] = useState(false);
@@ -61,7 +65,6 @@ export default function MyPage() {
 
         if (profileData) {
           setProfile(profileData);
-          // DB의 display_name 컬럼을 닉네임으로 매핑
           const currentDisplayName = profileData.display_name || profileData.nickname || '';
           setEditNickname(currentDisplayName);
           setEditBio(profileData.bio || '');
@@ -98,7 +101,47 @@ export default function MyPage() {
   const targetEmail = profile?.email;
   const currentDisplayName = profile?.display_name || profile?.nickname || '익명';
 
-  // 닉네임(display_name) 중복 확인 로직 (핵심 수정 ⭐️)
+  // 📬 내가 받은 DM 목록 조회 & 실시간 감지 (본인 페이지일 때 실행)
+  useEffect(() => {
+    if (!currentUser?.email || !isSelf) return;
+
+    const fetchReceivedDms = async () => {
+      const { data, error } = await supabase
+        .from('direct_messages')
+        .select('*')
+        .eq('receiver_email', currentUser.email)
+        .order('created_at', { ascending: false });
+
+      if (!error && data) {
+        setReceivedDms(data);
+      }
+    };
+
+    fetchReceivedDms();
+
+    // 실시간 새 DM 수신 구독
+    const channel = supabase
+      .channel(`inbox-${currentUser.email}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'direct_messages',
+          filter: `receiver_email=eq.${currentUser.email}`,
+        },
+        (payload) => {
+          setReceivedDms((prev) => [payload.new, ...prev]);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [currentUser, isSelf]);
+
+  // 닉네임(display_name) 중복 확인
   const handleCheckNicknameDuplicate = async () => {
     const trimmed = editNickname.trim();
     if (!trimmed) {
@@ -107,7 +150,6 @@ export default function MyPage() {
       return;
     }
 
-    // 본인 기존 닉네임 동일 여부 확인
     if (trimmed.toLowerCase() === currentDisplayName.toLowerCase()) {
       setNicknameCheckMsg({ type: 'success', text: '현재 본인의 닉네임입니다.' });
       setIsNicknameChecked(true);
@@ -115,7 +157,6 @@ export default function MyPage() {
     }
 
     try {
-      // ✅ DB의 display_name 컬럼으로 ilike 중복 검사
       const { data, error } = await supabase
         .from('profiles')
         .select('id, display_name')
@@ -128,7 +169,6 @@ export default function MyPage() {
         return;
       }
 
-      // 본인 제외 타인 중복 여부 판별
       const otherUserMatches = data ? data.filter((item) => item.id !== currentUser?.id) : [];
 
       if (otherUserMatches.length > 0) {
@@ -145,7 +185,7 @@ export default function MyPage() {
     }
   };
 
-  // 채팅 메시지 로드 & Realtime
+  // 채팅 메시지 로드 & Realtime (특정 유저와의 1:1 대화)
   useEffect(() => {
     if (!isChatOpen || !currentUser?.email || !targetEmail) return;
 
@@ -256,7 +296,7 @@ export default function MyPage() {
     reader.readAsDataURL(file);
   };
 
-  // 내 프로필 업데이트 (display_name 컬럼으로 저장 ⭐️)
+  // 내 프로필 업데이트
   const handleUpdateProfile = async (e) => {
     e.preventDefault();
     if (!currentUser) return;
@@ -275,7 +315,6 @@ export default function MyPage() {
 
     setUpdatingProfile(true);
     try {
-      // ✅ profiles 테이블에 display_name 컬럼으로 저장
       const { error } = await supabase
         .from('profiles')
         .upsert([
@@ -411,10 +450,23 @@ export default function MyPage() {
         <div className="pt-2 space-y-2">
           {isSelf ? (
             <>
+              {/* 📬 받은 메시지함 토글 버튼 */}
+              <button
+                onClick={() => {
+                  setShowInbox(!showInbox);
+                  setIsEditing(false);
+                  setIsChangingPassword(false);
+                }}
+                className="w-full py-2.5 bg-blue-50 active:bg-blue-100 text-blue-700 font-bold rounded-xl transition text-xs touch-manipulation flex items-center justify-center gap-1.5"
+              >
+                📬 받은 메시지함 ({receivedDms.length})
+              </button>
+
               <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => {
                     setIsEditing(!isEditing);
+                    setShowInbox(false);
                     setIsChangingPassword(false);
                     setNicknameCheckMsg({ type: '', text: '' });
                   }}
@@ -426,6 +478,7 @@ export default function MyPage() {
                 <button
                   onClick={() => {
                     setIsChangingPassword(!isChangingPassword);
+                    setShowInbox(false);
                     setIsEditing(false);
                   }}
                   className="py-2.5 bg-emerald-50 active:bg-emerald-100 text-emerald-700 font-bold rounded-xl transition text-xs touch-manipulation"
@@ -480,6 +533,48 @@ export default function MyPage() {
             </button>
           )}
         </div>
+
+        {/* 📬 받은 메시지 목록 (Inbox) */}
+        {isSelf && showInbox && (
+          <div className="text-left pt-4 border-t border-gray-100 space-y-3">
+            <h3 className="font-bold text-xs text-gray-900 flex items-center justify-between">
+              <span>📬 받은 메시지 목록</span>
+              <span className="text-[10px] text-gray-400 font-normal">총 {receivedDms.length}개</span>
+            </h3>
+
+            {receivedDms.length === 0 ? (
+              <div className="p-4 text-center text-gray-400 text-[11px] bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+                받은 메시지가 없습니다.
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                {receivedDms.map((dm) => (
+                  <div
+                    key={dm.id}
+                    className="p-3 bg-gray-50 hover:bg-gray-100/80 rounded-2xl border border-gray-100 transition space-y-1"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-gray-800 text-[11px]">
+                        {dm.sender_name || dm.sender_email?.split('@')[0] || '익명'}
+                      </span>
+                      <span className="text-[9px] text-gray-400">
+                        {new Date(dm.created_at).toLocaleString('ko-KR', {
+                          month: 'numeric',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-gray-600 break-words leading-relaxed">
+                      {dm.content}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* 프로필 수정 폼 */}
         {isSelf && isEditing && (
