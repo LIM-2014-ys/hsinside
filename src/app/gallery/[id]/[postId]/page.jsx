@@ -21,6 +21,7 @@ export default function PostDetailPage() {
   const [loading, setLoading] = useState(true);
   const [submittingComment, setSubmittingComment] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -65,7 +66,6 @@ export default function PostDetailPage() {
     fetchData();
   }, [postId]);
 
-  // 이미지 파일 확장자 판별 함수
   const isImageFile = (url, fileName) => {
     if (!url) return false;
     const targetStr = (fileName || url).toLowerCase();
@@ -82,11 +82,13 @@ export default function PostDetailPage() {
 
       if (error) {
         setErrorMessage(`게시글 삭제 실패: ${error.message}`);
+        setShowDeleteConfirm(false);
       } else {
         router.push(`/gallery/${galleryId}`);
       }
     } catch {
       setErrorMessage('게시글 삭제 처리 중 오류가 발생했습니다.');
+      setShowDeleteConfirm(false);
     }
   };
 
@@ -152,7 +154,7 @@ export default function PostDetailPage() {
 
   const isAdmin = isAdminEmail(user?.email);
   const isPostAuthor = user?.email && post?.author_email === user.email;
-  const canDeletePost = isPostAuthor || isAdmin;
+  const canModifyPost = isPostAuthor || isAdmin;
 
   if (loading) {
     return (
@@ -186,6 +188,7 @@ export default function PostDetailPage() {
         </div>
       )}
 
+      {/* 상단 네비게이션 & 수정/삭제 버튼 */}
       <div className="flex items-center justify-between border-b pb-4">
         <Link
           href={`/gallery/${galleryId}`}
@@ -194,20 +197,50 @@ export default function PostDetailPage() {
           ← 갤러리 목록으로
         </Link>
 
-        {canDeletePost && (
-          <button
-            onClick={handleDeletePost}
-            className={`px-3 py-1.5 font-bold rounded-xl transition text-[11px] ${
-              isAdmin && !isPostAuthor
-                ? 'bg-rose-100 text-rose-700 hover:bg-rose-200'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-          >
-            {isAdmin && !isPostAuthor ? '🛡️ 관리자 강제 삭제' : '🗑️ 게시글 삭제'}
-          </button>
+        {canModifyPost && (
+          <div className="flex items-center gap-2">
+            {/* 수정 버튼 */}
+            <Link
+              href={`/gallery/${galleryId}/${postId}/edit`}
+              className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold rounded-xl transition text-[11px]"
+            >
+              ✏️ 게시글 수정
+            </Link>
+
+            {/* 삭제 버튼 */}
+            {!showDeleteConfirm ? (
+              <button
+                onClick={() => setShowDeleteConfirm(true)}
+                className={`px-3 py-1.5 font-bold rounded-xl transition text-[11px] ${
+                  isAdmin && !isPostAuthor
+                    ? 'bg-rose-100 text-rose-700 hover:bg-rose-200'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                {isAdmin && !isPostAuthor ? '🛡️ 관리자 삭제' : '🗑️ 삭제'}
+              </button>
+            ) : (
+              <div className="flex items-center gap-1.5 bg-rose-50 p-1 rounded-xl border border-rose-200">
+                <span className="text-rose-700 text-[10px] font-bold px-1">삭제할까요?</span>
+                <button
+                  onClick={handleDeletePost}
+                  className="px-2 py-1 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-lg text-[10px] transition"
+                >
+                  확인
+                </button>
+                <button
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="px-2 py-1 bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold rounded-lg text-[10px] transition"
+                >
+                  취소
+                </button>
+              </div>
+            )}
+          </div>
         )}
       </div>
 
+      {/* 게시글 본문 카드가 들어가는 위치 */}
       <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm space-y-4">
         <div>
           <h1 className="text-xl font-black text-gray-900 leading-snug">{post.title}</h1>
