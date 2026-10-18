@@ -10,13 +10,14 @@ export default function MyPage() {
   const params = useParams();
   const router = useRouter();
 
-  const targetUserIdentifier = decodeURIComponent(params.id || '');
+  // URL 파라미터에서 targetUserId (UUID) 추출
+  const targetUserId = params.id;
 
   const [currentUser, setCurrentUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // 채팅방(인스타 DM 스타일) 상태
+  // DM 채팅 상태
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [messages, setMessages] = useState([]);
   const [inputMessage, setInputMessage] = useState('');
@@ -43,7 +44,7 @@ export default function MyPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
 
-  // 유저 데이터 및 프로필 조회
+  // 유저 데이터 및 프로필 조회 (UUID 전용 쿼리)
   useEffect(() => {
     const fetchUserData = async () => {
       setLoading(true);
@@ -51,31 +52,28 @@ export default function MyPage() {
         const { data: { user: authUser } } = await supabase.auth.getUser();
         setCurrentUser(authUser);
 
+        // profiles 테이블에서 UUID(id) 단일 조건으로 검색
         const { data: profileData } = await supabase
           .from('profiles')
           .select('*')
-          .or(`id.eq.${targetUserIdentifier},email.eq.${targetUserIdentifier},nickname.eq.${targetUserIdentifier}`)
+          .eq('id', targetUserId)
           .maybeSingle();
 
         if (profileData) {
           setProfile(profileData);
-          setEditNickname(profileData.nickname || '');
+          setEditNickname(profileData.nickname || profileData.display_name || '');
           setEditBio(profileData.bio || '');
           setEditAvatarUrl(profileData.avatar_url || '');
-        } else {
-          const defaultNickname = targetUserIdentifier.includes('@')
-            ? targetUserIdentifier.split('@')[0]
-            : targetUserIdentifier;
-
+        } else if (authUser && authUser.id === targetUserId) {
           const initialNickname =
-            authUser?.user_metadata?.nickname ||
-            authUser?.user_metadata?.display_name ||
-            authUser?.user_metadata?.name ||
-            defaultNickname;
+            authUser.user_metadata?.nickname ||
+            authUser.user_metadata?.display_name ||
+            authUser.email?.split('@')[0] ||
+            '회원';
 
           setProfile({
-            id: authUser?.id || null,
-            email: targetUserIdentifier.includes('@') ? targetUserIdentifier : authUser?.email,
+            id: authUser.id,
+            email: authUser.email,
             nickname: initialNickname,
             avatar_url: null,
             bio: '안녕하세요!',
@@ -89,17 +87,13 @@ export default function MyPage() {
       }
     };
 
-    if (targetUserIdentifier) {
+    if (targetUserId) {
       fetchUserData();
     }
-  }, [targetUserIdentifier]);
+  }, [targetUserId]);
 
-  const targetEmail = profile?.email || (targetUserIdentifier.includes('@') ? targetUserIdentifier : null);
-  const isSelf = currentUser && (
-    currentUser.id === profile?.id ||
-    currentUser.email === targetEmail ||
-    currentUser.id === targetUserIdentifier
-  );
+  const isSelf = currentUser && currentUser.id === targetUserId;
+  const targetEmail = profile?.email;
 
   // 닉네임 중복 확인 로직 (보존)
   const handleCheckNicknameDuplicate = async () => {
@@ -145,7 +139,7 @@ export default function MyPage() {
     }
   };
 
-  // 채팅 메시지 목록 로드 & 실시간(Realtime) 감지
+  // 채팅 메시지 로드 & Realtime
   useEffect(() => {
     if (!isChatOpen || !currentUser?.email || !targetEmail) return;
 
@@ -169,11 +163,7 @@ export default function MyPage() {
       .channel(`dm-chat-${currentUser.email}-${targetEmail}`)
       .on(
         'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'direct_messages',
-        },
+        { event: 'INSERT', schema: 'public', table: 'direct_messages' },
         (payload) => {
           const newDm = payload.new;
           const isRelated =
@@ -201,7 +191,7 @@ export default function MyPage() {
     }
   }, [messages, isChatOpen]);
 
-  // 메시지 전송
+  // DM 전송
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!inputMessage.trim() || !currentUser?.email || !targetEmail || sending) return;
@@ -212,8 +202,8 @@ export default function MyPage() {
 
     try {
       const senderName =
-        profile?.nickname ||
         currentUser.user_metadata?.nickname ||
+        currentUser.user_metadata?.display_name ||
         currentUser.email?.split('@')[0] ||
         '익명';
 
@@ -243,7 +233,7 @@ export default function MyPage() {
     }
   };
 
-  // 프로필 이미지 로컬 파일 업로드
+  // 프로필 이미지 파일 선택 업로드
   const handleImageFileUpload = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -316,7 +306,7 @@ export default function MyPage() {
     }
   };
 
-  // 비밀번호 변경 처리
+  // 비밀번호 변경
   const handleChangePassword = async (e) => {
     e.preventDefault();
     setPasswordStatus({ type: '', message: '' });
@@ -333,9 +323,7 @@ export default function MyPage() {
 
     setUpdatingPassword(true);
     try {
-      const { error } = await supabase.auth.updateUser({
-        password: newPassword,
-      });
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
 
       if (error) {
         setPasswordStatus({ type: 'error', message: `변경 실패: ${error.message}` });
@@ -355,19 +343,14 @@ export default function MyPage() {
     }
   };
 
-  // 회원 탈퇴 처리 함수
+  // 회원 탈퇴
   const handleDeleteAccount = async () => {
     if (!currentUser) return;
 
     setDeletingAccount(true);
     try {
-      await supabase
-        .from('profiles')
-        .delete()
-        .eq('id', currentUser.id);
-
+      await supabase.from('profiles').delete().eq('id', currentUser.id);
       await supabase.auth.signOut();
-
       alert('회원 탈퇴가 완료되었습니다. 이용해 주셔서 감사합니다.');
       router.push('/');
     } catch (err) {
@@ -396,7 +379,6 @@ export default function MyPage() {
         ← 뒤로 가기
       </button>
 
-      {/* 마이페이지 메인 카드 */}
       <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-xs text-center space-y-4 relative">
         <div className="relative w-24 h-24 mx-auto rounded-full overflow-hidden bg-emerald-50 border-2 border-emerald-100 flex items-center justify-center shadow-xs">
           {profile?.avatar_url ? (
@@ -431,7 +413,7 @@ export default function MyPage() {
                   }}
                   className="py-2.5 bg-gray-100 active:bg-gray-200 text-gray-700 font-bold rounded-xl transition text-xs touch-manipulation"
                 >
-                  {isEditing ? '수정 취소' : '프로필 수정'}
+                  {isEditing ? '수정 취소' : '⚙️ 프로필 수정'}
                 </button>
 
                 <button
@@ -441,11 +423,10 @@ export default function MyPage() {
                   }}
                   className="py-2.5 bg-emerald-50 active:bg-emerald-100 text-emerald-700 font-bold rounded-xl transition text-xs touch-manipulation"
                 >
-                  {isChangingPassword ? '변경 취소' : '비밀번호 변경'}
+                  {isChangingPassword ? '변경 취소' : '🔒 비번 변경'}
                 </button>
               </div>
 
-              {/* 빨간 배경 + 흰 글씨 회원 탈퇴 버튼 */}
               {!showDeleteConfirm ? (
                 <button
                   onClick={() => setShowDeleteConfirm(true)}
@@ -455,9 +436,7 @@ export default function MyPage() {
                 </button>
               ) : (
                 <div className="p-3 bg-red-50 rounded-2xl border border-red-100 space-y-2 text-left">
-                  <p className="text-red-700 font-bold text-[11px]">
-                    ⚠️ 정말로 탈퇴하시겠습니까?
-                  </p>
+                  <p className="text-red-700 font-bold text-[11px]">⚠️ 정말로 탈퇴하시겠습니까?</p>
                   <p className="text-red-600/80 text-[10px] leading-snug">
                     탈퇴 시 프로필 데이터가 삭제되며 서비스에서 로그아웃됩니다.
                   </p>
@@ -499,7 +478,7 @@ export default function MyPage() {
         {isSelf && isEditing && (
           <form onSubmit={handleUpdateProfile} className="text-left pt-4 border-t border-gray-100 space-y-3.5">
             <div>
-              <label className="block text-[10px] font-bold text-gray-500 mb-1"></label>닉네임 변경 및 중복 확인</label>
+              <label className="block text-[10px] font-bold text-gray-500 mb-1">🏷️ 닉네임 변경 및 중복 확인</label>
               <div className="flex gap-1.5">
                 <input
                   type="text"
@@ -558,7 +537,7 @@ export default function MyPage() {
             </div>
 
             <div>
-              <label className="block text-[10px] font-bold text-gray-500 mb-1">소개 메시지</label>
+              <label className="block text-[10px] font-bold text-gray-500 mb-1">✏️ 소개 메시지</label>
               <textarea
                 rows={3}
                 placeholder="자기소개를 작성해 보세요!"
@@ -581,7 +560,7 @@ export default function MyPage() {
         {/* 비밀번호 변경 폼 */}
         {isSelf && isChangingPassword && (
           <form onSubmit={handleChangePassword} className="text-left pt-4 border-t border-gray-100 space-y-3">
-            <h3 className="font-bold text-xs text-gray-900 mb-2">비밀번호 변경</h3>
+            <h3 className="font-bold text-xs text-gray-900 mb-2">🔒 비밀번호 변경</h3>
 
             {passwordStatus.message && (
               <div className={`p-2.5 rounded-xl text-[11px] font-semibold ${
