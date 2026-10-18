@@ -169,8 +169,8 @@ export default function PostDetailPage() {
     return /\.(jpg|jpeg|png|gif|webp|svg|bmp)(\?.*)?$/i.test(targetStr);
   };
 
-  // 댓글 본문의 @닉네임 중 등록된 닉네임만 멘션 하이라이트 렌더링
-  const renderCommentContent = (content) => {
+  // 게시글 본문 및 댓글의 @닉네임 중 '등록된 닉네임'만 멘션 하이라이트 렌더링
+  const renderContent = (content) => {
     if (!content) return null;
 
     const mentionRegex = /(@[^\s,.:;!?"'()\[\]{}]+)/g;
@@ -179,7 +179,7 @@ export default function PostDetailPage() {
     return parts.map((part, idx) => {
       if (part.startsWith('@')) {
         const rawNickname = part.slice(1).trim();
-        // 등록된 닉네임 목록에 있는 경우만 멘션 스타일 적용
+        // 등록된 닉네임 목록에 존재하는 경우에만 멘션 스타일 적용
         if (registeredNicknames.has(rawNickname)) {
           return (
             <span key={idx} className="text-emerald-600 font-bold bg-emerald-50 px-1 py-0.5 rounded break-all">
@@ -394,8 +394,9 @@ export default function PostDetailPage() {
           </div>
         </div>
 
+        {/* 게시글 본문에서도 renderContent 적용하여 멘션 하이라이트 지원 */}
         <div className="text-gray-800 leading-normal min-h-[60px] sm:min-h-[80px] whitespace-pre-wrap text-[11px] sm:text-[12px] pt-2 border-t border-gray-50 break-words select-text">
-          {post.content}
+          {renderContent(post.content)}
         </div>
 
         {hasImage && (
@@ -472,7 +473,7 @@ export default function PostDetailPage() {
                       </span>
                     </div>
                     <p className="text-gray-700 text-[11px] sm:text-xs leading-snug break-words select-text">
-                      {renderCommentContent(comment.content)}
+                      {renderContent(comment.content)}
                     </p>
                   </div>
 
