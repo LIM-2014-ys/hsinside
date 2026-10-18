@@ -2,104 +2,82 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
+import { isAdminEmail } from '@/lib/admin';
 
 export default function Header() {
-  const router = useRouter();
   const [user, setUser] = useState(null);
-  const [nickname, setNickname] = useState('');
 
   useEffect(() => {
-    const getInitialSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        setUser(session.user);
-        setNickname(
-          session.user.user_metadata?.display_name ||
-          session.user.email?.split('@')[0] ||
-          '사용자'
-        );
-      } else {
-        setUser(null);
-        setNickname('');
-      }
+    // 로그인 사용자 정보 세션 가져오기
+    const fetchUser = async () => {
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      setUser(currentUser);
     };
+    fetchUser();
 
-    getInitialSession();
-
-    <Link href="/gallery-request" className="text-gray-700 font-bold hover:text-emerald-600 transition">
-      갤러리 신청
-    </Link>
-
-    // 마이페이지 등의 닉네임 수정 시 상단 헤더 동기화
-    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
-      if (session?.user) {
-        setUser(session.user);
-        setNickname(
-          session.user.user_metadata?.display_name ||
-          session.user.email?.split('@')[0] ||
-          '사용자'
-        );
-      } else {
-        setUser(null);
-        setNickname('');
-      }
+    // 로그인/로그아웃 상태 실시간 감지
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
     });
 
-    return () => {
-      authListener.subscription.unsubscribe();
-    };
+    return () => subscription?.unsubscribe();
   }, []);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    setUser(null);
-    setNickname('');
-    router.push('/');
-    router.refresh();
+    window.location.href = '/';
   };
 
+  const isAdmin = isAdminEmail(user?.email);
+
   return (
-    <header className="w-full bg-white border-b border-gray-100 sticky top-0 z-40">
-      <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-        <Link href="/" className="text-xl font-black text-emerald-600 tracking-tight">
-          hsinside
+    <header className="bg-white border-b border-gray-100 shadow-sm py-5 px-4 sm:px-8 sticky top-0 z-40">
+      <div className="max-w-4xl mx-auto flex items-center justify-between">
+        {/* 파란색 & 크게 변경된 로고 */}
+        <Link href="/" className="flex items-center gap-2 group">
+          <span className="text-3xl sm:text-4xl">🏛️</span>
+          <span className="text-2xl sm:text-3xl font-black text-blue-600 tracking-tight group-hover:text-blue-700 transition">
+            HSinside
+          </span>
         </Link>
 
-        <nav className="flex items-center gap-4 text-xs font-bold">
+        {/* 우측 메뉴 영역 */}
+        <div className="flex items-center gap-2 sm:gap-3">
           {user ? (
             <>
-              <Link href="/mypage" className="text-gray-800 hover:text-emerald-600 transition flex items-center gap-1">
-                <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-lg font-extrabold border border-emerald-100">
-                  {nickname}
+              {/* 관리자일 경우 전용 배지 노출 */}
+              {isAdmin && (
+                <span className="hidden sm:inline-block px-2.5 py-1 bg-amber-100 text-amber-800 text-[10px] font-bold rounded-lg border border-amber-200">
+                  🛡️ 관리자
                 </span>
-                <span>님</span>
+              )}
+
+              {/* 👤 마이페이지 버튼 (일반 사용자 & 어드민 모두 표시) */}
+              <Link
+                href="/mypage"
+                className="px-3.5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl text-xs transition"
+              >
+                👤 마이페이지
               </Link>
-              <Link href="/admin/reports" className="text-gray-500 hover:text-gray-900 transition">
-                관리자
-              </Link>
+
+              {/* 로그아웃 버튼 */}
               <button
                 onClick={handleLogout}
-                className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl transition"
+                className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold rounded-xl text-xs transition"
               >
                 로그아웃
               </button>
             </>
           ) : (
-            <>
-              <Link href="/login" className="text-gray-600 hover:text-gray-900 transition">
-                로그인
-              </Link>
-              <Link
-                href="/signup"
-                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition"
-              >
-                회원가입
-              </Link>
-            </>
+            <Link
+              href="/login"
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs transition shadow-sm"
+            >
+              로그인
+            </Link>
           )}
-        </nav>
+        </div>
       </div>
     </header>
   );
