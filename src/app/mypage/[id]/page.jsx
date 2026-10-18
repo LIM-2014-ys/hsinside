@@ -141,7 +141,7 @@ export default function MyPage() {
     };
   }, [currentUser, isSelf]);
 
-  // 💬 채팅 열기 핸들러 (타인 프로필 또는 받은 메시지함에서 클릭 시)
+  // 💬 채팅 열기 핸들러
   const handleOpenChat = (email, name) => {
     if (!currentUser) {
       alert('DM을 보내려면 로그인해야 합니다.');
@@ -254,14 +254,22 @@ export default function MyPage() {
     }
   };
 
-  // 닉네임 중복 확인
+  // 🚫 닉네임 공백 검사 및 중복 확인
   const handleCheckNicknameDuplicate = async () => {
-    const trimmed = editNickname.trim();
-    if (!trimmed) {
+    if (!editNickname || !editNickname.trim()) {
       setNicknameCheckMsg({ type: 'error', text: '닉네임을 입력해 주세요.' });
       setIsNicknameChecked(false);
       return;
     }
+
+    // 공백 포함 여부 검사
+    if (/\s/.test(editNickname)) {
+      setNicknameCheckMsg({ type: 'error', text: '❌ 닉네임에 공백을 포함할 수 없습니다.' });
+      setIsNicknameChecked(false);
+      return;
+    }
+
+    const trimmed = editNickname.trim();
 
     if (trimmed.toLowerCase() === currentDisplayName.toLowerCase()) {
       setNicknameCheckMsg({ type: 'success', text: '현재 본인의 닉네임입니다.' });
@@ -315,10 +323,15 @@ export default function MyPage() {
     reader.readAsDataURL(file);
   };
 
-  // 프로필 정보 업데이트
+  // 내 프로필 업데이트
   const handleUpdateProfile = async (e) => {
     e.preventDefault();
     if (!currentUser) return;
+
+    if (/\s/.test(editNickname)) {
+      alert('닉네임에 공백을 포함할 수 없습니다.');
+      return;
+    }
 
     const trimmedNickname = editNickname.trim();
 
@@ -547,7 +560,7 @@ export default function MyPage() {
           )}
         </div>
 
-        {/* 📬 받은 메시지 목록 (Inbox) & 답장하기 버튼 */}
+        {/* 📬 받은 메시지 목록 (Inbox) */}
         {isSelf && showInbox && (
           <div className="text-left pt-4 border-t border-gray-100 space-y-3">
             <h3 className="font-bold text-xs text-gray-900 flex items-center justify-between">
@@ -582,7 +595,6 @@ export default function MyPage() {
                     <p className="text-[11px] text-gray-600 break-words leading-relaxed">
                       {dm.content}
                     </p>
-                    {/* 💬 클릭 시 1:1 채팅창으로 전환 */}
                     <div className="text-right pt-1">
                       <button
                         onClick={() => handleOpenChat(dm.sender_email, dm.sender_name)}
@@ -602,16 +614,20 @@ export default function MyPage() {
         {isSelf && isEditing && (
           <form onSubmit={handleUpdateProfile} className="text-left pt-4 border-t border-gray-100 space-y-3.5">
             <div>
-              <label className="block text-[10px] font-bold text-gray-500 mb-1">🏷️ 닉네임 변경 및 중복 확인</label>
+              <label className="block text-[10px] font-bold text-gray-500 mb-1">🏷️ 닉네임 변경 및 중복 확인 (공백 불가)</label>
               <div className="flex gap-1.5">
                 <input
                   type="text"
-                  placeholder="새 닉네임 입력"
+                  placeholder="새 닉네임 입력 (공백 제외)"
                   value={editNickname}
                   onChange={(e) => {
                     const val = e.target.value;
                     setEditNickname(val);
-                    if (val.trim().toLowerCase() === currentDisplayName.toLowerCase()) {
+
+                    if (/\s/.test(val)) {
+                      setIsNicknameChecked(false);
+                      setNicknameCheckMsg({ type: 'error', text: '❌ 닉네임에 공백을 포함할 수 없습니다.' });
+                    } else if (val.trim().toLowerCase() === currentDisplayName.toLowerCase()) {
                       setIsNicknameChecked(true);
                       setNicknameCheckMsg({ type: 'success', text: '현재 본인의 닉네임입니다.' });
                     } else {
