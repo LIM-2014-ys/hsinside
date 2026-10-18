@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
@@ -10,19 +10,18 @@ export default function UserPublicProfilePage() {
   const params = useParams();
   const router = useRouter();
 
-  // URL에서 전달된 식별자 (이메일 또는 유저 ID)
   const targetUserIdentifier = decodeURIComponent(params.id || '');
 
   const [currentUser, setCurrentUser] = useState(null);
   const [profile, setProfile] = useState(null);
-  const [receivedDms, setReceivedDms] = useState([]);
   const [loading, setLoading] = useState(true);
-  
-  // DM 보내기 모달 상태
-  const [isDmOpen, setIsDmOpen] = useState(false);
-  const [dmContent, setDmContent] = useState('');
-  const [sendingDm, setSendingDm] = useState(false);
-  const [dmStatus, setDmStatus] = useState({ type: '', message: '' });
+
+  // 채팅방(인스타 DM 스타일) 상태
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [messages, setMessages] = useState([]);
+  const [inputMessage, setInputMessage] = useState('');
+  const [sending, setSending] = useState(false);
+  const messagesEndRef = useRef(null);
 
   // 내 프로필 수정 상태
   const [isEditing, setIsEditing] = useState(false);
@@ -30,15 +29,14 @@ export default function UserPublicProfilePage() {
   const [editAvatarUrl, setEditAvatarUrl] = useState('');
   const [updatingProfile, setUpdatingProfile] = useState(false);
 
+  // 유저 데이터 및 프로필 조회
   useEffect(() => {
     const fetchUserData = async () => {
       setLoading(true);
       try {
-        // 1. 현재 접속 중인 로그인 유저 정보
         const { data: { user: authUser } } = await supabase.auth.getUser();
         setCurrentUser(authUser);
 
-        // 2. 대상 프로필 데이터 조회
         const { data: profileData } = await supabase
           .from('profiles')
           .select('*')
@@ -50,7 +48,6 @@ export default function UserPublicProfilePage() {
           setEditBio(profileData.bio || '');
           setEditAvatarUrl(profileData.avatar_url || '');
         } else {
-          // profiles 테이블에 없는 경우 기본 프로필 객체 생성
           const defaultNickname = targetUserIdentifier.includes('@')
             ? targetUserIdentifier.split('@')[0]
             : targetUserIdentifier;
@@ -62,27 +59,8 @@ export default function UserPublicProfilePage() {
             bio: '안녕하세요!',
           });
         }
-
-        // 3. 본인 마이페이지인 경우, 받은 DM 목록 조회
-        const isUserSelf = authUser && (
-          authUser.email === targetUserIdentifier ||
-          authUser.id === targetUserIdentifier ||
-          (profileData && authUser.email === profileData.email)
-        );
-
-        if (isUserSelf && authUser.email) {
-          const { data: dmData } = await supabase
-            .from('direct_messages')
-            .select('*')
-            .eq('receiver_email', authUser.email)
-            .order('created_at', { ascending: false });
-
-          if (dmData) {
-            setReceivedDms(dmData);
-          }
-        }
       } catch (err) {
-        console.error('프로필 및 DM 로드 오류:', err);
+        console.error('프로필 로드 오류:', err);
       } finally {
         setLoading(false);
       }
@@ -93,18 +71,116 @@ export default function UserPublicProfilePage() {
     }
   }, [targetUserIdentifier]);
 
-  const isSelf = currentUser && (
-    currentUser.email === profile?.email ||
-    currentUser.id === targetUserIdentifier ||
-    currentUser.email === targetUserIdentifier
-  );
+  const targetEmail = profile?.email || (targetUserIdentifier.includes('@') ? targetUserIdentifier : null);
+  const isSelf = currentUser && (currentUser.email === targetEmail || currentUser.id === targetUserIdentifier);
 
-  // 로컬 이미지 파일 선택 시 즉시 읽어서 프로필 이미지 데이터로 변환
+  // 채팅 메시지 목록 로드 & 실시간(Realtime) 감지
+  useEffect(() => {
+    if (!isChatOpen || !currentUser?.email || !targetEmail) return;
+
+    // 대화 내역 불러오기 (나 ↔ 상대방)
+    const fetchMessages = async () => {
+      const { data, error } = await supabase
+        .from('direct_messages')
+        .select('*')
+        .or(
+          `and(sender_email.eq.${currentUser.email},receiver_email.eq.${targetEmail}),and(sender_email.eq.${targetEmail},receiver_email.eq.${currentUser.email})`
+        )
+        .order('created_at', { ascending: true });
+
+      if (!error && data) {
+        setMessages(data);
+      }
+    };
+
+    fetchMessages();
+
+    // 실시간 메시지 수신 채널 구독
+    const channel = supabase
+      .channel(`dm-chat-${currentUser.email}-${targetEmail}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'direct_messages',
+        },
+        (payload) => {
+          const newDm = payload.new;
+          const isRelated =
+            (newDm.sender_email === currentUser.email && newDm.receiver_email === targetEmail) ||
+            (newDm.sender_email === targetEmail && newDm.receiver_email === currentUser.email);
+
+          if (isRelated) {
+            setMessages((prev) => {
+              if (prev.some((m) => m.id === newDm.id)) return prev;
+              return [...prev, newDm];
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [isChatOpen, currentUser, targetEmail]);
+
+  // 새 메시지 수신/전송 시 스크롤 최하단 이동
+  useEffect(() => {
+    if (isChatOpen) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, isChatOpen]);
+
+  // 메시지 전송
+  const handleSendMessage = async (e) => {
+    e.preventDefault();
+    if (!inputMessage.trim() || !currentUser?.email || !targetEmail || sending) return;
+
+    setSending(true);
+    const contentToSend = inputMessage.trim();
+    setInputMessage('');
+
+    try {
+      const senderName =
+        currentUser.user_metadata?.nickname ||
+        currentUser.user_metadata?.display_name ||
+        currentUser.user_metadata?.name ||
+        currentUser.email?.split('@')[0] ||
+        '익명';
+
+      const { data, error } = await supabase
+        .from('direct_messages')
+        .insert([
+          {
+            sender_email: currentUser.email,
+            sender_name: senderName,
+            receiver_email: targetEmail,
+            content: contentToSend,
+          },
+        ])
+        .select('*')
+        .single();
+
+      if (!error && data) {
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === data.id)) return prev;
+          return [...prev, data];
+        });
+      }
+    } catch (err) {
+      console.error('메시지 전송 오류:', err);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  // 프사 로컬 이미지 변환
   const handleImageFileUpload = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // 용량 제한 (2MB 이하 추천)
     if (file.size > 2 * 1024 * 1024) {
       alert('프로필 이미지는 2MB 이하의 파일만 업로드할 수 있습니다.');
       return;
@@ -112,13 +188,12 @@ export default function UserPublicProfilePage() {
 
     const reader = new FileReader();
     reader.onloadend = () => {
-      // 선택된 파일 데이터(Base64)를 아바타 URL에 즉시 반영
       setEditAvatarUrl(reader.result);
     };
     reader.readAsDataURL(file);
   };
 
-  // 프로필 저장 함수 (소개 메시지 & 프사)
+  // 내 프로필 업데이트
   const handleUpdateProfile = async (e) => {
     e.preventDefault();
     if (!currentUser) return;
@@ -152,57 +227,14 @@ export default function UserPublicProfilePage() {
           bio: editBio.trim(),
         }));
         setIsEditing(false);
-        alert('프로필이 성공적으로 저장되었습니다!');
+        alert('프로필이 저장되었습니다.');
       } else {
-        alert(`프로필 저장 실패: ${error.message}`);
+        alert(`저장 실패: ${error.message}`);
       }
     } catch {
-      alert('프로필 저장 중 오류가 발생했습니다.');
+      alert('오류가 발생했습니다.');
     } finally {
       setUpdatingProfile(false);
-    }
-  };
-
-  // 1:1 DM 전송 함수 (타인에게)
-  const handleSendDm = async (e) => {
-    e.preventDefault();
-    if (!dmContent.trim() || !currentUser) return;
-
-    setSendingDm(true);
-    setDmStatus({ type: '', message: '' });
-
-    try {
-      const senderName =
-        currentUser.user_metadata?.nickname ||
-        currentUser.user_metadata?.name ||
-        currentUser.email?.split('@')[0] ||
-        '익명';
-
-      const { error } = await supabase
-        .from('direct_messages')
-        .insert([
-          {
-            sender_email: currentUser.email,
-            sender_name: senderName,
-            receiver_email: profile?.email || targetUserIdentifier,
-            content: dmContent.trim(),
-          },
-        ]);
-
-      if (error) {
-        setDmStatus({ type: 'error', message: `전송 실패: ${error.message}` });
-      } else {
-        setDmStatus({ type: 'success', message: '✉️ 메시지를 성공적으로 보냈습니다!' });
-        setDmContent('');
-        setTimeout(() => {
-          setIsDmOpen(false);
-          setDmStatus({ type: '', message: '' });
-        }, 1500);
-      }
-    } catch {
-      setDmStatus({ type: 'error', message: '메시지 전송 중 오류가 발생했습니다.' });
-    } finally {
-      setSendingDm(false);
     }
   };
 
@@ -216,7 +248,6 @@ export default function UserPublicProfilePage() {
 
   return (
     <div className="max-w-md mx-auto my-6 px-4 font-sans text-xs space-y-5">
-      {/* 뒤로 가기 */}
       <button
         onClick={() => router.back()}
         className="px-3 py-1.5 bg-gray-100 active:bg-gray-200 text-gray-700 font-bold rounded-xl transition text-[11px] touch-manipulation"
@@ -226,71 +257,56 @@ export default function UserPublicProfilePage() {
 
       {/* 메인 프로필 카드 */}
       <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-xs text-center space-y-4 relative">
-        {/* 프로필 이미지 (프사) */}
         <div className="relative w-24 h-24 mx-auto rounded-full overflow-hidden bg-emerald-50 border-2 border-emerald-100 flex items-center justify-center shadow-xs">
           {profile?.avatar_url ? (
-            <img
-              src={profile.avatar_url}
-              alt="프로필 이미지"
-              className="w-full h-full object-cover"
-            />
+            <img src={profile.avatar_url} alt="프로필" className="w-full h-full object-cover" />
           ) : (
             <span className="text-4xl">👤</span>
           )}
         </div>
 
-        {/* 닉네임 및 관리자 배지 */}
         <div className="space-y-1">
           <div className="flex items-center justify-center gap-1.5">
-            <h1 className="text-base font-black text-gray-900">
-              {profile?.nickname || '익명'}
-            </h1>
+            <h1 className="text-base font-black text-gray-900">{profile?.nickname || '익명'}</h1>
             <AdminBadge email={profile?.email} />
           </div>
-          {profile?.email && (
-            <p className="text-[11px] text-gray-400 font-medium">{profile.email}</p>
-          )}
+          {profile?.email && <p className="text-[11px] text-gray-400 font-medium">{profile.email}</p>}
         </div>
 
-        {/* 소개 메시지 (바이오) */}
         <div className="p-3.5 bg-gray-50/80 rounded-2xl border border-gray-100 text-gray-700 text-[11px] leading-relaxed break-words whitespace-pre-wrap text-left min-h-[50px]">
           <span className="block text-[10px] font-bold text-gray-400 mb-1">💬 소개 메시지</span>
           {profile?.bio || '작성된 소개 메시지가 없습니다.'}
         </div>
 
-        {/* 액션 버튼 */}
         <div className="pt-2">
           {isSelf ? (
             <button
               onClick={() => setIsEditing(!isEditing)}
               className="w-full py-2.5 bg-gray-100 active:bg-gray-200 text-gray-700 font-bold rounded-xl transition text-xs touch-manipulation"
             >
-              {isEditing ? '취소' : '⚙️ 프로필 이미지 & 소개글 수정'}
+              {isEditing ? '취소' : '⚙️ 프로필 수정'}
             </button>
           ) : (
             <button
               onClick={() => {
                 if (!currentUser) {
-                  alert('DM을 보내려면 먼저 로그인해야 합니다.');
+                  alert('DM을 보내려면 로그인해야 합니다.');
                   return;
                 }
-                setIsDmOpen(true);
+                setIsChatOpen(true);
               }}
               className="w-full py-2.5 bg-emerald-600 active:bg-emerald-700 text-white font-bold rounded-xl transition text-xs shadow-xs touch-manipulation flex items-center justify-center gap-1.5"
             >
-              💬 1:1 DM 보내기
+              💬 메시지 보내기 (DM)
             </button>
           )}
         </div>
 
-        {/* 프로필 수정 폼 (본인 전용) */}
+        {/* 내 프로필 수정 폼 */}
         {isSelf && isEditing && (
           <form onSubmit={handleUpdateProfile} className="text-left pt-4 border-t border-gray-100 space-y-3.5">
-            {/* 컴퓨터/폰 사진 파일 선택 */}
             <div>
-              <label className="block text-[10px] font-bold text-gray-500 mb-1">
-                📸 프로필 사진 선택 (내 기기에서 선택)
-              </label>
+              <label className="block text-[10px] font-bold text-gray-500 mb-1">📸 프로필 사진 업로드</label>
               <input
                 type="file"
                 accept="image/*"
@@ -299,11 +315,8 @@ export default function UserPublicProfilePage() {
               />
             </div>
 
-            {/* 미리보기 지원 되는 이미지 URL */}
             <div>
-              <label className="block text-[10px] font-bold text-gray-500 mb-1">
-                🔗 또는 웹 이미지 주소(URL) 입력
-              </label>
+              <label className="block text-[10px] font-bold text-gray-500 mb-1">🔗 웹 이미지 URL</label>
               <input
                 type="url"
                 placeholder="https://example.com/photo.jpg"
@@ -313,14 +326,11 @@ export default function UserPublicProfilePage() {
               />
             </div>
 
-            {/* 소개 메시지 작성 */}
             <div>
-              <label className="block text-[10px] font-bold text-gray-500 mb-1">
-                ✏️ 소개 메시지
-              </label>
+              <label className="block text-[10px] font-bold text-gray-500 mb-1">✏️ 소개 메시지</label>
               <textarea
                 rows={3}
-                placeholder="자기소개 또는 나를 표현하는 문구를 작성해 보세요!"
+                placeholder="자기소개를 작성해 보세요!"
                 value={editBio}
                 onChange={(e) => setEditBio(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-xs text-gray-800 touch-manipulation resize-none leading-relaxed"
@@ -338,103 +348,97 @@ export default function UserPublicProfilePage() {
         )}
       </div>
 
-      {/* 받은 DM 목록 섹션 (내 마이페이지인 경우에만 표시) */}
-      {isSelf && (
-        <div className="bg-white border border-gray-100 rounded-3xl p-5 shadow-xs space-y-3">
-          <div className="flex items-center justify-between border-b pb-2.5">
-            <h2 className="font-bold text-xs text-gray-900 flex items-center gap-1.5">
-              📥 내가 받은 DM 목록
-              <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-full text-[10px]">
-                {receivedDms.length}개
-              </span>
-            </h2>
-          </div>
-
-          {receivedDms.length === 0 ? (
-            <div className="py-8 text-center text-gray-400 font-medium text-[11px]">
-              도착한 DM이 없습니다.
-            </div>
-          ) : (
-            <div className="divide-y divide-gray-100 max-h-80 overflow-y-auto pr-1">
-              {receivedDms.map((dm) => (
-                <div key={dm.id} className="py-3 space-y-1.5">
-                  <div className="flex items-center justify-between text-[10px]">
-                    <span className="font-bold text-gray-900 truncate max-w-[160px]">
-                      보낸사람: {dm.sender_name || '익명'} ({dm.sender_email})
-                    </span>
-                    <span className="text-gray-400 shrink-0">
-                      {new Date(dm.created_at).toLocaleString('ko-KR', {
-                        month: 'short',
-                        day: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </span>
-                  </div>
-                  <div className="p-2.5 bg-gray-50 rounded-xl text-gray-800 text-[11px] leading-relaxed break-words whitespace-pre-wrap">
-                    {dm.content}
-                  </div>
+      {/* 인스타그램 스타일 채팅창 (DM Modal / Chat Window) */}
+      {isChatOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 z-50">
+          <div className="bg-white w-full max-w-sm h-[85vh] max-h-[650px] rounded-3xl flex flex-col overflow-hidden shadow-2xl border border-gray-100">
+            {/* 채팅 상단 헤더 */}
+            <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between bg-white shrink-0">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-9 h-9 rounded-full overflow-hidden bg-emerald-50 border border-emerald-100 shrink-0">
+                  {profile?.avatar_url ? (
+                    <img src={profile.avatar_url} alt="프사" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-sm">👤</div>
+                  )}
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+                <div className="min-w-0">
+                  <h3 className="font-black text-xs text-gray-900 truncate">
+                    {profile?.nickname || '익명'}
+                  </h3>
+                  <p className="text-[9px] text-emerald-600 font-semibold">● 대화 중</p>
+                </div>
+              </div>
 
-      {/* DM 전송 모달 (타인에게 보낼 때) */}
-      {isDmOpen && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white w-full max-w-sm rounded-2xl p-5 space-y-4 shadow-lg border border-gray-100">
-            <div className="flex items-center justify-between border-b pb-2.5">
-              <h3 className="font-bold text-xs text-gray-900">
-                💬 {profile?.nickname}님에게 DM 보내기
-              </h3>
               <button
-                onClick={() => setIsDmOpen(false)}
-                className="text-gray-400 hover:text-gray-600 font-bold text-xs p-1"
+                onClick={() => setIsChatOpen(false)}
+                className="w-8 h-8 flex items-center justify-center rounded-full active:bg-gray-100 text-gray-400 hover:text-gray-600 font-bold text-sm transition"
               >
                 ✕
               </button>
             </div>
 
-            {dmStatus.message && (
-              <div
-                className={`p-2.5 rounded-xl text-[11px] font-semibold ${
-                  dmStatus.type === 'error'
-                    ? 'bg-rose-50 text-rose-600 border border-rose-200'
-                    : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                }`}
-              >
-                {dmStatus.message}
-              </div>
-            )}
+            {/* 채팅 대화 내용 영역 (Scrollable) */}
+            <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-gray-50/50">
+              {messages.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center text-center space-y-2 text-gray-400">
+                  <span className="text-3xl">💬</span>
+                  <p className="text-[11px] font-medium">
+                    {profile?.nickname}님에게 첫 메시지를 보내보세요!
+                  </p>
+                </div>
+              ) : (
+                messages.map((msg) => {
+                  const isMine = msg.sender_email === currentUser?.email;
 
-            <form onSubmit={handleSendDm} className="space-y-3">
-              <textarea
-                rows={4}
-                placeholder="전송할 메시지 내용을 입력하세요..."
-                value={dmContent}
-                onChange={(e) => setDmContent(e.target.value)}
-                required
-                className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 text-xs text-gray-800 touch-manipulation resize-none leading-relaxed"
+                  return (
+                    <div
+                      key={msg.id}
+                      className={`flex flex-col ${isMine ? 'items-end' : 'items-start'} space-y-1`}
+                    >
+                      <div
+                        className={`max-w-[78%] px-3.5 py-2 rounded-2xl text-[11px] leading-relaxed break-words ${
+                          isMine
+                            ? 'bg-emerald-600 text-white rounded-br-none shadow-xs'
+                            : 'bg-white text-gray-800 rounded-bl-none border border-gray-100 shadow-2xs'
+                        }`}
+                      >
+                        {msg.content}
+                      </div>
+
+                      <span className="text-[9px] text-gray-400 px-1">
+                        {new Date(msg.created_at).toLocaleTimeString('ko-KR', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          hour12: true,
+                        })}
+                      </span>
+                    </div>
+                  );
+                })
+              )}
+              <div ref={messagesEndRef} />
+            </div>
+
+            {/* 하단 입력 폼 (Instagram Style Input) */}
+            <form
+              onSubmit={handleSendMessage}
+              className="p-3 bg-white border-t border-gray-100 flex items-center gap-2 shrink-0"
+            >
+              <input
+                type="text"
+                placeholder="메시지 보내기..."
+                value={inputMessage}
+                onChange={(e) => setInputMessage(e.target.value)}
+                className="flex-1 px-4 py-2 bg-gray-100 rounded-full focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-xs text-gray-800 placeholder:text-gray-400 touch-manipulation"
               />
-
-              <div className="flex justify-end gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setIsDmOpen(false)}
-                  className="px-3 py-1.5 bg-gray-100 active:bg-gray-200 text-gray-600 font-bold rounded-xl transition text-[11px] touch-manipulation"
-                >
-                  취소
-                </button>
-                <button
-                  type="submit"
-                  disabled={sendingDm || !dmContent.trim()}
-                  className="px-4 py-1.5 bg-emerald-600 active:bg-emerald-700 text-white font-bold rounded-xl transition text-[11px] disabled:opacity-50 touch-manipulation"
-                >
-                  {sendingDm ? '전송 중...' : '보내기'}
-                </button>
-              </div>
+              <button
+                type="submit"
+                disabled={!inputMessage.trim() || sending}
+                className="px-3.5 py-2 text-emerald-600 active:text-emerald-800 font-bold text-xs disabled:opacity-30 transition touch-manipulation shrink-0"
+              >
+                전송
+              </button>
             </form>
           </div>
         </div>
