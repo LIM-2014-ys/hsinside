@@ -1,258 +1,425 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
+import { isAdminEmail } from '@/lib/admin';
 import AdminBadge from '@/components/AdminBadge';
+import ReportModal from '@/components/ReportModal';
 
 export default function PostDetailPage() {
   const params = useParams();
   const router = useRouter();
+
   const galleryId = params.id;
   const postId = params.postId;
 
+  const [user, setUser] = useState(null);
   const [post, setPost] = useState(null);
   const [comments, setComments] = useState([]);
-  const [currentUser, setCurrentUser] = useState(null);
-  const [commentInput, setCommentInput] = useState('');
+  const [registeredNicknames, setRegisteredNicknames] = useState(new Set());
+  const [newComment, setNewComment] = useState('');
   const [loading, setLoading] = useState(true);
   const [submittingComment, setSubmittingComment] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isReportOpen, setIsReportOpen] = useState(false);
 
-  // 1. 현재 사용자 정보 조회
+  // 사용자 정보 로드 및 알림 권한 요청
   useEffect(() => {
     const fetchUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      setCurrentUser(user);
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      setUser(currentUser);
     };
     fetchUser();
+
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      if (Notification.permission === 'default') {
+        Notification.requestPermission();
+      }
+    }
   }, []);
 
-  // 2. 게시글 및 댓글 데이터 불러오기
-  const fetchPostAndComments = useCallback(async () => {
+  // 게시글, 댓글 및 등록된 닉네임 데이터 조회
+  useEffect(() => {
     if (!postId) return;
-    setLoading(true);
-    try {
-      // 게시글 상세 조회
-      const { data: postData, error: postError } = await supabase
-        .from('posts')
-        .select('*')
-        .eq('id', postId)
-        .maybeSingle();
 
-      if (postError || !postData) {
-        console.error('게시글 조회 실패:', postError);
-      } else {
-        setPost(postData);
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        const { data: postData, error: postError } = await supabase
+          .from('posts')
+          .select('*')
+          .eq('id', postId)
+          .maybeSingle();
+
+        if (!postError && postData) {
+          setPost(postData);
+        }
+
+        const { data: commentData, error: commentError } = await supabase
+          .from('comments')
+          .select('*')
+          .eq('post_id', postId)
+          .order('created_at', { ascending: true });
+
+        if (!commentError && commentData) {
+          setComments(commentData);
+        }
+
+        // 등록된 닉네임 수집
+        const nameSet = new Set();
+
+        const { data: profileData } = await supabase
+          .from('profiles')
+          .select('display_name, nickname');
+
+        if (profileData) {
+          profileData.forEach((p) => {
+            const name = p.display_name || p.nickname;
+            if (name) nameSet.add(name.trim());
+          });
+        }
+
+        if (postData?.author_name) nameSet.add(postData.author_name.trim());
+        if (commentData) {
+          commentData.forEach((c) => {
+            if (c.author_name) nameSet.add(c.author_name.trim());
+          });
+        }
+
+        setRegisteredNicknames(nameSet);
+      } catch (err) {
+        console.error('데이터 조회 오류:', err);
+      } finally {
+        setLoading(false);
       }
+    };
 
-      // 댓글 목록 조회
-      const { data: commentsData, error: commentsError } = await supabase
-        .from('comments')
-        .select('*')
-        .eq('post_id', postId)
-        .order('created_at', { ascending: true });
-
-      if (!commentsError && commentsData) {
-        setComments(commentsData);
-      }
-    } catch (err) {
-      console.error('데이터 조회 오류:', err);
-    } finally {
-      setLoading(false);
-    }
+    fetchData();
   }, [postId]);
 
+  // Realtime 실시간 감지: 댓글 작성 수신
   useEffect(() => {
-    fetchPostAndComments();
-  }, [fetchPostAndComments]);
+    if (!postId || !user || !post) return;
 
-  // 🔔 백그라운드 푸시 알림 발송 함수 (게시글 작성자 + @멘션 대상자)
-  const triggerPushNotifications = async (newCommentContent, postAuthorId) => {
-    if (!currentUser) return;
+    const channel = supabase
+      .channel(`comments-realtime-${postId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'comments',
+          filter: `post_id=eq.${postId}`,
+        },
+        (payload) => {
+          const newC = payload.new;
 
-    const currentUserId = currentUser.id;
-    const currentUserName =
-      currentUser.user_metadata?.full_name ||
-      currentUser.user_metadata?.name ||
-      currentUser.email?.split('@')[0] ||
-      '익명';
+          setComments((prev) => {
+            if (prev.some((c) => c.id === newC.id)) return prev;
+            return [...prev, newC];
+          });
 
-    // 🔍 1. 댓글 본문에서 @닉네임 멘션 추출 (예: "@홍길동" -> "홍길동")
-    const mentionMatches = newCommentContent.match(/@([a-zA-Z0-9가-힣_-]+)/g);
-    let mentionedUserIds = [];
-
-    if (mentionMatches && mentionMatches.length > 0) {
-      const mentionedNames = [...new Set(mentionMatches.map((m) => m.slice(1)))];
-
-      for (const name of mentionedNames) {
-        try {
-          // profiles 테이블에서 닉네임 검색
-          const { data: profileUsers } = await supabase
-            .from('profiles')
-            .select('id, nickname, username, display_name')
-            .or(`nickname.ilike.${name},username.ilike.${name},display_name.ilike.${name}`);
-
-          if (profileUsers && profileUsers.length > 0) {
-            profileUsers.forEach((u) => {
-              if (u.id !== currentUserId) mentionedUserIds.push(u.id);
-            });
-          } else {
-            // profiles에 없을 경우 comments/posts 작성자 이름으로 fallback 검색
-            const { data: matchedComments } = await supabase
-              .from('comments')
-              .select('user_id')
-              .ilike('author_name', name)
-              .limit(5);
-
-            if (matchedComments && matchedComments.length > 0) {
-              matchedComments.forEach((c) => {
-                if (c.user_id && c.user_id !== currentUserId) {
-                  mentionedUserIds.push(c.user_id);
-                }
-              });
-            }
+          if (newC.author_name) {
+            setRegisteredNicknames((prev) => new Set(prev).add(newC.author_name.trim()));
           }
-        } catch (err) {
-          console.error(`멘션 대상(${name}) 조회 오류:`, err);
         }
-      }
-    }
+      )
+      .subscribe();
 
-    // 중복 ID 제거
-    mentionedUserIds = [...new Set(mentionedUserIds)];
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [postId, user, post]);
 
-    // 📤 2. @멘션된 유저들에게 "💬 멘션 알림" 푸시 발송
-    for (const targetUserId of mentionedUserIds) {
-      try {
-        await fetch('/api/push', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            targetUserId: targetUserId,
-            title: '💬 멘션 알림',
-            body: `${currentUserName}님이 회원님을 언급했습니다: "${newCommentContent}"`,
-            url: `/gallery/${galleryId}/${postId}`,
-          }),
-        });
-      } catch (err) {
-        console.error('멘션 푸시 발송 실패:', err);
-      }
-    }
-
-    // 📤 3. 게시글 작성자에게 "💬 새 댓글 알림" 푸시 발송
-    // (본인이 작성자이거나, 이미 멘션 알림을 받은 경우는 중복 발송 제외)
-    if (
-      postAuthorId &&
-      postAuthorId !== currentUserId &&
-      !mentionedUserIds.includes(postAuthorId)
-    ) {
-      try {
-        await fetch('/api/push', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            targetUserId: postAuthorId,
-            title: '💬 새 댓글 알림',
-            body: `${currentUserName}님: "${newCommentContent}"`,
-            url: `/gallery/${galleryId}/${postId}`,
-          }),
-        });
-      } catch (err) {
-        console.error('게시글 작성자 푸시 발송 실패:', err);
-      }
-    }
-  };
-
-  // ✏️ 댓글 제출 핸들러
-  const handleCommentSubmit = async (e) => {
-    e.preventDefault();
-    if (!commentInput.trim() || !currentUser || submittingComment) return;
-
-    setSubmittingComment(true);
-    const savedContent = commentInput.trim();
-    const authorName =
-      currentUser.user_metadata?.full_name ||
-      currentUser.user_metadata?.name ||
-      currentUser.email?.split('@')[0] ||
-      '익명';
-
-    try {
-      // 1. DB에 댓글 저장
-      const { data: newComment, error } = await supabase
-        .from('comments')
-        .insert([
-          {
-            post_id: postId,
-            user_id: currentUser.id,
-            author_name: authorName,
-            author_email: currentUser.email,
-            content: savedContent,
-          },
-        ])
-        .select('*')
-        .single();
-
-      if (error) {
-        alert('댓글 등록에 실패했습니다.');
-        console.error('댓글 등록 오류:', error);
-      } else {
-        setComments((prev) => [...prev, newComment]);
-        setCommentInput('');
-
-        // 2. ⚡️ 백그라운드 푸시 알림 트리거 (게시글 작성자 및 멘션 유저)
-        const postAuthorId = post?.user_id || post?.author_id;
-        triggerPushNotifications(savedContent, postAuthorId);
-      }
-    } catch (err) {
-      console.error('댓글 작성 예외:', err);
-    } finally {
-      setSubmittingComment(false);
-    }
-  };
-
-  // 🗑️ 댓글 삭제 핸들러
-  const handleDeleteComment = async (commentId) => {
-    if (!confirm('정말 이 댓글을 삭제하시겠습니까?')) return;
-
-    try {
-      const { error } = await supabase.from('comments').delete().eq('id', commentId);
-      if (error) {
-        alert('댓글 삭제 실패');
-      } else {
-        setComments((prev) => prev.filter((c) => c.id !== commentId));
-      }
-    } catch (err) {
-      console.error('댓글 삭제 오류:', err);
-    }
-  };
-
-  // 🗑️ 게시글 삭제 핸들러
-  const handleDeletePost = async () => {
-    if (!confirm('게시글을 삭제하시겠습니까? 복구할 수 없습니다.')) return;
-
-    try {
-      const { error } = await supabase.from('posts').delete().eq('id', postId);
-      if (error) {
-        alert('게시글 삭제에 실패했습니다.');
-      } else {
-        router.push(`/gallery/${galleryId}`);
-      }
-    } catch (err) {
-      console.error('게시글 삭제 오류:', err);
-    }
-  };
-
-  // 이미지 파일 여부 확인
   const isImageFile = (url, fileName) => {
     if (!url) return false;
     const targetStr = (fileName || url).toLowerCase();
     return /\.(jpg|jpeg|png|gif|webp|svg|bmp)(\?.*)?$/i.test(targetStr);
   };
 
+  const getYouTubeEmbedUrl = (urlStr) => {
+    try {
+      const validUrl = urlStr.startsWith('www.') ? `https://${urlStr}` : urlStr;
+      const parsed = new URL(validUrl);
+      let videoId = null;
+
+      if (parsed.hostname.includes('youtube.com')) {
+        if (parsed.pathname.startsWith('/shorts/')) {
+          videoId = parsed.pathname.split('/shorts/')[1]?.split('/')[0]?.split('?')[0];
+        } else if (parsed.pathname.startsWith('/embed/')) {
+          videoId = parsed.pathname.split('/embed/')[1]?.split('/')[0]?.split('?')[0];
+        } else {
+          videoId = parsed.searchParams.get('v');
+        }
+      } else if (parsed.hostname.includes('youtu.be')) {
+        videoId = parsed.pathname.slice(1).split('/')[0]?.split('?')[0];
+      }
+
+      return (videoId && videoId.length === 11) ? `https://www.youtube.com/embed/${videoId}` : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const renderContent = (content, isComment = false) => {
+    if (!content) return null;
+
+    const tokenRegex = /((?:https?:\/\/|www\.)[^\s]+|@[^\s,.:;!?"'()\[\]{}]+)/g;
+    const parts = content.split(tokenRegex);
+    const youtubeEmbeds = [];
+
+    const renderedText = parts.map((part, idx) => {
+      if (!part) return null;
+
+      if (part.startsWith('@')) {
+        const rawNickname = part.slice(1).trim();
+        if (registeredNicknames.has(rawNickname)) {
+          return (
+            <span key={idx} className="text-emerald-600 font-bold bg-emerald-50 px-1 py-0.5 rounded break-all">
+              {part}
+            </span>
+          );
+        }
+        return part;
+      }
+
+      if (part.startsWith('http://') || part.startsWith('https://') || part.startsWith('www.')) {
+        let cleanUrl = part;
+        let trailingPunct = '';
+
+        const matchPunct = cleanUrl.match(/([.,;:!?)]+)$/);
+        if (matchPunct) {
+          trailingPunct = matchPunct[0];
+          cleanUrl = cleanUrl.slice(0, -trailingPunct.length);
+        }
+
+        const href = cleanUrl.startsWith('www.') ? `https://${cleanUrl}` : cleanUrl;
+        const targetHref = href
+          .replace('://m.sports.naver.com', '://sports.naver.com')
+          .replace('://m.news.naver.com', '://news.naver.com');
+
+        if (!isComment) {
+          const embedUrl = getYouTubeEmbedUrl(targetHref);
+          if (embedUrl && !youtubeEmbeds.includes(embedUrl)) {
+            youtubeEmbeds.push(embedUrl);
+          }
+        }
+
+        return (
+          <span key={idx}>
+            <a
+              href={targetHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-600 hover:text-blue-800 underline font-medium break-all active:text-blue-900"
+            >
+              {cleanUrl}
+            </a>
+            {trailingPunct}
+          </span>
+        );
+      }
+
+      return part;
+    });
+
+    return (
+      <div className="space-y-3">
+        <div>{renderedText}</div>
+
+        {!isComment && youtubeEmbeds.map((embedUrl, yIdx) => (
+          <div key={yIdx} className="my-3 aspect-video w-full max-w-lg overflow-hidden rounded-xl border border-gray-100 shadow-xs bg-black">
+            <iframe
+              src={embedUrl}
+              title={`YouTube video player ${yIdx + 1}`}
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+              className="w-full h-full border-0"
+            />
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const handleDeletePost = async () => {
+    setErrorMessage('');
+    try {
+      const { error } = await supabase
+        .from('posts')
+        .delete()
+        .eq('id', postId);
+
+      if (error) {
+        setErrorMessage(`게시글 삭제 실패: ${error.message}`);
+        setShowDeleteConfirm(false);
+      } else {
+        router.push(`/gallery/${galleryId}`);
+      }
+    } catch {
+      setErrorMessage('게시글 삭제 처리 중 오류가 발생했습니다.');
+      setShowDeleteConfirm(false);
+    }
+  };
+
+  // 🔔 백그라운드 푸시 알림 트리거 함수 (멘션 + 게시글 작성자)
+  const sendPushNotifications = async (commentText, commenterName) => {
+    if (!user) return;
+
+    // 1. @멘션 대상자 아이디 추출
+    const mentionMatches = commentText.match(/@([a-zA-Z0-9가-힣_-]+)/g);
+    let mentionedUserIds = [];
+
+    if (mentionMatches && mentionMatches.length > 0) {
+      const names = [...new Set(mentionMatches.map((m) => m.slice(1).trim()))];
+
+      for (const name of names) {
+        try {
+          const { data: pData } = await supabase
+            .from('profiles')
+            .select('id, display_name, nickname')
+            .or(`display_name.ilike.${name},nickname.ilike.${name}`);
+
+          if (pData && pData.length > 0) {
+            pData.forEach((p) => {
+              if (p.id && p.id !== user.id) mentionedUserIds.push(p.id);
+            });
+          } else {
+            // profiles에서 못 찾을 경우 기존 댓글 작성자 검색
+            const { data: cData } = await supabase
+              .from('comments')
+              .select('user_id')
+              .ilike('author_name', name)
+              .limit(5);
+
+            if (cData) {
+              cData.forEach((c) => {
+                if (c.user_id && c.user_id !== user.id) mentionedUserIds.push(c.user_id);
+              });
+            }
+          }
+        } catch (e) {
+          console.error('멘션 대상 검색 오류:', e);
+        }
+      }
+    }
+
+    mentionedUserIds = [...new Set(mentionedUserIds)];
+
+    // 2. 멘션 당한 사용자들에게 알림 보냄
+    for (const targetId of mentionedUserIds) {
+      fetch('/api/push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targetUserId: targetId,
+          title: '💬 멘션 알림',
+          body: `${commenterName}님이 회원님을 멘션했습니다: "${commentText}"`,
+          url: `/gallery/${galleryId}/${postId}`,
+        }),
+      }).catch((err) => console.error('멘션 푸시 실패:', err));
+    }
+
+    // 3. 게시글 작성자에게 알림 보냄 (본인X, 이미 멘션받은 사람X)
+    const postAuthorUuid = post?.user_id || post?.author_id;
+    if (
+      postAuthorUuid &&
+      postAuthorUuid !== user.id &&
+      !mentionedUserIds.includes(postAuthorUuid)
+    ) {
+      fetch('/api/push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targetUserId: postAuthorUuid,
+          title: '💬 게시물 댓글 알림',
+          body: `${commenterName}님이 회원님의 게시물에 댓글을 달았습니다: "${commentText}"`,
+          url: `/gallery/${galleryId}/${postId}`,
+        }),
+      }).catch((err) => console.error('댓글 푸시 실패:', err));
+    }
+  };
+
+  const handleAddComment = async (e) => {
+    e.preventDefault();
+    if (!newComment.trim()) return;
+
+    setErrorMessage('');
+    setSubmittingComment(true);
+
+    try {
+      const commentAuthorName = 
+        user?.user_metadata?.display_name ||
+        user?.user_metadata?.nickname ||
+        user?.user_metadata?.name ||
+        user?.user_metadata?.full_name ||
+        user?.email?.split('@')[0] ||
+        '익명';
+
+      const commentContent = newComment.trim();
+
+      const { data, error } = await supabase
+        .from('comments')
+        .insert([
+          {
+            post_id: postId,
+            content: commentContent,
+            author_name: commentAuthorName,
+            author_email: user?.email || null,
+            user_id: user?.id || null, // 작성자 UUID 저장
+          },
+        ])
+        .select('*')
+        .single();
+
+      if (error) {
+        setErrorMessage(`댓글 작성 실패: ${error.message}`);
+      } else if (data) {
+        setComments((prev) => {
+          if (prev.some((c) => c.id === data.id)) return prev;
+          return [...prev, data];
+        });
+        setRegisteredNicknames((prev) => new Set(prev).add(commentAuthorName.trim()));
+        setNewComment('');
+
+        // ⚡️ 알림 발송 API 호출
+        sendPushNotifications(commentContent, commentAuthorName);
+      }
+    } catch {
+      setErrorMessage('댓글 작성 중 오류가 발생했습니다.');
+    } finally {
+      setSubmittingComment(false);
+    }
+  };
+
+  const handleDeleteComment = async (commentId) => {
+    setErrorMessage('');
+    try {
+      const { error } = await supabase
+        .from('comments')
+        .delete()
+        .eq('id', commentId);
+
+      if (error) {
+        setErrorMessage(`댓글 삭제 실패: ${error.message}`);
+      } else {
+        setComments(comments.filter((c) => c.id !== commentId));
+      }
+    } catch {
+      setErrorMessage('댓글 삭제 처리 중 오류가 발생했습니다.');
+    }
+  };
+
+  const isAdmin = isAdminEmail(user?.email);
+  const isPostAuthor = user?.email && post?.author_email === user.email;
+  const canModifyPost = isPostAuthor || isAdmin;
+
   if (loading) {
     return (
-      <div className="max-w-4xl mx-auto my-16 text-center text-gray-400 font-bold text-xs">
+      <div className="max-w-4xl mx-auto my-12 text-center text-gray-400 font-bold text-xs px-4">
         📄 게시글을 불러오는 중입니다...
       </div>
     );
@@ -260,11 +427,11 @@ export default function PostDetailPage() {
 
   if (!post) {
     return (
-      <div className="max-w-4xl mx-auto my-16 text-center space-y-3">
-        <p className="text-gray-500 font-bold text-xs">존재하지 않거나 삭제된 게시글입니다.</p>
+      <div className="max-w-4xl mx-auto my-12 text-center text-gray-400 font-bold text-xs space-y-3 px-4">
+        <p>존재하지 않거나 삭제된 게시글입니다.</p>
         <Link
           href={`/gallery/${galleryId}`}
-          className="inline-block px-4 py-2 bg-emerald-600 text-white font-bold text-xs rounded-xl hover:bg-emerald-700 transition"
+          className="inline-block px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl text-xs transition"
         >
           목록으로 돌아가기
         </Link>
@@ -272,182 +439,228 @@ export default function PostDetailPage() {
     );
   }
 
+  const hasImage = isImageFile(post.file_url, post.file_name);
   const postAuthorUuid = post.user_id || post.author_id;
-  const isPostAuthor = currentUser && currentUser.id === postAuthorUuid;
 
   return (
-    <div className="max-w-4xl mx-auto my-6 px-3 sm:px-4 font-sans text-xs space-y-6">
-      {/* ⬅️ 상단 목록 이동 버튼 */}
-      <div>
+    <div className="max-w-4xl mx-auto my-4 sm:my-8 px-3 sm:px-4 font-sans text-xs space-y-4 sm:space-y-6">
+      {errorMessage && (
+        <div className="p-3 bg-rose-50 border border-rose-200 text-rose-600 font-semibold rounded-xl text-xs">
+          ⚠️ {errorMessage}
+        </div>
+      )}
+
+      {/* 상단 네비게이션 & 버튼 */}
+      <div className="flex items-center justify-between gap-2 border-b pb-3 sm:pb-4">
         <Link
           href={`/gallery/${galleryId}`}
-          className="text-[11px] text-gray-400 hover:text-gray-600 font-bold inline-flex items-center gap-1 transition"
+          className="px-3 py-1.5 bg-gray-100 active:bg-gray-200 hover:bg-gray-200 text-gray-700 font-bold rounded-xl transition text-[11px] shrink-0 touch-manipulation"
         >
-          ← 갤러리 목록으로
+          ← 갤러리 목록
         </Link>
+
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap justify-end">
+          {!isPostAuthor && (
+            <button
+              type="button"
+              onClick={() => setIsReportOpen(true)}
+              className="px-3 py-1.5 bg-gray-100 active:bg-rose-50 text-gray-600 hover:text-rose-600 border border-transparent hover:border-rose-200 font-bold rounded-xl transition text-[11px] flex items-center gap-1 active:scale-95 touch-manipulation"
+            >
+              🚨 신고
+            </button>
+          )}
+
+          {canModifyPost && (
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <Link
+                href={`/gallery/${galleryId}/${postId}/edit`}
+                className="px-3 py-1.5 bg-emerald-50 active:bg-emerald-100 hover:bg-emerald-100 text-emerald-700 font-bold rounded-xl transition text-[11px] touch-manipulation"
+              >
+                ✏️ 수정
+              </Link>
+
+              {!showDeleteConfirm ? (
+                <button
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className={`px-3 py-1.5 font-bold rounded-xl transition text-[11px] touch-manipulation ${
+                    isAdmin && !isPostAuthor
+                      ? 'bg-rose-100 text-rose-700 active:bg-rose-200'
+                      : 'bg-gray-100 text-gray-600 active:bg-gray-200'
+                  }`}
+                >
+                  {isAdmin && !isPostAuthor ? '🛡️ 관리자 삭제' : '🗑️ 삭제'}
+                </button>
+              ) : (
+                <div className="flex items-center gap-1 bg-rose-50 p-1 rounded-xl border border-rose-200">
+                  <span className="text-rose-700 text-[10px] sm:text-[11px] font-bold px-1">삭제할까요?</span>
+                  <button
+                    onClick={handleDeletePost}
+                    className="px-2.5 py-1 bg-rose-600 active:bg-rose-700 text-white font-bold rounded-lg text-[10px] sm:text-[11px] transition touch-manipulation"
+                  >
+                    확인
+                  </button>
+                  <button
+                    onClick={() => setShowDeleteConfirm(false)}
+                    className="px-2.5 py-1 bg-gray-200 active:bg-gray-300 text-gray-700 font-bold rounded-lg text-[10px] sm:text-[11px] transition touch-manipulation"
+                  >
+                    취소
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* 📌 게시글 본문 카드리뉴얼 */}
-      <article className="bg-white border border-gray-100 rounded-2xl p-4 sm:p-6 shadow-xs space-y-4">
-        {/* 게시글 제목 및 버튼 */}
-        <div className="border-b border-gray-100 pb-3.5 space-y-2">
-          <h1 className="text-base sm:text-lg font-black text-gray-900 leading-snug">
+      {/* 게시글 본문 카드 */}
+      <div className="bg-white border border-gray-100 rounded-2xl p-4 sm:p-6 shadow-xs space-y-3">
+        <div>
+          <h1 className="text-[13px] sm:text-[15px] font-bold text-gray-900 leading-snug break-words">
             {post.title}
           </h1>
 
-          <div className="flex items-center justify-between text-[11px] text-gray-400">
-            <div className="flex items-center gap-1.5">
+          <div className="flex items-center justify-between text-gray-400 text-[10px] sm:text-[11px] mt-2 pt-2 border-t border-gray-50 gap-2 min-w-0">
+            {/* 🔗 게시글 작성자 닉네임 클릭 -> 마이페이지(UUID) 이동 */}
+            <div className="flex items-center gap-1 truncate min-w-0">
               {postAuthorUuid ? (
                 <Link
                   href={`/mypage/${postAuthorUuid}`}
-                  className="font-bold text-gray-800 hover:text-emerald-600 hover:underline transition"
+                  className="font-bold text-gray-700 hover:text-emerald-600 hover:underline truncate active:text-emerald-700 transition"
                 >
                   {post.author_name || '익명'}
                 </Link>
               ) : (
-                <span className="font-bold text-gray-800">{post.author_name || '익명'}</span>
+                <span className="font-bold text-gray-700 truncate">
+                  {post.author_name || '익명'}
+                </span>
               )}
               <AdminBadge email={post.author_email} />
-              <span className="text-gray-300">•</span>
-              <span>{new Date(post.created_at).toLocaleString('ko-KR')}</span>
             </div>
-
-            {isPostAuthor && (
-              <button
-                onClick={handleDeletePost}
-                className="text-rose-500 hover:text-rose-700 font-bold transition text-[11px]"
-              >
-                삭제
-              </button>
-            )}
+            <span className="shrink-0 whitespace-nowrap text-gray-400">
+              {new Date(post.created_at).toLocaleString('ko-KR')}
+            </span>
           </div>
         </div>
 
-        {/* 첨부파일/이미지 노출 */}
+        <div className="text-gray-800 leading-normal min-h-[60px] sm:min-h-[80px] whitespace-pre-wrap text-[11px] sm:text-[12px] pt-2 border-t border-gray-50 break-words select-text">
+          {renderContent(post.content, false)}
+        </div>
+
+        {hasImage && (
+          <div className="pt-3 border-t border-gray-50 flex justify-center bg-gray-50/50 rounded-xl p-1.5 sm:p-2 border border-gray-100/80">
+            <img
+              src={post.file_url}
+              alt={post.file_name || '첨부 이미지'}
+              className="max-w-full h-auto rounded-lg sm:rounded-xl shadow-xs object-contain max-h-[70vh] sm:max-h-[600px] w-full"
+            />
+          </div>
+        )}
+
         {post.file_url && (
-          <div className="bg-gray-50 border border-gray-100 rounded-xl p-3 space-y-2">
-            {isImageFile(post.file_url, post.file_name) ? (
-              <div className="rounded-lg overflow-hidden max-h-[500px] flex justify-center bg-black/5">
-                <img
-                  src={post.file_url}
-                  alt={post.file_name || '첨부 이미지'}
-                  className="object-contain max-w-full h-auto"
-                />
-              </div>
-            ) : (
-              <div className="flex items-center justify-between text-[11px]">
-                <span className="font-medium text-gray-700 truncate">
-                  📎 {post.file_name || '첨부파일'}
-                </span>
-                <a
-                  href={post.file_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-2.5 py-1 bg-white border border-gray-200 text-gray-700 font-bold rounded-lg hover:bg-gray-100 transition shrink-0"
-                >
-                  다운로드
-                </a>
-              </div>
-            )}
+          <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between bg-gray-50/70 p-2.5 sm:p-3 rounded-xl border border-gray-100">
+            <div className="flex items-center gap-1.5 truncate pr-2">
+              <span className="text-xs sm:text-sm shrink-0">{hasImage ? '🖼️' : '📎'}</span>
+              <span className="font-semibold text-gray-700 truncate text-[10px] sm:text-[11px]">
+                {post.file_name || '첨부파일'}
+              </span>
+            </div>
+            <a
+              href={post.file_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              download
+              className="px-2.5 py-1.5 bg-white border border-gray-200 active:bg-gray-100 hover:bg-gray-100 text-gray-700 font-bold rounded-lg text-[10px] sm:text-[11px] shrink-0 transition touch-manipulation"
+            >
+              다운로드
+            </a>
           </div>
         )}
+      </div>
 
-        {/* 게시글 본문 */}
-        <div className="text-gray-800 text-xs sm:text-sm leading-relaxed whitespace-pre-wrap min-h-[100px] pt-2">
-          {post.content}
-        </div>
-      </article>
+      {/* 댓글 영역 */}
+      <div className="bg-white border border-gray-100 rounded-2xl p-4 sm:p-6 shadow-xs space-y-3">
+        <h3 className="font-bold text-xs sm:text-sm text-gray-900">💬 댓글 ({comments.length})</h3>
 
-      {/* 💬 댓글 영역 */}
-      <section className="bg-white border border-gray-100 rounded-2xl p-4 sm:p-6 shadow-xs space-y-4">
-        <h2 className="font-black text-gray-900 text-sm flex items-center gap-1.5">
-          💬 댓글 <span className="text-emerald-600">{comments.length}</span>개
-        </h2>
+        <form onSubmit={handleAddComment} className="flex gap-1.5">
+          <input
+            type="text"
+            placeholder={user ? "댓글 입력... (@닉네임 멘션)" : "로그인 후 작성 가능"}
+            disabled={!user || submittingComment}
+            value={newComment}
+            onChange={(e) => setNewComment(e.target.value)}
+            className="flex-1 min-w-0 px-3 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 text-[11px] placeholder:text-[10px] sm:placeholder:text-[11px] text-gray-800 disabled:bg-gray-50 touch-manipulation"
+          />
+          <button
+            type="submit"
+            disabled={!user || submittingComment || !newComment.trim()}
+            className="px-3.5 py-2 bg-emerald-600 active:bg-emerald-700 text-white font-bold rounded-xl transition text-[11px] shrink-0 disabled:opacity-50 touch-manipulation"
+          >
+            등록
+          </button>
+        </form>
 
-        {/* 댓글 입력 폼 */}
-        {currentUser ? (
-          <form onSubmit={handleCommentSubmit} className="space-y-2">
-            <div className="relative">
-              <textarea
-                value={commentInput}
-                onChange={(e) => setCommentInput(e.target.value)}
-                placeholder="댓글을 작성해 보세요. (@닉네임 으로 상대방을 지목하면 알림이 갑니다)"
-                rows={3}
-                className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl text-xs text-gray-800 placeholder:text-gray-400 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:bg-white transition resize-none"
-              />
-            </div>
-            <div className="flex items-center justify-between text-[10px] text-gray-400">
-              <span>💡 <code>@닉네임</code>을 입력하면 해당 사용자에게 즉시 알림이 전송됩니다.</span>
-              <button
-                type="submit"
-                disabled={submittingComment || !commentInput.trim()}
-                className="px-4 py-2 bg-emerald-600 active:bg-emerald-700 hover:bg-emerald-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-bold rounded-xl text-xs transition touch-manipulation shadow-xs shrink-0"
-              >
-                {submittingComment ? '등록 중...' : '댓글 등록'}
-              </button>
-            </div>
-          </form>
-        ) : (
-          <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 text-center text-gray-500 font-medium text-xs">
-            댓글을 남기시려면{' '}
-            <Link href="/login" className="text-emerald-600 font-bold underline">
-              로그인
-            </Link>
-            해 주세요.
-          </div>
-        )}
-
-        {/* 댓글 목록 */}
-        <div className="divide-y divide-gray-100 pt-2">
+        <div className="divide-y divide-gray-100 pt-1">
           {comments.length === 0 ? (
-            <div className="py-8 text-center text-gray-400 font-medium">
-              첫 번째 댓글을 작성해 보세요!
-            </div>
+            <p className="text-center py-5 text-gray-400 font-medium text-[11px]">등록된 댓글이 없습니다.</p>
           ) : (
             comments.map((comment) => {
-              const commentAuthorUuid = comment.user_id;
-              const isCommentAuthor = currentUser && currentUser.id === commentAuthorUuid;
+              const isCommentAuthor = user?.email && comment.author_email === user.email;
+              const canDeleteComment = isCommentAuthor || isAdmin;
+              const commentAuthorUuid = comment.user_id || comment.author_id;
 
               return (
-                <div key={comment.id} className="py-3 space-y-1">
-                  <div className="flex items-center justify-between text-[11px]">
-                    <div className="flex items-center gap-1.5">
+                <div key={comment.id} className="py-2.5 flex items-start justify-between gap-2">
+                  <div className="space-y-0.5 flex-1 min-w-0">
+                    <div className="flex items-center gap-1 flex-wrap">
+                      {/* 🔗 댓글 작성자 닉네임 클릭 -> 마이페이지(UUID) 이동 */}
                       {commentAuthorUuid ? (
                         <Link
                           href={`/mypage/${commentAuthorUuid}`}
-                          className="font-bold text-gray-800 hover:text-emerald-600 hover:underline transition"
+                          className="font-bold text-gray-900 text-[11px] hover:text-emerald-600 hover:underline truncate max-w-[140px] transition"
                         >
                           {comment.author_name || '익명'}
                         </Link>
                       ) : (
-                        <span className="font-bold text-gray-800">{comment.author_name || '익명'}</span>
+                        <span className="font-bold text-gray-900 text-[11px] truncate max-w-[140px]">
+                          {comment.author_name || '익명'}
+                        </span>
                       )}
                       <AdminBadge email={comment.author_email} />
-                      <span className="text-gray-300">•</span>
-                      <span className="text-gray-400 text-[10px]">
-                        {new Date(comment.created_at).toLocaleString('ko-KR')}
+                      <span className="text-gray-400 text-[9px] sm:text-[10px] ml-0.5 whitespace-nowrap shrink-0">
+                        {new Date(comment.created_at).toLocaleDateString('ko-KR')}
                       </span>
                     </div>
-
-                    {isCommentAuthor && (
-                      <button
-                        onClick={() => handleDeleteComment(comment.id)}
-                        className="text-gray-400 hover:text-rose-500 font-bold transition text-[10px]"
-                      >
-                        삭제
-                      </button>
-                    )}
+                    <div className="text-gray-700 text-[11px] sm:text-xs leading-snug break-words select-text">
+                      {renderContent(comment.content, true)}
+                    </div>
                   </div>
 
-                  <p className="text-gray-700 text-xs leading-relaxed whitespace-pre-wrap pl-0.5">
-                    {comment.content}
-                  </p>
+                  {canDeleteComment && (
+                    <button
+                      onClick={() => handleDeleteComment(comment.id)}
+                      className={`text-[10px] px-2 py-0.5 font-bold rounded-lg transition shrink-0 touch-manipulation ${
+                        isAdmin && !isCommentAuthor
+                          ? 'bg-rose-50 text-rose-600 active:bg-rose-100'
+                          : 'text-gray-400 active:text-rose-600 hover:text-rose-600 active:bg-gray-50'
+                      }`}
+                    >
+                      {isAdmin && !isCommentAuthor ? '🛡️ 관리자 삭제' : '삭제'}
+                    </button>
+                  )}
                 </div>
               );
             })
           )}
         </div>
-      </section>
+      </div>
+
+      {/* 신고 모달 */}
+      <ReportModal
+        postId={postId}
+        postAuthorId={postAuthorUuid}
+        isOpen={isReportOpen}
+        onClose={() => setIsReportOpen(false)}
+      />
     </div>
   );
 }
