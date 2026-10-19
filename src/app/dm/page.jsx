@@ -21,7 +21,7 @@ export default function DMPage() {
   const [sending, setSending] = useState(false);
   
   const messagesEndRef = useRef(null);
-  const chatContainerRef = useRef(null); // 📌 채팅창 스크롤 감지용 Ref
+  const chatContainerRef = useRef(null);
 
   // 모바일 레이아웃 상태
   const [showMobileSidebar, setShowMobileSidebar] = useState(true);
@@ -51,7 +51,7 @@ export default function DMPage() {
     setTimeout(() => setToastMsg({ type: '', text: '' }), 3000);
   };
 
-  // 📌 스마트 스크롤: 사용자가 맨 아래 부근에 있을 때만 최하단으로 스크롤 이동
+  // 스마트 스크롤: 사용자가 맨 아래 부근에 있을 때만 최하단으로 스크롤 이동
   const scrollToBottomIfNear = useCallback((force = false) => {
     if (!chatContainerRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
@@ -171,7 +171,7 @@ export default function DMPage() {
     }
   }, [currentUser]);
 
-  // 4. 채팅방 선택 & 메시지/멤버 로드 (입장 시 맨 아래로 스크롤)
+  // 4. 채팅방 선택 & 메시지/멤버 로드
   const loadRoomDetails = useCallback(async (room) => {
     setActiveRoom(room);
     setShowMobileSidebar(false);
@@ -200,7 +200,7 @@ export default function DMPage() {
     setTimeout(() => scrollToBottomIfNear(true), 100);
   }, [updateLastRead, scrollToBottomIfNear]);
 
-  // 5. 🔥 Realtime 구독: 수신 시 스크롤 위치 감지하여 스마트 스크롤
+  // 5. Realtime 구독
   useEffect(() => {
     if (!currentUser) return;
 
@@ -259,7 +259,7 @@ export default function DMPage() {
             setMessages([]);
             setRoomMembers([]);
             setShowMobileSidebar(true);
-            showToast('방장에 의해 채팅방이 폭파되었습니다.');
+            showToast('방장에 의해 채팅방이 삭제되었습니다.');
           }
           fetchMyRooms();
         }
@@ -271,7 +271,7 @@ export default function DMPage() {
     };
   }, [currentUser, activeRoom, fetchMyRooms, updateLastRead, scrollToBottomIfNear]);
 
-  // 6. 각 메시지별 안 읽은 사람 수 계산
+  // 6. 안 읽은 사람 수 계산
   const getUnreadCountForMessage = (msg) => {
     if (!roomMembers || roomMembers.length === 0) return 0;
     const msgTime = new Date(msg.created_at).getTime();
@@ -285,7 +285,7 @@ export default function DMPage() {
     return unreadMembers.length;
   };
 
-  // 7. 메시지 전송 (내가 전송할 때는 강제 아래로 스크롤)
+  // 7. 메시지 전송
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!inputMessage.trim() || !activeRoom || !currentUser || sending) return;
@@ -339,11 +339,11 @@ export default function DMPage() {
     }
   };
 
-  // 💣 8-1. 방장의 방 폭파
+  // 8-1. 방장의 채팅방 삭제
   const handleDestroyRoom = async () => {
     if (!activeRoom || !currentUser) return;
     if (activeRoom.owner_id !== currentUser.id) {
-      showToast('방장만 방을 폭파할 수 있습니다.');
+      showToast('방장만 채팅방을 삭제할 수 있습니다.');
       return;
     }
 
@@ -356,19 +356,19 @@ export default function DMPage() {
 
       if (error) throw error;
 
-      showToast('채팅방이 완전히 폭파되었습니다.', 'success');
+      showToast('채팅방이 삭제되었습니다.', 'success');
       setActiveRoom(null);
       setMessages([]);
       setRoomMembers([]);
       setShowMobileSidebar(true);
       fetchMyRooms();
     } catch (err) {
-      console.error('방 폭파 오류:', err);
-      showToast('방 폭파 실패: RLS 삭제 권한을 확인해 주세요.');
+      console.error('채팅방 삭제 오류:', err);
+      showToast('채팅방 삭제 실패: RLS 삭제 권한을 확인해 주세요.');
     }
   };
 
-  // 🚪 8-2. 일반 멤버의 채팅방 나가기
+  // 8-2. 일반 멤버의 채팅방 나가기
   const handleLeaveRoom = async () => {
     if (!activeRoom || !currentUser) return;
 
@@ -393,7 +393,7 @@ export default function DMPage() {
     }
   };
 
-  // ➕ 9. 멤버 더 초대하기
+  // 9. 멤버 더 초대하기
   const openInviteModal = async () => {
     if (!activeRoom || !currentUser) return;
 
@@ -656,7 +656,7 @@ export default function DMPage() {
 
   if (loading) {
     return (
-      <div className="max-w-4xl mx-auto my-12 text-center text-gray-400 font-bold text-xs">
+      <div className="fixed inset-0 z-50 bg-white flex items-center justify-center text-gray-400 font-bold text-xs">
         💬 DM 메시지 목록을 불러오는 중입니다...
       </div>
     );
@@ -673,28 +673,29 @@ export default function DMPage() {
     : activePartner?.display_name || activePartner?.nickname || '상대방';
 
   return (
-    <div className="max-w-5xl mx-auto my-4 px-2 sm:px-4 font-sans text-xs">
+    <div className="fixed inset-0 z-50 bg-white w-screen h-screen h-[100dvh] flex flex-col font-sans text-xs overflow-hidden">
       {/* 토스트 알림 */}
       {toastMsg.text && (
         <div
-          className={`mb-3 p-3 rounded-2xl text-xs font-bold transition shadow-xs ${
+          className={`absolute top-3 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-2xl text-xs font-bold transition shadow-lg ${
             toastMsg.type === 'success'
-              ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-              : 'bg-red-50 text-red-700 border border-red-200'
+              ? 'bg-emerald-600 text-white'
+              : 'bg-red-600 text-white'
           }`}
         >
           {toastMsg.text}
         </div>
       )}
 
-      <div className="bg-white border border-gray-200 rounded-3xl shadow-xl h-[82vh] flex overflow-hidden">
+      {/* 메인 채팅 레이아웃 (전체 채움) */}
+      <div className="flex-1 flex overflow-hidden w-full h-full">
         {/* 👈 [좌측] 대화방 목록 */}
         <div
           className={`${
             showMobileSidebar ? 'flex' : 'hidden md:flex'
-          } w-full md:w-80 flex-col border-r border-gray-100 bg-gray-50/50 shrink-0`}
+          } w-full md:w-80 flex-col border-r border-gray-100 bg-gray-50/50 shrink-0 h-full`}
         >
-          <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-white">
+          <div className="p-3.5 border-b border-gray-100 flex items-center justify-between bg-white shrink-0">
             <h1 className="font-black text-sm text-gray-900 flex items-center gap-1.5">
               💬 DM / 채팅함
             </h1>
@@ -795,7 +796,7 @@ export default function DMPage() {
         <div
           className={`${
             !showMobileSidebar ? 'flex' : 'hidden md:flex'
-          } flex-1 flex-col bg-white`}
+          } flex-1 flex-col bg-white h-full overflow-hidden`}
         >
           {activeRoom ? (
             <>
@@ -838,7 +839,7 @@ export default function DMPage() {
                       onClick={handleDestroyRoom}
                       className="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-[10px] transition shadow-xs"
                     >
-                      💣 방 폭파
+                      🗑️ 채팅방 삭제
                     </button>
                   ) : (
                     <button
@@ -853,12 +854,12 @@ export default function DMPage() {
                     href="/"
                     className="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl font-bold text-[10px]"
                   >
-                    메인
+                    홈으로
                   </Link>
                 </div>
               </div>
 
-              {/* 📌 메시지 출력 영역 (chatContainerRef 적용) */}
+              {/* 📌 메시지 출력 영역 */}
               <div
                 ref={chatContainerRef}
                 className="flex-1 p-4 overflow-y-auto space-y-3 bg-gray-50/40"
@@ -882,7 +883,6 @@ export default function DMPage() {
 
                     const isMine = msg.sender_id === currentUser?.id;
                     const senderName = msg.profiles?.display_name || msg.profiles?.nickname || '익명';
-
                     const unreadCount = getUnreadCountForMessage(msg);
 
                     return (
@@ -979,7 +979,7 @@ export default function DMPage() {
         </div>
       </div>
 
-      {/* ➕ 멤버 더 초대하기 모달 */}
+      {/* ➕ 멤버 초대 모달 */}
       {isInviteModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-sm rounded-3xl p-5 shadow-2xl space-y-4 max-h-[80vh] flex flex-col border border-gray-100">
