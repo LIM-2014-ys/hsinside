@@ -7,7 +7,9 @@ import { supabase } from '@/lib/supabaseClient';
 export default function PostWritePage() {
   const params = useParams();
   const router = useRouter();
-  const galleryId = params.galleryId || 'free';
+  
+  // URL 파라미터가 [id]일 경우 params.id로 추출
+  const galleryId = params.id || 'free';
 
   const [currentUser, setCurrentUser] = useState(null);
   const [title, setTitle] = useState('');
@@ -39,28 +41,29 @@ export default function PostWritePage() {
         currentUser.email?.split('@')[0] ||
         '익명';
 
+      const postPayload = {
+        gallery_id: galleryId,
+        user_id: currentUser.id,
+        author_id: currentUser.id,
+        author_name: authorDisplayName,
+        title: title.trim(),
+        content: content.trim(),
+      };
+
       const { data: newPost, error } = await supabase
         .from('posts')
-        .insert([
-          {
-            gallery_id: galleryId,
-            user_id: currentUser.id,
-            author_id: currentUser.id,
-            author_name: authorDisplayName,
-            title: title.trim(),
-            content: content.trim(),
-          },
-        ])
+        .insert([postPayload])
         .select()
         .single();
 
       if (error) {
-        alert('글 작성 실패: ' + error.message);
+        console.error('DB Insert 에러 상세:', error);
+        alert(`글 작성 실패: ${error.message}`);
         return;
       }
 
       if (newPost) {
-        // 🚀 내 팔로워들에게 새 글 푸시 알림 발송
+        // 🚀 팔로워 푸시 알림 연동
         fetch('/api/push', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -71,13 +74,13 @@ export default function PostWritePage() {
             body: title.trim(),
             url: `/gallery/${galleryId}/${newPost.id}`,
           }),
-        }).catch((err) => console.error('새 글 푸시 실패:', err));
+        }).catch((err) => console.error('새 글 푸시 발송 실패:', err));
 
         router.push(`/gallery/${galleryId}/${newPost.id}`);
       }
     } catch (err) {
-      console.error('글 작성 처리 에러:', err);
-      alert('글 작성 중 오류가 발생했습니다.');
+      console.error('글 작성 처리 예외:', err);
+      alert('글 작성 중 시스템 오류가 발생했습니다.');
     } finally {
       setSubmitting(false);
     }
