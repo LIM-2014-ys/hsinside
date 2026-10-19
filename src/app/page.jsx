@@ -1,189 +1,194 @@
+'use client';
+
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
-import InstallPrompt from '@/components/InstallPrompt';
-import NotificationPrompt from '@/components/NotificationPrompt';
-import UserSearch from '@/components/UserSearch';
+import AdminBadge from '@/components/AdminBadge';
 
-export const dynamic = 'force-dynamic';
-export const revalidate = 0;
+export default function MainPage() {
+  const [user, setUser] = useState(null);
+  const [activeTab, setActiveTab] = useState('popular'); // 'popular' | 'recent'
+  const [popularPosts, setPopularPosts] = useState([]);
+  const [recentPosts, setRecentPosts] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-export default async function HomePage() {
-  // 1. DB 갤러리 목록 조회
-  const { data: galleries, error } = await supabase
-    .from('galleries')
-    .select('*')
-    .order('created_at', { ascending: true });
+  // 유저 인증 확인
+  useEffect(() => {
+    const fetchUser = async () => {
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      setUser(currentUser);
+    };
+    fetchUser();
+  }, []);
 
-  // 2. 최근 3일 내 댓글 많은 순 인기글 조회
-  const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+  // 인기글 및 최신글 데이터 로드
+  useEffect(() => {
+    const fetchPosts = async () => {
+      setLoading(true);
+      try {
+        // 1. 인기글 가져오기 (앞서 만든 popular_posts 뷰 활용)
+        const { data: popData, error: popErr } = await supabase
+          .from('popular_posts')
+          .select('*, profiles:user_id(*)')
+          .limit(10);
 
-  let { data: popularPosts } = await supabase
-    .from('posts')
-    .select('*, galleries(name, slug)')
-    .gte('created_at', threeDaysAgo)
-    .order('comment_count', { ascending: false })
-    .order('created_at', { ascending: false })
-    .limit(10);
+        if (!popErr && popData) {
+          setPopularPosts(popData);
+        } else {
+          // 뷰가 아직 안 만들어졌을 경우를 대비한 안전 필터 (최신순 + 조회수/좋아요 정렬)
+          const { data: fallbackPop } = await supabase
+            .from('posts')
+            .select('*, profiles:user_id(*)')
+            .order('views', { ascending: false })
+            .limit(10);
+          if (fallbackPop) setPopularPosts(fallbackPop);
+        }
 
-  if (!popularPosts || popularPosts.length === 0) {
-    const { data: fallbackPosts } = await supabase
-      .from('posts')
-      .select('*, galleries(name, slug)')
-      .order('created_at', { ascending: false })
-      .limit(10);
-    popularPosts = fallbackPosts || [];
-  }
+        // 2. 최신글 가져오기
+        const { data: recData, error: recErr } = await supabase
+          .from('posts')
+          .select('*, profiles:user_id(*)')
+          .order('created_at', { ascending: false })
+          .limit(15);
+
+        if (!recErr && recData) {
+          setRecentPosts(recData);
+        }
+      } catch (err) {
+        console.error('메인 게시글 로드 오류:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchPosts();
+  }, []);
+
+  const displayedPosts = activeTab === 'popular' ? popularPosts : recentPosts;
 
   return (
-    <div className="max-w-4xl mx-auto my-6 sm:my-10 p-4 sm:p-8 bg-white border border-gray-100 rounded-3xl shadow-xl space-y-8 font-sans text-xs">
-      
-      {/* 🚀 세련된 헤더 히어로 박스 */}
-      <div className="relative overflow-hidden bg-slate-900 text-white rounded-2xl p-6 sm:p-8 shadow-xl border border-slate-800">
-        {/* 배경은은한 은하수/광원 효과 */}
-        <div className="absolute -top-20 -right-20 w-56 h-56 bg-emerald-500/15 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-20 -left-20 w-56 h-56 bg-amber-500/15 rounded-full blur-3xl pointer-events-none" />
-
-        <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-5">
-          <div className="space-y-2">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-800/80 border border-slate-700/80 text-[10px] font-bold text-amber-400">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-              COMMUNITY HUB
-            </div>
-            
-            <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white flex items-center gap-2">
-              <span className="bg-clip-text text-transparent bg-gradient-to-r from-amber-200 via-emerald-200 to-white">HSinside</span>
-            </h1>
-            
-            <p className="text-slate-300 text-xs sm:text-sm font-medium leading-relaxed max-w-md">
-              원하는 갤러리를 선택하여 이야기를 나누고 소통을 시작해 보세요.
-            </p>
-          </div>
-
+    <div className="max-w-5xl mx-auto my-4 sm:my-8 px-3 sm:px-4 font-sans text-xs space-y-6">
+      {/* 🌟 상단 대문 / 환영 배너 */}
+      <div className="bg-gradient-to-r from-emerald-600 to-teal-700 text-white rounded-3xl p-6 sm:p-8 shadow-lg flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="space-y-2 text-center sm:text-left">
+          <h1 className="text-lg sm:text-xl font-black">🚀 Next.js 커뮤니티 플랫폼</h1>
+          <p className="text-emerald-100 text-xs sm:text-sm font-medium">
+            실시간 채팅(DM)과 생동감 넘치는 갤러리 소통 공간에 오신 것을 환영합니다!
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
           <Link
-            href="/gallery-request"
-            className="self-start sm:self-center px-4 py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-white font-extrabold rounded-xl transition shadow-lg shadow-amber-500/20 text-xs flex items-center gap-2 shrink-0 active:scale-95"
+            href="/dm"
+            className="px-4 py-2.5 bg-white text-emerald-800 font-bold rounded-2xl text-xs shadow hover:bg-emerald-50 transition"
           >
-            <span>📢</span>
-            <span>갤러리 신청하기</span>
+            💬 실시간 DM함
           </Link>
+          {user ? (
+            <Link
+              href="/gallery/default"
+              className="px-4 py-2.5 bg-emerald-800/60 hover:bg-emerald-800 text-white font-bold rounded-2xl text-xs transition border border-emerald-500/30"
+            >
+              🖼️ 갤러리 가기
+            </Link>
+          ) : (
+            <Link
+              href="/login"
+              className="px-4 py-2.5 bg-emerald-800/60 hover:bg-emerald-800 text-white font-bold rounded-2xl text-xs transition border border-emerald-500/30"
+            >
+              🔑 로그인
+            </Link>
+          )}
         </div>
       </div>
 
-      {/* PWA 설치 배너 */}
-      <InstallPrompt />
-
-      {/* 알림 권한 배너 */}
-      <NotificationPrompt />
-
-      {/* 유저 닉네임 검색 */}
-      <section className="space-y-2">
-        <h2 className="font-extrabold text-gray-700 text-xs px-1">👥 유저 찾기</h2>
-        <UserSearch />
-      </section>
-
-      {/* 갤러리 목록 */}
-      <section className="space-y-3">
-        <h2 className="font-extrabold text-gray-700 text-xs px-1">📌 갤러리 목록</h2>
-
-        {error && (
-          <div className="p-4 bg-rose-50 border border-rose-100 text-rose-600 rounded-2xl font-semibold">
-            갤러리 목록을 불러오는 중 오류가 발생했습니다: {error.message}
-          </div>
-        )}
-
-        {!error && galleries && galleries.length === 0 ? (
-          <div className="text-center py-16 text-gray-400 font-medium">
-            등록된 갤러리가 없습니다.
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {galleries?.map((gallery) => {
-              const gallerySlug = gallery.slug || gallery.id;
-              const isRequest = gallerySlug === 'request';
-
-              return (
-                <Link
-                  key={gallery.id}
-                  href={`/gallery/${gallerySlug}`}
-                  className={`group p-5 border rounded-2xl transition-all shadow-sm hover:shadow-md flex flex-col justify-between space-y-3 ${
-                    isRequest
-                      ? 'border-amber-200 bg-amber-50/40 hover:bg-amber-100/50'
-                      : 'border-gray-100 bg-gray-50/50 hover:bg-blue-50/50 hover:border-blue-200'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className={`font-bold text-sm ${isRequest ? 'text-amber-800' : 'text-gray-900'}`}>
-                      {gallery.name || gallery.title}
-                    </span>
-                    <span
-                      className={`text-[11px] font-bold opacity-0 group-hover:opacity-100 transition ${
-                        isRequest ? 'text-amber-600' : 'text-blue-600'
-                      }`}
-                    >
-                      입장하기 →
-                    </span>
-                  </div>
-                  {gallery.description && (
-                    <p className="text-gray-500 text-[11px] leading-relaxed">
-                      {gallery.description}
-                    </p>
-                  )}
-                </Link>
-              );
-            })}
-          </div>
-        )}
-      </section>
-
-      {/* 3일 내 인기 게시글 (댓글 많은 순) */}
-      <section className="bg-gray-50/60 border border-gray-100 rounded-2xl p-5 space-y-3">
-        <div className="flex items-center justify-between border-b border-gray-200/60 pb-3">
+      {/* 📊 콘텐츠 영역 (인기글 / 최신글 탭) */}
+      <div className="bg-white border border-gray-200 rounded-3xl p-4 sm:p-6 shadow-xl space-y-4">
+        {/* 탭 네비게이션 */}
+        <div className="flex items-center justify-between border-b border-gray-100 pb-3">
           <div className="flex items-center gap-2">
-            <h2 className="font-black text-sm text-gray-900 flex items-center gap-1.5">
-              🔥 3일 내 인기글
-            </h2>
-            <span className="text-[10px] text-emerald-600 bg-emerald-50 font-bold px-2 py-0.5 rounded-full border border-emerald-100">
-              댓글 많은 순
-            </span>
+            <button
+              onClick={() => setActiveTab('popular')}
+              className={`px-4 py-2 rounded-xl font-black text-xs transition ${
+                activeTab === 'popular'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              🔥 실시간 인기글
+            </button>
+            <button
+              onClick={() => setActiveTab('recent')}
+              className={`px-4 py-2 rounded-xl font-black text-xs transition ${
+                activeTab === 'recent'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              ✨ 최신글
+            </button>
           </div>
+
+          <Link
+            href="/gallery/default"
+            className="text-gray-400 hover:text-emerald-600 font-bold text-[11px] transition"
+          >
+            전체 보기 →
+          </Link>
         </div>
 
-        {popularPosts.length === 0 ? (
-          <div className="py-8 text-center text-gray-400 font-medium">
-            최근 3일 간 등록된 인기 게시글이 없습니다.
+        {/* 게시글 목록 */}
+        {loading ? (
+          <div className="py-16 text-center text-gray-400 font-bold text-xs">
+            ⏳ 게시글을 불러오는 중입니다...
+          </div>
+        ) : displayedPosts.length === 0 ? (
+          <div className="py-16 text-center text-gray-400 font-medium text-xs">
+            등록된 게시글이 없습니다. 첫 글을 작성해 보세요!
           </div>
         ) : (
-          <div className="divide-y divide-gray-200/60">
-            {popularPosts.map((post) => {
-              const gallerySlug = post.galleries?.slug || post.gallery_id || 'free';
-              const galleryName = post.galleries?.name || '갤러리';
+          <div className="divide-y divide-gray-100">
+            {displayedPosts.map((post, idx) => {
+              const authorName = post.profiles?.display_name || post.profiles?.nickname || post.author_name || '익명';
+              const galleryId = post.gallery_id || 'default';
 
               return (
                 <Link
                   key={post.id}
-                  href={`/gallery/${gallerySlug}/${post.id}`}
-                  className="py-3 flex items-center justify-between gap-3 group block hover:bg-white -mx-2 px-3 rounded-xl transition"
+                  href={`/gallery/${galleryId}/${post.id}`}
+                  className="py-3.5 flex items-center justify-between gap-3 group hover:bg-gray-50/80 px-3 rounded-2xl transition"
                 >
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="px-2 py-0.5 bg-emerald-100/70 text-emerald-800 font-extrabold rounded-md text-[9.5px] shrink-0">
-                        {galleryName}
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    {activeTab === 'popular' && (
+                      <span className="w-6 text-center font-black text-xs text-emerald-600 shrink-0">
+                        {idx + 1}
                       </span>
-                      <h3 className="font-bold text-gray-800 text-xs truncate group-hover:text-emerald-600 transition">
+                    )}
+
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <h2 className="font-bold text-gray-900 text-xs sm:text-[13px] truncate group-hover:text-emerald-600 transition">
                         {post.title}
-                      </h3>
-                    </div>
-                    <div className="text-[10px] text-gray-400 flex items-center gap-2">
-                      <span>✍️ {post.author_name || '익명'}</span>
-                      <span>•</span>
-                      <span>{new Date(post.created_at).toLocaleDateString('ko-KR')}</span>
+                      </h2>
+                      <div className="flex items-center gap-2 text-gray-400 text-[10px]">
+                        <span className="font-semibold text-gray-600 truncate max-w-[100px]">
+                          {authorName}
+                        </span>
+                        <AdminBadge email={post.author_email || post.profiles?.email} />
+                        <span>•</span>
+                        <span>{new Date(post.created_at).toLocaleDateString('ko-KR')}</span>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-1 bg-white border border-gray-200 px-2.5 py-1 rounded-xl shrink-0 group-hover:border-emerald-300 transition shadow-2xs">
-                    <span className="text-[10px]">💬</span>
-                    <span className="font-black text-xs text-gray-700 group-hover:text-emerald-600">
-                      {post.comment_count || 0}
+                  {/* 수치 지표 (조회수, 좋아요, 댓글) */}
+                  <div className="flex items-center gap-3 text-gray-400 text-[10px] shrink-0 font-medium">
+                    <span className="flex items-center gap-0.5">
+                      👀 {post.views || 0}
+                    </span>
+                    <span className="flex items-center gap-0.5">
+                      ❤️ {post.likes_count || 0}
+                    </span>
+                    <span className="flex items-center gap-0.5">
+                      💬 {post.comments_count || 0}
                     </span>
                   </div>
                 </Link>
@@ -191,7 +196,7 @@ export default async function HomePage() {
             })}
           </div>
         )}
-      </section>
+      </div>
     </div>
   );
 }
