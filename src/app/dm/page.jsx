@@ -24,7 +24,7 @@ export default function DMPage() {
   // 모바일 레이아웃 상태
   const [showMobileSidebar, setShowMobileSidebar] = useState(true);
 
-  // 토스트 안내 메시지 (alert 대체)
+  // 토스트 알림 메시지 상태
   const [toastMsg, setToastMsg] = useState({ type: '', text: '' });
 
   // 🔍 유저 검색 모달
@@ -33,11 +33,16 @@ export default function DMPage() {
   const [searchResults, setSearchResults] = useState([]);
   const [searching, setSearching] = useState(false);
 
-  // 👥 그룹 채팅 모달
+  // 👥 그룹 채팅 생성 모달
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
   const [availableGroupUsers, setAvailableGroupUsers] = useState([]);
   const [selectedGroupUserIds, setSelectedGroupUserIds] = useState([]);
   const [groupNameInput, setGroupNameInput] = useState('');
+
+  // ➕ 기존 방 멤버 추가 초대 모달
+  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
+  const [invitableUsers, setInvitableUsers] = useState([]);
+  const [selectedInviteUserIds, setSelectedInviteUserIds] = useState([]);
 
   const showToast = (text, type = 'error') => {
     setToastMsg({ type, text });
@@ -57,7 +62,7 @@ export default function DMPage() {
     initUser();
   }, [router]);
 
-  // 2. 참여 중인 대화방 목록 + 내가 안 읽은 메시지 수 계산
+  // 2. 참여 중인 대화방 목록 + 안 읽은 메시지 수 산출
   const fetchMyRooms = useCallback(async () => {
     if (!currentUser) return;
 
@@ -96,7 +101,7 @@ export default function DMPage() {
             ? new Date(myMember.last_read_at).getTime()
             : 0;
 
-          // 내가 안 읽은 메시지 개수 계산
+          // 내가 안 읽은 메시지 개수 산출
           const unreadCount = sortedMsgs.filter(
             (m) =>
               m.sender_id !== currentUser.id &&
@@ -129,7 +134,7 @@ export default function DMPage() {
     fetchMyRooms();
   }, [fetchMyRooms]);
 
-  // 3. 내가 방에 들어갈 때: 읽음 타임스탬프 DB 업데이트 및 방 목록 안 읽은 수 0으로 즉시 처리
+  // 3. 방 선택 시 나의 last_read_at 업데이트 (원형 숫자 배지 제거)
   const updateLastRead = useCallback(async (roomId) => {
     if (!currentUser || !roomId) return;
     const nowISO = new Date().toISOString();
@@ -145,7 +150,7 @@ export default function DMPage() {
       .eq('user_id', currentUser.id);
   }, [currentUser]);
 
-  // 4. 채팅방 선택 및 메시지/멤버 로드
+  // 4. 채팅방 선택 & 메시지/멤버 로드
   const loadRoomDetails = useCallback(async (room) => {
     setActiveRoom(room);
     setShowMobileSidebar(false);
@@ -165,11 +170,10 @@ export default function DMPage() {
 
     if (memData) setRoomMembers(memData);
 
-    // 내가 들어왔으므로 나의 읽음 타임스탬프 업데이트
     updateLastRead(room.id);
   }, [updateLastRead]);
 
-  // 5. 🔥 Realtime 구독: 메시지 수신 + 멤버들의 last_read_at 변경 실시간 동기화
+  // 5. 🔥 Realtime 구독: 메시지 수신 및 읽음 상태 변경 반응
   useEffect(() => {
     if (!currentUser) return;
 
@@ -207,8 +211,6 @@ export default function DMPage() {
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'chat_room_members' },
         (payload) => {
-          // 상대방이 들어와서 읽었을 때: roomMembers 내의 해당 사용자 last_read_at 업데이트
-          // ➔ getUnreadCountForMessage 가 재계산되며 메시지 옆 안 읽은 수가 1 감소함!
           setRoomMembers((prev) =>
             prev.map((m) => (m.id === payload.new.id ? { ...m, ...payload.new } : m))
           );
@@ -226,12 +228,11 @@ export default function DMPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // 6. 각 메시지별 안 읽은 인원수 계산 (상대방들이 방을 볼 때마다 실시간 1씩 차감)
+  // 6. 각 메시지별 안 읽은 사람 수 (상대방들이 들어올 때마다 1씩 실시간 감소)
   const getUnreadCountForMessage = (msg) => {
     if (!roomMembers || roomMembers.length === 0) return 0;
     const msgTime = new Date(msg.created_at).getTime();
 
-    // 메시지 작성 본인을 제외하고, 메시지 등록 시각 이후에 읽지 않은 멤버 개수 계산
     const unreadMembers = roomMembers.filter((m) => {
       if (m.user_id === msg.sender_id) return false;
       const lastReadTime = m.last_read_at ? new Date(m.last_read_at).getTime() : 0;
@@ -286,6 +287,91 @@ export default function DMPage() {
       showToast('메시지 전송 실패: DB 권한 설정을 확인해 주세요.');
     } finally {
       setSending(false);
+    }
+  };
+
+  // 🚪 8. 채팅방 나가기
+  const handleLeaveRoom = async () => {
+    if (!activeRoom || !currentUser) return;
+
+    try {
+      const { error } = await supabase
+        .from('chat_room_members')
+        .delete()
+        .eq('room_id', activeRoom.id)
+        .eq('user_id', currentUser.id);
+
+      if (error) throw error;
+
+      showToast('채팅방에서 나갔습니다.', 'success');
+      setActiveRoom(null);
+      setMessages([]);
+      setShowMobileSidebar(true);
+      fetchMyRooms();
+    } catch (err) {
+      console.error('채팅방 나가기 에러:', err);
+      showToast('채팅방을 나가는 도중 오류가 발생했습니다.');
+    }
+  };
+
+  // ➕ 9. 멤버 더 초대하기 (모달 열기 및 초대 처리)
+  const openInviteModal = async () => {
+    if (!activeRoom || !currentUser) return;
+
+    // 팔로워 유저 중 현재 방 멤버가 아닌 사람만 필터링
+    const { data: myFollowers } = await supabase
+      .from('follows')
+      .select('follower_id, profiles:follower_id(*)')
+      .eq('following_id', currentUser.id);
+
+    const existingMemberUserIds = new Set(roomMembers.map((m) => m.user_id));
+    const validUsers = (myFollowers || [])
+      .map((f) => f.profiles)
+      .filter((p) => p && !existingMemberUserIds.has(p.id));
+
+    setInvitableUsers(validUsers);
+    setSelectedInviteUserIds([]);
+    setIsInviteModalOpen(true);
+  };
+
+  const handleInviteMembers = async () => {
+    if (selectedInviteUserIds.length === 0) {
+      showToast('초대할 유저를 선택해 주세요.');
+      return;
+    }
+
+    try {
+      const payload = selectedInviteUserIds.map((uid) => ({
+        room_id: activeRoom.id,
+        user_id: uid,
+      }));
+
+      const { error } = await supabase.from('chat_room_members').insert(payload);
+      if (error) throw error;
+
+      // 방 형태가 1:1이었는데 멤버가 늘어났다면 is_group을 true로 업데이트
+      if (!activeRoom.is_group && roomMembers.length + selectedInviteUserIds.length > 2) {
+        await supabase
+          .from('chat_rooms')
+          .update({ is_group: true })
+          .eq('id', activeRoom.id);
+      }
+
+      showToast('새 멤버를 성공적으로 초대했습니다!', 'success');
+      setIsInviteModalOpen(false);
+      setSelectedInviteUserIds([]);
+
+      // 멤버 목록 새로고침
+      const { data: memData } = await supabase
+        .from('chat_room_members')
+        .select('*, profiles:user_id(*)')
+        .eq('room_id', activeRoom.id);
+
+      if (memData) setRoomMembers(memData);
+      fetchMyRooms();
+    } catch (err) {
+      console.error('멤버 초대 에러:', err);
+      showToast('멤버 초대에 실패했습니다.');
     }
   };
 
@@ -427,7 +513,7 @@ export default function DMPage() {
     }
   };
 
-  // 그룹 채팅 개설
+  // 새 그룹 채팅 개설 모달 열기
   const openGroupModal = async () => {
     if (!currentUser) return;
     setIsGroupModalOpen(true);
@@ -487,7 +573,7 @@ export default function DMPage() {
 
   return (
     <div className="max-w-5xl mx-auto my-4 px-2 sm:px-4 font-sans text-xs">
-      {/* 토스트 알림 */}
+      {/* 토스트 안내 */}
       {toastMsg.text && (
         <div
           className={`mb-3 p-3 rounded-2xl text-xs font-bold transition shadow-xs ${
@@ -563,20 +649,7 @@ export default function DMPage() {
 
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-1">
-                        {/* 📌 방 이름 옆에 내가 안 읽은 메시지 수 (N) 표시 */}
-                        <h2 className="font-bold text-xs truncate flex items-center gap-1">
-                          <span>{roomDisplayName}</span>
-                          {room.unreadCount > 0 && (
-                            <span
-                              className={`text-[11px] font-black ${
-                                isActive ? 'text-amber-200' : 'text-amber-500'
-                              }`}
-                            >
-                              ({room.unreadCount})
-                            </span>
-                          )}
-                        </h2>
-
+                        <h2 className="font-bold text-xs truncate">{roomDisplayName}</h2>
                         <span
                           className={`text-[9px] shrink-0 ${
                             isActive ? 'text-emerald-100' : 'text-gray-400'
@@ -589,13 +662,22 @@ export default function DMPage() {
                         </span>
                       </div>
 
-                      <p
-                        className={`text-[10px] truncate mt-0.5 ${
-                          isActive ? 'text-emerald-100' : 'text-gray-400'
-                        }`}
-                      >
-                        {room.latestMsg}
-                      </p>
+                      <div className="flex items-center justify-between gap-1 mt-0.5">
+                        <p
+                          className={`text-[10px] truncate ${
+                            isActive ? 'text-emerald-100' : 'text-gray-400'
+                          }`}
+                        >
+                          {room.latestMsg}
+                        </p>
+
+                        {/* 🔴 원형 배지 스타일의 안 읽은 메시지 수 */}
+                        {room.unreadCount > 0 && !isActive && (
+                          <span className="bg-amber-500 text-white font-black text-[10px] px-1.5 py-0.5 rounded-full min-w-[18px] text-center shrink-0 shadow-xs">
+                            {room.unreadCount}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );
@@ -612,6 +694,7 @@ export default function DMPage() {
         >
           {activeRoom ? (
             <>
+              {/* 상단 액션 바 (초대 / 나가기 버튼 추가) */}
               <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between bg-white shrink-0">
                 <div className="flex items-center gap-2 min-w-0">
                   <button
@@ -622,23 +705,47 @@ export default function DMPage() {
                   </button>
 
                   <div>
-                    <h2 className="font-black text-xs text-gray-900 truncate">
-                      {activeRoom.is_group
-                        ? activeRoom.name
-                        : roomMembers.find((m) => m.user_id !== currentUser?.id)?.profiles?.display_name || '1:1 DM'}
+                    <h2 className="font-black text-xs text-gray-900 truncate flex items-center gap-1.5">
+                      <span>
+                        {activeRoom.is_group
+                          ? activeRoom.name
+                          : roomMembers.find((m) => m.user_id !== currentUser?.id)?.profiles?.display_name || '1:1 DM'}
+                      </span>
+                      <span className="text-[10px] text-gray-400 font-bold">
+                        ({roomMembers.length}명)
+                      </span>
                     </h2>
                     <p className="text-[9px] text-emerald-600 font-semibold">● 실시간 연결됨</p>
                   </div>
                 </div>
 
-                <Link
-                  href="/"
-                  className="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl font-bold text-[10px]"
-                >
-                  메인으로
-                </Link>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {/* ➕ 멤버 더 초대하기 */}
+                  <button
+                    onClick={openInviteModal}
+                    className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold rounded-xl text-[10px] transition"
+                  >
+                    + 초대
+                  </button>
+
+                  {/* 🚪 채팅방 나가기 */}
+                  <button
+                    onClick={handleLeaveRoom}
+                    className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-600 font-bold rounded-xl text-[10px] transition"
+                  >
+                    🚪 나가기
+                  </button>
+
+                  <Link
+                    href="/"
+                    className="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl font-bold text-[10px]"
+                  >
+                    메인
+                  </Link>
+                </div>
               </div>
 
+              {/* 메시지 영역 */}
               <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-gray-50/40">
                 {messages.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center text-center space-y-2 text-gray-400">
@@ -650,7 +757,7 @@ export default function DMPage() {
                     const isMine = msg.sender_id === currentUser?.id;
                     const senderName = msg.profiles?.display_name || msg.profiles?.nickname || '익명';
 
-                    // 📌 메시지별 안 읽은 사람 수 (상대방들이 들어와서 읽을 때마다 실시간 1씩 차감)
+                    // 📌 메시지별 안 읽은 사람 수 (상대방들이 들어올 때마다 실시간 1씩 차감)
                     const unreadCount = getUnreadCountForMessage(msg);
 
                     return (
@@ -667,7 +774,6 @@ export default function DMPage() {
                         <div className="flex items-end gap-1.5 max-w-[80%]">
                           {isMine && (
                             <div className="flex flex-col items-end shrink-0">
-                              {/* 🌟 상대방이 안 읽은 수 (읽을 때마다 1씩 줄어듦) */}
                               {unreadCount > 0 && (
                                 <span className="text-[10px] font-black text-amber-500 leading-none mb-0.5">
                                   {unreadCount}
@@ -715,6 +821,7 @@ export default function DMPage() {
                 <div ref={messagesEndRef} />
               </div>
 
+              {/* 입력 폼 */}
               <form
                 onSubmit={handleSendMessage}
                 className="p-3 bg-white border-t border-gray-100 flex items-center gap-2 shrink-0"
@@ -746,6 +853,73 @@ export default function DMPage() {
           )}
         </div>
       </div>
+
+      {/* ➕ 멤버 더 초대하기 모달 */}
+      {isInviteModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-sm rounded-3xl p-5 shadow-2xl space-y-4 max-h-[80vh] flex flex-col border border-gray-100">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <h3 className="font-black text-xs text-gray-900">➕ 대화방에 멤버 초대하기</h3>
+              <button
+                onClick={() => setIsInviteModalOpen(false)}
+                className="w-7 h-7 bg-gray-100 hover:bg-gray-200 text-gray-500 rounded-full font-bold flex items-center justify-center text-xs"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+              <label className="block text-[10px] font-bold text-gray-500">
+                초대 가능한 팔로워 ({selectedInviteUserIds.length}명 선택)
+              </label>
+
+              {invitableUsers.length === 0 ? (
+                <div className="py-8 text-center text-gray-400 text-[11px]">
+                  초대 가능한 새로운 팔로워가 없습니다.
+                </div>
+              ) : (
+                invitableUsers.map((u) => {
+                  const isChecked = selectedInviteUserIds.includes(u.id);
+                  const name = u.display_name || u.nickname || '익명';
+
+                  return (
+                    <div
+                      key={u.id}
+                      onClick={() =>
+                        setSelectedInviteUserIds((prev) =>
+                          isChecked ? prev.filter((id) => id !== u.id) : [...prev, u.id]
+                        )
+                      }
+                      className="p-2.5 bg-gray-50 hover:bg-emerald-50/60 rounded-2xl border border-gray-100 flex items-center justify-between cursor-pointer transition"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-7 h-7 bg-emerald-100 text-emerald-800 font-black rounded-full flex items-center justify-center text-[10px]">
+                          {name[0]}
+                        </div>
+                        <span className="font-bold text-gray-800 text-[11px]">{name}</span>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => {}}
+                        className="w-4 h-4 accent-emerald-600 rounded cursor-pointer"
+                      />
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <button
+              onClick={handleInviteMembers}
+              disabled={selectedInviteUserIds.length === 0}
+              className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition text-xs disabled:opacity-40"
+            >
+              선택한 멤버 초대하기 ({selectedInviteUserIds.length}명)
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 🔍 유저 검색 모달 */}
       {isSearchModalOpen && (
