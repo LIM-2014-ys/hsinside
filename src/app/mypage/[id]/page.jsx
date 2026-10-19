@@ -10,7 +10,6 @@ export default function MyPage() {
   const params = useParams();
   const router = useRouter();
 
-  // URL 파라미터에서 targetUserId (UUID) 추출
   const targetUserId = params.id;
 
   const [currentUser, setCurrentUser] = useState(null);
@@ -22,7 +21,7 @@ export default function MyPage() {
   const [followers, setFollowers] = useState([]);
   const [followings, setFollowings] = useState([]);
   const [isFollowing, setIsFollowing] = useState(false);
-  const [modalType, setModalType] = useState(null); // 'followers' | 'followings' | null
+  const [modalType, setModalType] = useState(null);
 
   // 💬 1:1 실시간 채팅 모달 상태
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -56,7 +55,6 @@ export default function MyPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
 
-  // 유저 데이터, 프로필, 작성 게시글, 팔로우 데이터 통합 조회
   const fetchUserData = useCallback(async () => {
     if (!targetUserId) return;
     setLoading(true);
@@ -65,7 +63,6 @@ export default function MyPage() {
       const { data: { user: authUser } } = await supabase.auth.getUser();
       setCurrentUser(authUser);
 
-      // 1. 프로필 정보 조회
       const { data: profileData } = await supabase
         .from('profiles')
         .select('*')
@@ -95,7 +92,6 @@ export default function MyPage() {
         setEditNickname(initialNickname);
       }
 
-      // 2. 작성한 게시글 목록 조회
       const { data: postsData } = await supabase
         .from('posts')
         .select('*')
@@ -104,13 +100,11 @@ export default function MyPage() {
 
       setUserPosts(postsData || []);
 
-      // 3. 팔로워 목록 조회
       const { data: followerData } = await supabase
         .from('follows')
         .select('*, profiles:follower_id(*)')
         .eq('following_id', targetUserId);
 
-      // 4. 팔로잉 목록 조회
       const { data: followingData } = await supabase
         .from('follows')
         .select('*, profiles:following_id(*)')
@@ -119,7 +113,6 @@ export default function MyPage() {
       setFollowers(followerData || []);
       setFollowings(followingData || []);
 
-      // 5. 팔로우 여부 확인
       if (authUser) {
         const isFollowed = (followerData || []).some((f) => f.follower_id === authUser.id);
         setIsFollowing(isFollowed);
@@ -138,7 +131,6 @@ export default function MyPage() {
   const isSelf = currentUser && currentUser.id === targetUserId;
   const currentDisplayName = profile?.display_name || profile?.nickname || '익명';
 
-  // 팔로우 / 언팔로우 실행
   const handleFollowToggle = async () => {
     if (!currentUser) return alert('로그인이 필요합니다.');
 
@@ -160,7 +152,6 @@ export default function MyPage() {
     }
   };
 
-  // 📬 내가 보낸/받은 전체 메시지 조회 & Realtime 실시간 대화방 갱신
   useEffect(() => {
     if (!currentUser?.email || !isSelf) return;
 
@@ -204,7 +195,6 @@ export default function MyPage() {
     };
   }, [currentUser, isSelf]);
 
-  // 👥 상대방별 대화방 그룹화 (최신 메시지 순)
   const conversationRooms = Object.values(
     allDms.reduce((acc, dm) => {
       const partnerEmail =
@@ -226,7 +216,6 @@ export default function MyPage() {
     }, {})
   );
 
-  // 💬 1:1 대화창 열기
   const handleOpenChat = (email, name) => {
     if (!currentUser) {
       alert('DM을 보내려면 로그인해야 합니다.');
@@ -243,7 +232,6 @@ export default function MyPage() {
     setIsChatOpen(true);
   };
 
-  // 💬 특정 상대와의 1:1 실시간 대화 내역 동기화
   useEffect(() => {
     if (!isChatOpen || !currentUser?.email || !activeChatPartner.email) return;
 
@@ -297,7 +285,7 @@ export default function MyPage() {
     }
   }, [messages, isChatOpen]);
 
-  // 💬 실시간 메시지 전송
+  // 💬 DM 전송 및 푸시 알림 연동
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!inputMessage.trim() || !currentUser?.email || !activeChatPartner.email || sending) return;
@@ -332,6 +320,18 @@ export default function MyPage() {
           return [...prev, data];
         });
         setAllDms((prev) => [data, ...prev.filter((m) => m.id !== data.id)]);
+
+        // 🚀 수신자 푸시 알림 연동
+        fetch('/api/push', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            targetEmail: activeChatPartner.email,
+            title: `💬 ${senderName}님의 메시지`,
+            body: contentToSend,
+            url: `/mypage/${currentUser.id}`,
+          }),
+        }).catch((err) => console.error('DM 푸시 발송 에러:', err));
       }
     } catch (err) {
       console.error('메시지 전송 오류:', err);
@@ -340,7 +340,6 @@ export default function MyPage() {
     }
   };
 
-  // 🚫 닉네임 중복 및 공백 검사
   const handleCheckNicknameDuplicate = async () => {
     if (!editNickname || !editNickname.trim()) {
       setNicknameCheckMsg({ type: 'error', text: '닉네임을 입력해 주세요.' });
@@ -391,7 +390,6 @@ export default function MyPage() {
     }
   };
 
-  // 프로필 이미지 파일 업로드
   const handleImageFileUpload = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -408,7 +406,6 @@ export default function MyPage() {
     reader.readAsDataURL(file);
   };
 
-  // 프로필 정보 업데이트
   const handleUpdateProfile = async (e) => {
     e.preventDefault();
     if (!currentUser) return;
@@ -469,7 +466,6 @@ export default function MyPage() {
     }
   };
 
-  // 비밀번호 변경
   const handleChangePassword = async (e) => {
     e.preventDefault();
     setPasswordStatus({ type: '', message: '' });
@@ -506,7 +502,6 @@ export default function MyPage() {
     }
   };
 
-  // 회원 탈퇴
   const handleDeleteAccount = async () => {
     if (!currentUser) return;
 
@@ -544,7 +539,6 @@ export default function MyPage() {
         ← 뒤로 가기
       </button>
 
-      {/* 📌 상단 프로필 카드 */}
       <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-xs text-center space-y-4 relative">
         <div className="relative w-24 h-24 mx-auto rounded-full overflow-hidden bg-emerald-50 border-2 border-emerald-100 flex items-center justify-center shadow-xs">
           {profile?.avatar_url ? (
@@ -562,7 +556,6 @@ export default function MyPage() {
           {profile?.email && <p className="text-[11px] text-gray-400 font-medium">{profile.email}</p>}
         </div>
 
-        {/* 📊 팔로워 / 팔로잉 카운터 (클릭 시 리스트 모달 오픈) */}
         <div className="flex items-center justify-center gap-8 py-3 border-y border-gray-100">
           <button
             type="button"
@@ -597,7 +590,6 @@ export default function MyPage() {
         <div className="pt-2 space-y-2">
           {isSelf ? (
             <>
-              {/* 📬 메시지함 (상대방별 채팅방 목록) */}
               <button
                 onClick={() => {
                   setShowInbox(!showInbox);
@@ -687,7 +679,6 @@ export default function MyPage() {
           )}
         </div>
 
-        {/* 📬 메시지함 (상대방별 채팅방 목록) */}
         {isSelf && showInbox && (
           <div className="text-left pt-4 border-t border-gray-100 space-y-3">
             <h3 className="font-bold text-xs text-gray-900 flex items-center justify-between">
@@ -728,7 +719,6 @@ export default function MyPage() {
           </div>
         )}
 
-        {/* 프로필 수정 폼 */}
         {isSelf && isEditing && (
           <form onSubmit={handleUpdateProfile} className="text-left pt-4 border-t border-gray-100 space-y-3.5">
             <div>
@@ -815,7 +805,6 @@ export default function MyPage() {
           </form>
         )}
 
-        {/* 비밀번호 변경 폼 */}
         {isSelf && isChangingPassword && (
           <form onSubmit={handleChangePassword} className="text-left pt-4 border-t border-gray-100 space-y-3">
             <h3 className="font-bold text-xs text-gray-900 mb-2">🔒 비밀번호 변경</h3>
@@ -865,7 +854,6 @@ export default function MyPage() {
         )}
       </div>
 
-      {/* ✍️ 작성한 게시글 목록 카드 */}
       <div className="bg-white border border-gray-100 rounded-3xl p-5 shadow-xs space-y-3">
         <h2 className="font-black text-xs text-gray-900 border-b border-gray-100 pb-2.5">
           ✍️ 작성한 게시글 <span className="text-emerald-600">{userPosts.length}</span>개
@@ -901,7 +889,6 @@ export default function MyPage() {
         </div>
       </div>
 
-      {/* 👥 팔로워 / 팔로잉 리스트 팝업 모달 */}
       {modalType && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-xs rounded-3xl p-5 shadow-2xl space-y-4 max-h-[75vh] flex flex-col border border-gray-100">
@@ -960,7 +947,6 @@ export default function MyPage() {
         </div>
       )}
 
-      {/* 💬 실시간 1:1 대화 모달 창 */}
       {isChatOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 z-50">
           <div className="bg-white w-full max-w-sm h-[85vh] max-h-[650px] rounded-3xl flex flex-col overflow-hidden shadow-2xl border border-gray-100">
