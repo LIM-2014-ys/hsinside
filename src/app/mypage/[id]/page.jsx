@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
@@ -23,7 +23,7 @@ export default function MyPage() {
   const [isFollowing, setIsFollowing] = useState(false);
   const [modalType, setModalType] = useState(null); // 'followers' | 'followings' | null
 
-  // 프로필 수정 상태
+  // 내 프로필 수정 상태
   const [isEditing, setIsEditing] = useState(false);
   const [editNickname, setEditNickname] = useState('');
   const [isNicknameChecked, setIsNicknameChecked] = useState(true);
@@ -43,7 +43,7 @@ export default function MyPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
 
-  // 유저 데이터 및 팔로우 정보 로드
+  // 유저 데이터, 작성글, 팔로우 정보 로드
   const fetchUserData = useCallback(async () => {
     if (!targetUserId) return;
     setLoading(true);
@@ -81,7 +81,7 @@ export default function MyPage() {
         setEditNickname(initialNickname);
       }
 
-      // 작성 글 조회
+      // 작성한 게시글 조회
       const { data: postsData } = await supabase
         .from('posts')
         .select('*')
@@ -122,7 +122,7 @@ export default function MyPage() {
   const isSelf = currentUser && currentUser.id === targetUserId;
   const currentDisplayName = profile?.display_name || profile?.nickname || '익명';
 
-  // 팔로우 / 팔로우 취소 토글
+  // 🚀 팔로우 / 팔로우 취소 토글 (+ 즉시 반영 & 푸시 알림)
   const handleFollowToggle = async () => {
     if (!currentUser) return alert('로그인이 필요합니다.');
 
@@ -153,7 +153,7 @@ export default function MyPage() {
           .from('follows')
           .insert([{ follower_id: currentUser.id, following_id: targetUserId }]);
 
-        // 상대방 알림 푸시
+        // 🔔 팔로우 당한 사람에게 즉시 알림 발송
         fetch('/api/push', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -163,7 +163,7 @@ export default function MyPage() {
             body: `${myDisplayName}님이 회원님을 팔로우하기 시작했습니다.`,
             url: `/mypage/${currentUser.id}`,
           }),
-        }).catch((err) => console.error('팔로우 푸시 알림 실패:', err));
+        }).catch((err) => console.error('팔로우 푸시 알림 발송 실패:', err));
       }
     } catch (err) {
       console.error('팔로우 처리 실패:', err);
@@ -288,7 +288,7 @@ export default function MyPage() {
       }
     } catch {
       alert('프로필 저장 중 오류가 발생했습니다.');
-    } finally {
+    } fontally {
       setUpdatingProfile(false);
     }
   };
@@ -336,7 +336,7 @@ export default function MyPage() {
     try {
       await supabase.from('profiles').delete().eq('id', currentUser.id);
       await supabase.auth.signOut();
-      alert('회원 탈퇴가 완료되었습니다.');
+      alert('회원 탈퇴가 완료되었습니다. 이용해 주셔서 감사합니다.');
       router.push('/');
     } catch (err) {
       console.error('회원 탈퇴 오류:', err);
@@ -361,7 +361,7 @@ export default function MyPage() {
     <div className="max-w-md mx-auto my-6 px-4 font-sans text-xs space-y-5">
       <button
         onClick={() => router.back()}
-        className="px-3 py-1.5 bg-gray-100 active:bg-gray-200 text-gray-700 font-bold rounded-xl transition text-[11px]"
+        className="px-3 py-1.5 bg-gray-100 active:bg-gray-200 text-gray-700 font-bold rounded-xl transition text-[11px] touch-manipulation"
       >
         ← 뒤로 가기
       </button>
@@ -384,7 +384,7 @@ export default function MyPage() {
           {profile?.email && <p className="text-[11px] text-gray-400 font-medium">{profile.email}</p>}
         </div>
 
-        {/* 팔로워/팔로잉 카운트 */}
+        {/* 📊 팔로워/팔로잉 숫자가 즉시 반영됩니다 */}
         <div className="flex items-center justify-center gap-8 py-3 border-y border-gray-100">
           <button
             type="button"
@@ -416,13 +416,13 @@ export default function MyPage() {
           {profile?.bio || '작성된 소개 메시지가 없습니다.'}
         </div>
 
-        {/* 액션 버튼 */}
+        {/* 버튼 액션 */}
         <div className="pt-2 space-y-2">
           {isSelf ? (
             <>
               <Link
                 href="/dm"
-                className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition text-xs flex items-center justify-center gap-1.5 shadow-xs"
+                className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition text-xs flex items-center justify-center gap-1.5 shadow-xs touch-manipulation"
               >
                 💬 DM / 채팅함으로 이동
               </Link>
@@ -434,7 +434,7 @@ export default function MyPage() {
                     setIsChangingPassword(false);
                     setNicknameCheckMsg({ type: '', text: '' });
                   }}
-                  className="py-2.5 bg-gray-100 active:bg-gray-200 text-gray-700 font-bold rounded-xl transition text-xs"
+                  className="py-2.5 bg-gray-100 active:bg-gray-200 text-gray-700 font-bold rounded-xl transition text-xs touch-manipulation"
                 >
                   {isEditing ? '수정 취소' : '⚙️ 프로필 수정'}
                 </button>
@@ -444,7 +444,7 @@ export default function MyPage() {
                     setIsChangingPassword(!isChangingPassword);
                     setIsEditing(false);
                   }}
-                  className="py-2.5 bg-emerald-50 active:bg-emerald-100 text-emerald-700 font-bold rounded-xl transition text-xs"
+                  className="py-2.5 bg-emerald-50 active:bg-emerald-100 text-emerald-700 font-bold rounded-xl transition text-xs touch-manipulation"
                 >
                   {isChangingPassword ? '변경 취소' : '🔒 비번 변경'}
                 </button>
@@ -453,24 +453,27 @@ export default function MyPage() {
               {!showDeleteConfirm ? (
                 <button
                   onClick={() => setShowDeleteConfirm(true)}
-                  className="w-full py-2.5 bg-red-600 active:bg-red-700 text-white font-bold rounded-xl transition text-xs shadow-xs"
+                  className="w-full py-2.5 bg-red-600 active:bg-red-700 text-white font-bold rounded-xl transition text-xs shadow-xs touch-manipulation"
                 >
                   🚪 회원 탈퇴하기
                 </button>
               ) : (
                 <div className="p-3 bg-red-50 rounded-2xl border border-red-100 space-y-2 text-left">
                   <p className="text-red-700 font-bold text-[11px]">⚠️ 정말로 탈퇴하시겠습니까?</p>
+                  <p className="text-red-600/80 text-[10px] leading-snug">
+                    탈퇴 시 프로필 데이터가 삭제되며 서비스에서 로그아웃됩니다.
+                  </p>
                   <div className="flex items-center gap-2 pt-1">
                     <button
                       onClick={handleDeleteAccount}
                       disabled={deletingAccount}
-                      className="flex-1 py-2 bg-red-600 text-white font-bold rounded-xl text-[11px]"
+                      className="flex-1 py-2 bg-red-600 active:bg-red-700 text-white font-bold rounded-xl text-[11px] transition touch-manipulation disabled:opacity-50"
                     >
-                      {deletingAccount ? '탈퇴 중...' : '예, 탈퇴합니다'}
+                      {deletingAccount ? '탈퇴 처리 중...' : '예, 탈퇴합니다'}
                     </button>
                     <button
                       onClick={() => setShowDeleteConfirm(false)}
-                      className="flex-1 py-2 bg-gray-200 text-gray-700 font-bold rounded-xl text-[11px]"
+                      className="flex-1 py-2 bg-gray-200 active:bg-gray-300 text-gray-700 font-bold rounded-xl text-[11px] transition touch-manipulation"
                     >
                       취소
                     </button>
@@ -479,12 +482,13 @@ export default function MyPage() {
               )}
             </>
           ) : (
+            /* 🎯 타인 프로필 시 팔로우 버튼 */
             <button
               onClick={handleFollowToggle}
-              className={`w-full py-2.5 rounded-xl font-bold transition text-xs active:scale-95 ${
+              className={`w-full py-2.5 rounded-xl font-bold transition text-xs touch-manipulation active:scale-95 ${
                 isFollowing
-                  ? 'bg-gray-100 text-gray-700 border border-gray-200'
-                  : 'bg-emerald-600 text-white shadow-sm'
+                  ? 'bg-gray-100 active:bg-gray-200 text-gray-700 hover:bg-gray-200 border border-gray-200'
+                  : 'bg-emerald-600 active:bg-emerald-700 text-white hover:bg-emerald-700 shadow-sm shadow-emerald-600/20'
               }`}
             >
               {isFollowing ? '팔로우 취소' : '+ 팔로우'}
@@ -496,29 +500,42 @@ export default function MyPage() {
         {isSelf && isEditing && (
           <form onSubmit={handleUpdateProfile} className="text-left pt-4 border-t border-gray-100 space-y-3.5">
             <div>
-              <label className="block text-[10px] font-bold text-gray-500 mb-1">🏷️ 닉네임 변경 및 중복 확인</label>
+              <label className="block text-[10px] font-bold text-gray-500 mb-1">🏷️ 닉네임 변경 및 중복 확인 (공백 불가)</label>
               <div className="flex gap-1.5">
                 <input
                   type="text"
-                  placeholder="새 닉네임 입력"
+                  placeholder="새 닉네임 입력 (공백 제외)"
                   value={editNickname}
                   onChange={(e) => {
-                    setEditNickname(e.target.value);
-                    setIsNicknameChecked(false);
+                    const val = e.target.value;
+                    setEditNickname(val);
+
+                    if (/\s/.test(val)) {
+                      setIsNicknameChecked(false);
+                      setNicknameCheckMsg({ type: 'error', text: '❌ 닉네임에 공백을 포함할 수 없습니다.' });
+                    } else if (val.trim().toLowerCase() === currentDisplayName.toLowerCase()) {
+                      setIsNicknameChecked(true);
+                      setNicknameCheckMsg({ type: 'success', text: '현재 본인의 닉네임입니다.' });
+                    } else {
+                      setIsNicknameChecked(false);
+                      setNicknameCheckMsg({ type: '', text: '' });
+                    }
                   }}
                   required
-                  className="flex-1 px-3 py-2 border border-gray-200 rounded-xl text-xs"
+                  className="flex-1 min-w-0 px-3 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-xs text-gray-800 touch-manipulation font-semibold"
                 />
                 <button
                   type="button"
                   onClick={handleCheckNicknameDuplicate}
-                  className="px-3 py-2 bg-gray-100 text-gray-700 font-bold rounded-xl text-[11px]"
+                  className="px-3 py-2 bg-gray-100 active:bg-gray-200 text-gray-700 font-bold rounded-xl transition text-[11px] shrink-0 touch-manipulation"
                 >
                   중복 확인
                 </button>
               </div>
               {nicknameCheckMsg.text && (
-                <p className={`text-[10px] font-semibold mt-1 ${nicknameCheckMsg.type === 'error' ? 'text-red-600' : 'text-emerald-600'}`}>
+                <p className={`text-[10px] font-semibold mt-1 ${
+                  nicknameCheckMsg.type === 'error' ? 'text-red-600' : 'text-emerald-600'
+                }`}>
                   {nicknameCheckMsg.text}
                 </p>
               )}
@@ -530,7 +547,18 @@ export default function MyPage() {
                 type="file"
                 accept="image/*"
                 onChange={handleImageFileUpload}
-                className="w-full text-[11px] text-gray-500"
+                className="w-full text-[11px] text-gray-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-[11px] file:font-bold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 touch-manipulation"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-bold text-gray-500 mb-1">🔗 또는 웹 이미지 URL</label>
+              <input
+                type="url"
+                placeholder="https://example.com/photo.jpg"
+                value={editAvatarUrl}
+                onChange={(e) => setEditAvatarUrl(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-xs text-gray-800 touch-manipulation"
               />
             </div>
 
@@ -541,14 +569,14 @@ export default function MyPage() {
                 placeholder="자기소개를 작성해 보세요!"
                 value={editBio}
                 onChange={(e) => setEditBio(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs resize-none"
+                className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-xs text-gray-800 touch-manipulation resize-none leading-relaxed"
               />
             </div>
 
             <button
               type="submit"
               disabled={updatingProfile}
-              className="w-full py-2.5 bg-emerald-600 text-white font-bold rounded-xl text-xs"
+              className="w-full py-2.5 bg-emerald-600 active:bg-emerald-700 text-white font-bold rounded-xl transition text-xs disabled:opacity-50 touch-manipulation"
             >
               {updatingProfile ? '저장 중...' : '프로필 저장하기'}
             </button>
@@ -561,32 +589,43 @@ export default function MyPage() {
             <h3 className="font-bold text-xs text-gray-900 mb-2">🔒 비밀번호 변경</h3>
 
             {passwordStatus.message && (
-              <div className={`p-2.5 rounded-xl text-[11px] font-semibold ${passwordStatus.type === 'error' ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-700'}`}>
+              <div className={`p-2.5 rounded-xl text-[11px] font-semibold ${
+                passwordStatus.type === 'error'
+                  ? 'bg-red-50 text-red-600 border border-red-200'
+                  : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+              }`}>
                 {passwordStatus.message}
               </div>
             )}
 
-            <input
-              type="password"
-              placeholder="새 비밀번호 입력"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              required
-              className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs"
-            />
-            <input
-              type="password"
-              placeholder="새 비밀번호 다시 입력"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              required
-              className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs"
-            />
+            <div>
+              <label className="block text-[10px] font-bold text-gray-500 mb-1">새 비밀번호 (6자리 이상)</label>
+              <input
+                type="password"
+                placeholder="새 비밀번호 입력"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                required
+                className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-xs text-gray-800 touch-manipulation"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-bold text-gray-500 mb-1">새 비밀번호 확인</label>
+              <input
+                type="password"
+                placeholder="새 비밀번호 다시 입력"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                required
+                className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-xs text-gray-800 touch-manipulation"
+              />
+            </div>
 
             <button
               type="submit"
-              disabled={updatingPassword}
-              className="w-full py-2.5 bg-emerald-600 text-white font-bold rounded-xl text-xs"
+              disabled={updatingPassword || !newPassword || !confirmPassword}
+              className="w-full py-2.5 bg-emerald-600 active:bg-emerald-700 text-white font-bold rounded-xl transition text-xs disabled:opacity-50 touch-manipulation"
             >
               {updatingPassword ? '변경 처리 중...' : '비밀번호 변경하기'}
             </button>
@@ -594,7 +633,7 @@ export default function MyPage() {
         )}
       </div>
 
-      {/* 작성한 게시글 카드 */}
+      {/* ✍️ 작성한 게시글 카드 */}
       <div className="bg-white border border-gray-100 rounded-3xl p-5 shadow-xs space-y-3">
         <h2 className="font-black text-xs text-gray-900 border-b border-gray-100 pb-2.5">
           ✍️ 작성한 게시글 <span className="text-emerald-600">{userPosts.length}</span>개
@@ -620,6 +659,7 @@ export default function MyPage() {
                     {new Date(post.created_at).toLocaleDateString('ko-KR')}
                   </div>
                 </div>
+
                 <span className="text-[10px] font-bold text-gray-400 group-hover:text-emerald-600 shrink-0">
                   보기 →
                 </span>
@@ -629,7 +669,7 @@ export default function MyPage() {
         </div>
       </div>
 
-      {/* 👥 단순화된 팔로워 / 팔로잉 팝업 (닉네임 & 프로필 사진만 노출, DM 버튼 없음) */}
+      {/* 👥 단순화된 팔로워 / 팔로잉 팝업 (DM 버튼 및 체크박스 없이 닉네임과 프로필 사진만 노출) */}
       {modalType && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-xs rounded-3xl p-5 shadow-2xl space-y-4 max-h-[75vh] flex flex-col border border-gray-100">
