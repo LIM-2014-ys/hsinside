@@ -92,7 +92,7 @@ export default function DMPage() {
       if (roomData) {
         const processedRooms = roomData.map((room) => {
           const sortedMsgs = (room.messages || []).sort(
-            (a, b) => new Date(b.created_at) - new Date(a.created_at)
+            (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
           );
           const latestMsgObj = sortedMsgs[0];
 
@@ -101,7 +101,6 @@ export default function DMPage() {
             ? new Date(myMember.last_read_at).getTime()
             : 0;
 
-          // 내가 안 읽은 메시지 개수 산출
           const unreadCount = sortedMsgs.filter(
             (m) =>
               m.sender_id !== currentUser.id &&
@@ -116,9 +115,8 @@ export default function DMPage() {
           };
         });
 
-        // 최신 메시지 순 정렬
         processedRooms.sort(
-          (a, b) => new Date(b.latestMsgTime) - new Date(a.latestMsgTime)
+          (a, b) => new Date(b.latestMsgTime).getTime() - new Date(a.latestMsgTime).getTime()
         );
 
         setRooms(processedRooms);
@@ -139,19 +137,16 @@ export default function DMPage() {
     if (!currentUser || !roomId) return;
     const nowISO = new Date().toISOString();
 
-    // 1) UI 화면 로컬 상태 즉시 반영 (방 목록 숫자 지우기)
     setRooms((prev) =>
       prev.map((r) => (r.id === roomId ? { ...r, unreadCount: 0 } : r))
     );
 
-    // 2) 현재 멤버 상태 내 last_read_at 즉시 반영
     setRoomMembers((prev) =>
       prev.map((m) =>
         m.user_id === currentUser.id ? { ...m, last_read_at: nowISO } : m
       )
     );
 
-    // 3) Supabase DB 서버에 실제 저장
     const { error } = await supabase
       .from('chat_room_members')
       .update({ last_read_at: nowISO })
@@ -159,11 +154,11 @@ export default function DMPage() {
       .eq('user_id', currentUser.id);
 
     if (error) {
-      console.error('서버 last_read_at 저장 실패 (RLS 정책 확인 필요):', error.message);
+      console.error('서버 last_read_at 저장 실패:', error.message);
     }
   }, [currentUser]);
 
-  // 4. 채팅방 선택 & 메시지/멤버 로드
+  // 4. 채팅방 선택 & 메시지/멤버 로드 (작성 시각 오름차순 엄격 정렬)
   const loadRoomDetails = useCallback(async (room) => {
     setActiveRoom(room);
     setShowMobileSidebar(false);
@@ -174,7 +169,12 @@ export default function DMPage() {
       .eq('room_id', room.id)
       .order('created_at', { ascending: true });
 
-    if (msgData) setMessages(msgData);
+    if (msgData) {
+      const sorted = [...msgData].sort(
+        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      );
+      setMessages(sorted);
+    }
 
     const { data: memData } = await supabase
       .from('chat_room_members')
@@ -186,7 +186,7 @@ export default function DMPage() {
     updateLastRead(room.id);
   }, [updateLastRead]);
 
-  // 5. 🔥 Realtime 구독: 메시지 수신 및 읽음 상태 변경 반응
+  // 5. 🔥 Realtime 구독: 실시간 수신 시 자동 시간순 정렬로 1 0 1 0 섞임 방지
   useEffect(() => {
     if (!currentUser) return;
 
@@ -209,7 +209,10 @@ export default function DMPage() {
           if (activeRoom && activeRoom.id === newMsg.room_id) {
             setMessages((prev) => {
               if (prev.some((m) => m.id === newMsg.id)) return prev;
-              return [...prev, fullMsg];
+              const next = [...prev, fullMsg];
+              return next.sort(
+                (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+              );
             });
 
             if (newMsg.sender_id !== currentUser.id) {
@@ -241,7 +244,7 @@ export default function DMPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // 6. 각 메시지별 안 읽은 사람 수 (상대방들이 들어와서 읽을 때마다 1씩 실시간 감소)
+  // 6. 각 메시지별 안 읽은 사람 수 정확한 계산
   const getUnreadCountForMessage = (msg) => {
     if (!roomMembers || roomMembers.length === 0) return 0;
     const msgTime = new Date(msg.created_at).getTime();
@@ -274,7 +277,12 @@ export default function DMPage() {
       if (error) throw error;
 
       if (data) {
-        setMessages((prev) => [...prev, data]);
+        setMessages((prev) => {
+          const next = [...prev, data];
+          return next.sort(
+            (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+          );
+        });
         updateLastRead(activeRoom.id);
 
         const otherMembers = roomMembers.filter((m) => m.user_id !== currentUser.id);
@@ -303,7 +311,7 @@ export default function DMPage() {
     }
   };
 
-  // 🚪 8. 채팅방 나가기
+  // 🚪 8. 채팅방 나가기 (DB에서 chat_room_members 삭제)
   const handleLeaveRoom = async () => {
     if (!activeRoom || !currentUser) return;
 
@@ -319,15 +327,16 @@ export default function DMPage() {
       showToast('채팅방에서 나갔습니다.', 'success');
       setActiveRoom(null);
       setMessages([]);
+      setRoomMembers([]);
       setShowMobileSidebar(true);
       fetchMyRooms();
     } catch (err) {
       console.error('채팅방 나가기 에러:', err);
-      showToast('채팅방을 나가는 도중 오류가 발생했습니다.');
+      showToast('채팅방 나가기 실패: DB 삭제 권한(RLS)을 확인해 주세요.');
     }
   };
 
-  // ➕ 9. 멤버 더 초대하기 (모달 열기 및 초대 처리)
+  // ➕ 9. 멤버 더 초대하기
   const openInviteModal = async () => {
     if (!activeRoom || !currentUser) return;
 
@@ -523,7 +532,7 @@ export default function DMPage() {
     }
   };
 
-  // 새 그룹 채팅 개설 모달 열기
+  // 그룹 채팅 생성 모달 열기
   const openGroupModal = async () => {
     if (!currentUser) return;
     setIsGroupModalOpen(true);
@@ -704,7 +713,7 @@ export default function DMPage() {
         >
           {activeRoom ? (
             <>
-              {/* 상단 액션 바 */}
+              {/* 상단 헤더 바 */}
               <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between bg-white shrink-0">
                 <div className="flex items-center gap-2 min-w-0">
                   <button
@@ -753,7 +762,7 @@ export default function DMPage() {
                 </div>
               </div>
 
-              {/* 메시지 영역 */}
+              {/* 메시지 출력 영역 */}
               <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-gray-50/40">
                 {messages.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center text-center space-y-2 text-gray-400">
@@ -765,7 +774,7 @@ export default function DMPage() {
                     const isMine = msg.sender_id === currentUser?.id;
                     const senderName = msg.profiles?.display_name || msg.profiles?.nickname || '익명';
 
-                    // 📌 메시지별 안 읽은 사람 수 (상대방들이 들어올 때마다 실시간 1씩 차감)
+                    // 메시지별 안 읽은 사람 수 (0 초과일 때만 노출)
                     const unreadCount = getUnreadCountForMessage(msg);
 
                     return (
