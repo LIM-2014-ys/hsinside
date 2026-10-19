@@ -14,27 +14,7 @@ export default async function HomePage() {
     .select('*')
     .order('created_at', { ascending: true });
 
-  // 2. 최근 3일 내 댓글 많은 순 인기글 조회
-  const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
-
-  let { data: popularPosts } = await supabase
-    .from('posts')
-    .select('*, galleries(name, slug)')
-    .gte('created_at', threeDaysAgo)
-    .order('comment_count', { ascending: false })
-    .order('created_at', { ascending: false })
-    .limit(10);
-
-  if (!popularPosts || popularPosts.length === 0) {
-    const { data: fallbackPosts } = await supabase
-      .from('posts')
-      .select('*, galleries(name, slug)')
-      .order('created_at', { ascending: false })
-      .limit(10);
-    popularPosts = fallbackPosts || [];
-  }
-
-  // 3. 🔥 실시간 베스트 (조회수*1 + 좋아요*5 + 댓글*3 가중치 반영)
+  // 2. 🔥 실시간 베스트 (조회수*1 + 좋아요*5 + 댓글*3 가중치 반영)
   let { data: realtimeBestPosts } = await supabase
     .from('popular_posts')
     .select('*, galleries(name, slug)')
@@ -136,65 +116,7 @@ export default async function HomePage() {
         )}
       </section>
 
-      {/* 3일 내 인기 게시글 (댓글 많은 순) */}
-      <section className="bg-gray-50/60 border border-gray-100 rounded-2xl p-5 space-y-3">
-        <div className="flex items-center justify-between border-b border-gray-200/60 pb-3">
-          <div className="flex items-center gap-2">
-            <h2 className="font-black text-sm text-gray-900 flex items-center gap-1.5">
-              🔥 3일 내 인기글
-            </h2>
-            <span className="text-[10px] text-emerald-600 bg-emerald-50 font-bold px-2 py-0.5 rounded-full border border-emerald-100">
-              댓글 많은 순
-            </span>
-          </div>
-        </div>
-
-        {popularPosts.length === 0 ? (
-          <div className="py-8 text-center text-gray-400 font-medium">
-            최근 3일 간 등록된 인기 게시글이 없습니다.
-          </div>
-        ) : (
-          <div className="divide-y divide-gray-200/60">
-            {popularPosts.map((post) => {
-              const gallerySlug = post.galleries?.slug || post.gallery_id || 'free';
-              const galleryName = post.galleries?.name || '갤러리';
-
-              return (
-                <Link
-                  key={post.id}
-                  href={`/gallery/${gallerySlug}/${post.id}`}
-                  className="py-3 flex items-center justify-between gap-3 group block hover:bg-white -mx-2 px-3 rounded-xl transition"
-                >
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="px-2 py-0.5 bg-emerald-100/70 text-emerald-800 font-extrabold rounded-md text-[9.5px] shrink-0">
-                        {galleryName}
-                      </span>
-                      <h3 className="font-bold text-gray-800 text-xs truncate group-hover:text-emerald-600 transition">
-                        {post.title}
-                      </h3>
-                    </div>
-                    <div className="text-[10px] text-gray-400 flex items-center gap-2">
-                      <span>✍️ {post.author_name || '익명'}</span>
-                      <span>•</span>
-                      <span>{new Date(post.created_at).toLocaleDateString('ko-KR')}</span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-1 bg-white border border-gray-200 px-2.5 py-1 rounded-xl shrink-0 group-hover:border-emerald-300 transition shadow-2xs">
-                    <span className="text-[10px]">💬</span>
-                    <span className="font-black text-xs text-gray-700 group-hover:text-emerald-600">
-                      {post.comment_count || post.comments_count || 0}
-                    </span>
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        )}
-      </section>
-
-      {/* 👑 [하단 섹션] 실시간 베스트 (조회수 + 좋아요 + 댓글 종합 반영) */}
+      {/* 👑 실시간 베스트 (조회수 + 좋아요 + 댓글 종합 반영) */}
       <section className="bg-gradient-to-br from-amber-50/50 to-orange-50/30 border border-amber-200/60 rounded-2xl p-5 space-y-3">
         <div className="flex items-center justify-between border-b border-amber-200/60 pb-3">
           <div className="flex items-center gap-2">
