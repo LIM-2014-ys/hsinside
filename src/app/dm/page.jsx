@@ -237,7 +237,6 @@ export default function DMPage() {
         'postgres_changes',
         { event: 'DELETE', schema: 'public', table: 'chat_rooms' },
         (payload) => {
-          // 방장에 의해 방이 폭파되었을 때 실시간 닫기 처리
           if (activeRoom && activeRoom.id === payload.old.id) {
             setActiveRoom(null);
             setMessages([]);
@@ -380,7 +379,7 @@ export default function DMPage() {
     }
   };
 
-  // ➕ 9. 멤버 더 초대하기
+  // ➕ 9. 멤버 더 초대하기 (📢 초대 알림 시스템 메시지 자동 생성)
   const openInviteModal = async () => {
     if (!activeRoom || !currentUser) return;
 
@@ -420,6 +419,22 @@ export default function DMPage() {
           .update({ is_group: true })
           .eq('id', activeRoom.id);
       }
+
+      // 📢 초대 시스템 메시지 생성 및 DB 저장
+      const invitedUserNames = invitableUsers
+        .filter((u) => selectedInviteUserIds.includes(u.id))
+        .map((u) => u.display_name || u.nickname || '익명')
+        .join(', ');
+
+      const systemMsgContent = `📢 ${invitedUserNames}님이 초대되었습니다.`;
+
+      await supabase.from('chat_messages').insert([
+        {
+          room_id: activeRoom.id,
+          sender_id: currentUser.id,
+          content: systemMsgContent,
+        },
+      ]);
 
       showToast('새 멤버를 성공적으로 초대했습니다!', 'success');
       setIsInviteModalOpen(false);
@@ -528,7 +543,7 @@ export default function DMPage() {
     }
   };
 
-  // 1:1 대화 개설 (생성 시 owner_id에 currentUser.id 지정)
+  // 1:1 대화 개설
   const startOneOnOneChat = async (targetUser) => {
     if (!targetUser.canDM) {
       showToast('상대방이 회원님을 팔로우하고 있어야 메시지를 보낼 수 있습니다.');
@@ -576,7 +591,7 @@ export default function DMPage() {
     }
   };
 
-  // 새 그룹 채팅 개설 모달 열기
+  // 새 그룹 채팅 생성 모달 열기
   const openGroupModal = async () => {
     if (!currentUser) return;
     setIsGroupModalOpen(true);
@@ -590,7 +605,7 @@ export default function DMPage() {
     setAvailableGroupUsers(validUsers);
   };
 
-  // 그룹 채팅 생성 (owner_id에 currentUser.id 설정)
+  // 그룹 채팅 생성
   const createGroupChat = async () => {
     if (selectedGroupUserIds.length < 1) {
       showToast('최소 1명 이상의 상대를 선택해 주세요.');
@@ -636,6 +651,14 @@ export default function DMPage() {
   }
 
   const isOwner = activeRoom && currentUser && activeRoom.owner_id === currentUser.id;
+
+  const activePartner =
+    roomMembers.find((m) => m.user_id !== currentUser?.id)?.profiles ||
+    rooms.find((r) => r.id === activeRoom?.id)?.members?.find((m) => m.user_id !== currentUser?.id)?.profiles;
+
+  const activeRoomTitle = activeRoom?.is_group
+    ? activeRoom.name
+    : activePartner?.display_name || activePartner?.nickname || '상대방';
 
   return (
     <div className="max-w-5xl mx-auto my-4 px-2 sm:px-4 font-sans text-xs">
@@ -717,7 +740,7 @@ export default function DMPage() {
                       <div className="flex items-center justify-between gap-1">
                         <h2 className="font-bold text-xs truncate flex items-center gap-1">
                           <span>{roomDisplayName}</span>
-                          {room.owner_id === currentUser?.id && (
+                          {room.is_group && room.owner_id === currentUser?.id && (
                             <span className="text-[9px] font-extrabold text-amber-400">👑</span>
                           )}
                         </h2>
@@ -777,12 +800,8 @@ export default function DMPage() {
 
                   <div>
                     <h2 className="font-black text-xs text-gray-900 truncate flex items-center gap-1.5">
-                      <span>
-                        {activeRoom.is_group
-                          ? activeRoom.name
-                          : roomMembers.find((m) => m.user_id !== currentUser?.id)?.profiles?.display_name || '1:1 DM'}
-                      </span>
-                      {isOwner && (
+                      <span>{activeRoomTitle}</span>
+                      {isOwner && activeRoom.is_group && (
                         <span className="bg-amber-100 text-amber-800 text-[9px] font-black px-1.5 py-0.5 rounded-md">
                           👑 내가 방장
                         </span>
@@ -803,8 +822,7 @@ export default function DMPage() {
                     + 초대
                   </button>
 
-                  {/* 💣 방장인 경우 방 폭파 버튼 / 일반 멤버는 나가기 버튼 */}
-                  {isOwner ? (
+                  {isOwner && activeRoom.is_group ? (
                     <button
                       onClick={handleDestroyRoom}
                       className="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-[10px] transition shadow-xs"
@@ -838,10 +856,20 @@ export default function DMPage() {
                   </div>
                 ) : (
                   messages.map((msg) => {
+                    // 📢 시스템 초대 알림 메시지인 경우 중앙 뱃지로 출력
+                    if (msg.content.startsWith('📢')) {
+                      return (
+                        <div key={msg.id} className="flex justify-center my-2">
+                          <span className="px-3 py-1 bg-gray-200/80 text-gray-600 font-bold rounded-full text-[10px] shadow-2xs">
+                            {msg.content}
+                          </span>
+                        </div>
+                      );
+                    }
+
                     const isMine = msg.sender_id === currentUser?.id;
                     const senderName = msg.profiles?.display_name || msg.profiles?.nickname || '익명';
 
-                    // 메시지별 안 읽은 사람 수
                     const unreadCount = getUnreadCountForMessage(msg);
 
                     return (
