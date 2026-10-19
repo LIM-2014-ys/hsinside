@@ -16,12 +16,15 @@ export default function MyPage() {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // ✍️ 작성한 게시글 및 팔로우 관련 상태
+  // 작성한 게시글 및 팔로우 관련 상태
   const [userPosts, setUserPosts] = useState([]);
   const [followers, setFollowers] = useState([]);
   const [followings, setFollowings] = useState([]);
   const [isFollowing, setIsFollowing] = useState(false);
   const [modalType, setModalType] = useState(null); // 'followers' | 'followings' | null
+
+  // 알림 메시지 상태 (alert 대체)
+  const [toastMsg, setToastMsg] = useState({ type: '', text: '' });
 
   // 내 프로필 수정 상태
   const [isEditing, setIsEditing] = useState(false);
@@ -42,6 +45,14 @@ export default function MyPage() {
   // 회원 탈퇴 상태
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
+
+  // 토스트 메시지 출력 함수
+  const showToast = (text, type = 'error') => {
+    setToastMsg({ type, text });
+    setTimeout(() => {
+      setToastMsg({ type: '', text: '' });
+    }, 3000);
+  };
 
   // 유저 데이터, 작성글, 팔로우 정보 로드
   const fetchUserData = useCallback(async () => {
@@ -122,9 +133,12 @@ export default function MyPage() {
   const isSelf = currentUser && currentUser.id === targetUserId;
   const currentDisplayName = profile?.display_name || profile?.nickname || '익명';
 
-  // 🚀 팔로우 / 팔로우 취소 토글 (+ 즉시 반영 & 푸시 알림)
+  // 팔로우 / 팔로우 취소 토글
   const handleFollowToggle = async () => {
-    if (!currentUser) return alert('로그인이 필요합니다.');
+    if (!currentUser) {
+      showToast('로그인이 필요합니다.');
+      return;
+    }
 
     const wasFollowing = isFollowing;
     setIsFollowing(!wasFollowing);
@@ -153,7 +167,6 @@ export default function MyPage() {
           .from('follows')
           .insert([{ follower_id: currentUser.id, following_id: targetUserId }]);
 
-        // 🔔 팔로우 당한 사람에게 즉시 알림 발송
         fetch('/api/push', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -225,7 +238,7 @@ export default function MyPage() {
     if (!file) return;
 
     if (file.size > 2 * 1024 * 1024) {
-      alert('프로필 이미지는 2MB 이하의 파일만 업로드할 수 있습니다.');
+      showToast('프로필 이미지는 2MB 이하의 파일만 업로드할 수 있습니다.');
       return;
     }
 
@@ -239,18 +252,18 @@ export default function MyPage() {
     if (!currentUser) return;
 
     if (/\s/.test(editNickname)) {
-      alert('닉네임에 공백을 포함할 수 없습니다.');
+      showToast('닉네임에 공백을 포함할 수 없습니다.');
       return;
     }
 
     const trimmedNickname = editNickname.trim();
     if (!trimmedNickname) {
-      alert('닉네임을 입력해 주세요.');
+      showToast('닉네임을 입력해 주세요.');
       return;
     }
 
     if (trimmedNickname.toLowerCase() !== currentDisplayName.toLowerCase() && !isNicknameChecked) {
-      alert('닉네임 중복 확인을 진행해 주세요.');
+      showToast('닉네임 중복 확인을 진행해 주세요.');
       return;
     }
 
@@ -282,13 +295,13 @@ export default function MyPage() {
         }));
         setIsEditing(false);
         setNicknameCheckMsg({ type: '', text: '' });
-        alert('프로필 정보가 성공적으로 저장되었습니다!');
+        showToast('프로필 정보가 성공적으로 저장되었습니다!', 'success');
       } else {
-        alert(`저장 실패: ${error.message}`);
+        showToast(`저장 실패: ${error.message}`);
       }
     } catch {
-      alert('프로필 저장 중 오류가 발생했습니다.');
-    } fontally {
+      showToast('프로필 저장 중 오류가 발생했습니다.');
+    } finally {
       setUpdatingProfile(false);
     }
   };
@@ -336,11 +349,10 @@ export default function MyPage() {
     try {
       await supabase.from('profiles').delete().eq('id', currentUser.id);
       await supabase.auth.signOut();
-      alert('회원 탈퇴가 완료되었습니다. 이용해 주셔서 감사합니다.');
       router.push('/');
     } catch (err) {
       console.error('회원 탈퇴 오류:', err);
-      alert('회원 탈퇴 처리 중 오류가 발생했습니다.');
+      showToast('회원 탈퇴 처리 중 오류가 발생했습니다.');
     } finally {
       setDeletingAccount(false);
       setShowDeleteConfirm(false);
@@ -359,6 +371,19 @@ export default function MyPage() {
 
   return (
     <div className="max-w-md mx-auto my-6 px-4 font-sans text-xs space-y-5">
+      {/* 안내 알림 배너 */}
+      {toastMsg.text && (
+        <div
+          className={`p-3 rounded-2xl text-xs font-bold transition shadow-xs ${
+            toastMsg.type === 'success'
+              ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+              : 'bg-red-50 text-red-700 border border-red-200'
+          }`}
+        >
+          {toastMsg.text}
+        </div>
+      )}
+
       <button
         onClick={() => router.back()}
         className="px-3 py-1.5 bg-gray-100 active:bg-gray-200 text-gray-700 font-bold rounded-xl transition text-[11px] touch-manipulation"
@@ -384,7 +409,6 @@ export default function MyPage() {
           {profile?.email && <p className="text-[11px] text-gray-400 font-medium">{profile.email}</p>}
         </div>
 
-        {/* 📊 팔로워/팔로잉 숫자가 즉시 반영됩니다 */}
         <div className="flex items-center justify-center gap-8 py-3 border-y border-gray-100">
           <button
             type="button"
@@ -416,7 +440,6 @@ export default function MyPage() {
           {profile?.bio || '작성된 소개 메시지가 없습니다.'}
         </div>
 
-        {/* 버튼 액션 */}
         <div className="pt-2 space-y-2">
           {isSelf ? (
             <>
@@ -482,7 +505,6 @@ export default function MyPage() {
               )}
             </>
           ) : (
-            /* 🎯 타인 프로필 시 팔로우 버튼 */
             <button
               onClick={handleFollowToggle}
               className={`w-full py-2.5 rounded-xl font-bold transition text-xs touch-manipulation active:scale-95 ${
@@ -633,7 +655,7 @@ export default function MyPage() {
         )}
       </div>
 
-      {/* ✍️ 작성한 게시글 카드 */}
+      {/* 작성한 게시글 카드 */}
       <div className="bg-white border border-gray-100 rounded-3xl p-5 shadow-xs space-y-3">
         <h2 className="font-black text-xs text-gray-900 border-b border-gray-100 pb-2.5">
           ✍️ 작성한 게시글 <span className="text-emerald-600">{userPosts.length}</span>개
@@ -669,7 +691,7 @@ export default function MyPage() {
         </div>
       </div>
 
-      {/* 👥 단순화된 팔로워 / 팔로잉 팝업 (DM 버튼 및 체크박스 없이 닉네임과 프로필 사진만 노출) */}
+      {/* 팔로워 / 팔로잉 팝업 */}
       {modalType && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-xs rounded-3xl p-5 shadow-2xl space-y-4 max-h-[75vh] flex flex-col border border-gray-100">
