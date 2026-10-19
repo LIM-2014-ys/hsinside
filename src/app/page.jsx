@@ -1,13 +1,11 @@
-'use client';
-
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 import InstallPrompt from '@/components/InstallPrompt';
 import NotificationPrompt from '@/components/NotificationPrompt';
 import UserSearch from '@/components/UserSearch';
 
+// 다이내믹 랜더링 강제 (캐시 비활성화)
 export const dynamic = 'force-dynamic';
-export const revalidate = 0;
 
 export default async function HomePage() {
   // 1. DB 갤러리 목록 조회
@@ -196,7 +194,7 @@ export default async function HomePage() {
         )}
       </section>
 
-      {/* 👑 [하단 추가] 실시간 베스트 (조회수 + 좋아요 + 댓글 종합 반영) */}
+      {/* 👑 [하단 섹션] 실시간 베스트 (조회수 + 좋아요 + 댓글 종합 반영) */}
       <section className="bg-gradient-to-br from-amber-50/50 to-orange-50/30 border border-amber-200/60 rounded-2xl p-5 space-y-3">
         <div className="flex items-center justify-between border-b border-amber-200/60 pb-3">
           <div className="flex items-center gap-2">
