@@ -24,7 +24,10 @@ export default function DMPage() {
   // 모바일 레이아웃 상태
   const [showMobileSidebar, setShowMobileSidebar] = useState(true);
 
-  // 🔍 친구 검색 & 1:1 대화 모달
+  // 토스트 메시지 상태 (alert 대체)
+  const [toastMsg, setToastMsg] = useState({ type: '', text: '' });
+
+  // 🔍 유저 검색 모달
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
@@ -36,12 +39,16 @@ export default function DMPage() {
   const [selectedGroupUserIds, setSelectedGroupUserIds] = useState([]);
   const [groupNameInput, setGroupNameInput] = useState('');
 
+  const showToast = (text, type = 'error') => {
+    setToastMsg({ type, text });
+    setTimeout(() => setToastMsg({ type: '', text: '' }), 3000);
+  };
+
   // 1. 유저 인증 확인
   useEffect(() => {
     const initUser = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        alert('로그인이 필요한 페이지입니다.');
         router.push('/');
         return;
       }
@@ -50,14 +57,14 @@ export default function DMPage() {
     initUser();
   }, [router]);
 
-  // 2. 참여 중인 대화방 목록 불러오기
+  // 2. 참여 중인 대화방 목록 + 안 읽은 메시지 수 계산
   const fetchMyRooms = useCallback(async () => {
     if (!currentUser) return;
 
     try {
       const { data: myMemberships } = await supabase
         .from('chat_room_members')
-        .select('room_id')
+        .select('room_id, last_read_at')
         .eq('user_id', currentUser.id);
 
       if (!myMemberships || myMemberships.length === 0) {
@@ -72,12 +79,45 @@ export default function DMPage() {
         .from('chat_rooms')
         .select(`
           *,
-          members:chat_room_members(*, profiles:user_id(*))
+          members:chat_room_members(*, profiles:user_id(*)),
+          messages:chat_messages(id, content, created_at, sender_id)
         `)
-        .in('id', roomIds)
-        .order('created_at', { ascending: false });
+        .in('id', roomIds);
 
-      if (roomData) setRooms(roomData);
+      if (roomData) {
+        const processedRooms = roomData.map((room) => {
+          const sortedMsgs = (room.messages || []).sort(
+            (a, b) => new Date(b.created_at) - new Date(a.created_at)
+          );
+          const latestMsgObj = sortedMsgs[0];
+
+          const myMember = room.members?.find((m) => m.user_id === currentUser.id);
+          const lastReadTime = myMember?.last_read_at
+            ? new Date(myMember.last_read_at).getTime()
+            : 0;
+
+          // 내가 안 읽은 상대방 메시지 카운트
+          const unreadCount = sortedMsgs.filter(
+            (m) =>
+              m.sender_id !== currentUser.id &&
+              new Date(m.created_at).getTime() > lastReadTime + 500
+          ).length;
+
+          return {
+            ...room,
+            latestMsg: latestMsgObj?.content || '대화가 시작되었습니다.',
+            latestMsgTime: latestMsgObj?.created_at || room.created_at,
+            unreadCount,
+          };
+        });
+
+        // 최신 메시지 순 정렬
+        processedRooms.sort(
+          (a, b) => new Date(b.latestMsgTime) - new Date(a.latestMsgTime)
+        );
+
+        setRooms(processedRooms);
+      }
     } catch (err) {
       console.error('대화방 로드 오류:', err);
     } finally {
@@ -89,17 +129,24 @@ export default function DMPage() {
     fetchMyRooms();
   }, [fetchMyRooms]);
 
-  // 3. 읽음 타임스탬프 업데이트
+  // 3. 읽음 상태(last_read_at) DB 및 로컬 즉시 업데이트 (숫자 차감)
   const updateLastRead = useCallback(async (roomId) => {
     if (!currentUser || !roomId) return;
+    const nowISO = new Date().toISOString();
+
+    // 로컬 상태 카운트 즉시 0 처리
+    setRooms((prev) =>
+      prev.map((r) => (r.id === roomId ? { ...r, unreadCount: 0 } : r))
+    );
+
     await supabase
       .from('chat_room_members')
-      .update({ last_read_at: new Date().toISOString() })
+      .update({ last_read_at: nowISO })
       .eq('room_id', roomId)
       .eq('user_id', currentUser.id);
   }, [currentUser]);
 
-  // 4. 채팅방 변경 및 메시지 로드
+  // 4. 채팅방 선택 & 메시지 로드
   const loadRoomDetails = useCallback(async (room) => {
     setActiveRoom(room);
     setShowMobileSidebar(false);
@@ -119,42 +166,52 @@ export default function DMPage() {
 
     if (memData) setRoomMembers(memData);
 
+    // 읽음 처리 (안 읽은 숫자 0으로 감소)
     updateLastRead(room.id);
   }, [updateLastRead]);
 
-  // 5. Realtime 메시지 수신 및 읽음 동기화
+  // 5. 🔥 글로벌 Realtime 실시간 대화 수신 및 안 읽은 수 동기화
   useEffect(() => {
-    if (!activeRoom) return;
+    if (!currentUser) return;
 
     const channel = supabase
-      .channel(`dm-room-${activeRoom.id}`)
+      .channel('global-chat-realtime')
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `room_id=eq.${activeRoom.id}` },
+        { event: 'INSERT', schema: 'public', table: 'chat_messages' },
         async (payload) => {
+          const newMsg = payload.new;
+
+          // 발신자 프로필 가져오기
           const { data: senderProfile } = await supabase
             .from('profiles')
             .select('*')
-            .eq('id', payload.new.sender_id)
+            .eq('id', newMsg.sender_id)
             .single();
 
-          setMessages((prev) => {
-            if (prev.some((m) => m.id === payload.new.id)) return prev;
-            return [...prev, { ...payload.new, profiles: senderProfile }];
-          });
+          const fullMsg = { ...newMsg, profiles: senderProfile };
 
-          if (payload.new.sender_id !== currentUser?.id) {
-            updateLastRead(activeRoom.id);
+          // 현재 열려 있는 방의 메시지인 경우 -> 메시지 추가 및 읽음 처리
+          if (activeRoom && activeRoom.id === newMsg.room_id) {
+            setMessages((prev) => {
+              if (prev.some((m) => m.id === newMsg.id)) return prev;
+              return [...prev, fullMsg];
+            });
+
+            if (newMsg.sender_id !== currentUser.id) {
+              updateLastRead(newMsg.room_id);
+            }
           }
+
+          // 대화방 목록 및 안 읽은 수 실시간 갱신
+          fetchMyRooms();
         }
       )
       .on(
         'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'chat_room_members', filter: `room_id=eq.${activeRoom.id}` },
-        (payload) => {
-          setRoomMembers((prev) =>
-            prev.map((m) => (m.id === payload.new.id ? { ...m, ...payload.new } : m))
-          );
+        { event: 'UPDATE', schema: 'public', table: 'chat_room_members' },
+        () => {
+          fetchMyRooms();
         }
       )
       .subscribe();
@@ -162,13 +219,13 @@ export default function DMPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [activeRoom, currentUser, updateLastRead]);
+  }, [currentUser, activeRoom, fetchMyRooms, updateLastRead]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // 6. 메시지 전송 & 푸시 알림
+  // 6. 메시지 전송
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!inputMessage.trim() || !activeRoom || !currentUser || sending) return;
@@ -211,13 +268,13 @@ export default function DMPage() {
       }
     } catch (err) {
       console.error('메시지 전송 오류:', err);
-      alert('메시지 전송 실패: DB 권한 및 테이블 상태를 확인해 주세요.');
+      showToast('메시지 전송 실패: DB 권한 설정을 확인해 주세요.');
     } finally {
       setSending(false);
     }
   };
 
-  // 7. 🔍 유저 검색 (나를 팔로우 중이거나 맞팔인 경우 DM 허용)
+  // 유저 검색
   const handleSearchUsers = async (e) => {
     e.preventDefault();
     if (!searchQuery.trim() || !currentUser) return;
@@ -236,7 +293,6 @@ export default function DMPage() {
         return;
       }
 
-      // 내 팔로잉 및 나를 팔로우하는 팔로워 목록 조회
       const { data: myFollowings } = await supabase
         .from('follows')
         .select('following_id')
@@ -252,7 +308,7 @@ export default function DMPage() {
 
       const processedResults = users.map((u) => {
         const iFollow = followingSet.has(u.id);
-        const theyFollow = followerSet.has(u.id); // 🌟 상대방이 나를 팔로우 중인가?
+        const theyFollow = followerSet.has(u.id);
         const isMutual = iFollow && theyFollow;
 
         return {
@@ -260,7 +316,7 @@ export default function DMPage() {
           iFollow,
           theyFollow,
           isMutual,
-          canDM: theyFollow || isMutual, // 🎯 나를 팔로우하고 있다면 DM 허용!
+          canDM: theyFollow || isMutual,
         };
       });
 
@@ -308,10 +364,10 @@ export default function DMPage() {
     }
   };
 
-  // 1:1 대화 시작
+  // 1:1 대화 개설
   const startOneOnOneChat = async (targetUser) => {
     if (!targetUser.canDM) {
-      alert('상대방이 회원님을 팔로우하고 있어야 메시지를 보낼 수 있습니다.');
+      showToast('상대방이 회원님을 팔로우하고 있어야 메시지를 보낼 수 있습니다.');
       return;
     }
 
@@ -352,11 +408,11 @@ export default function DMPage() {
       loadRoomDetails(newRoom);
     } catch (err) {
       console.error('1:1 채팅 개설 에러:', err);
-      alert('채팅방을 생성할 수 없습니다.');
+      showToast('채팅방을 생성할 수 없습니다.');
     }
   };
 
-  // 👥 그룹 채팅 생성 모달 열기 (상대방이 나를 팔로우 중이거나 맞팔인 유저만 초대 대상)
+  // 그룹 채팅 개설
   const openGroupModal = async () => {
     if (!currentUser) return;
     setIsGroupModalOpen(true);
@@ -371,7 +427,10 @@ export default function DMPage() {
   };
 
   const createGroupChat = async () => {
-    if (selectedGroupUserIds.length < 1) return alert('최소 1명 이상의 상대를 선택해주세요.');
+    if (selectedGroupUserIds.length < 1) {
+      showToast('최소 1명 이상의 상대를 선택해 주세요.');
+      return;
+    }
 
     const name = groupNameInput.trim() || `그룹 채팅 (${selectedGroupUserIds.length + 1}명)`;
     const allMemberIds = [...new Set([...selectedGroupUserIds, currentUser.id])];
@@ -399,21 +458,8 @@ export default function DMPage() {
       loadRoomDetails(newRoom);
     } catch (err) {
       console.error('그룹 채팅 생성 실패:', err);
-      alert('그룹 채팅 생성에 실패했습니다. DB 권한 설정을 확인해 주세요.');
+      showToast('그룹 채팅 생성 실패: DB 권한을 확인해 주세요.');
     }
-  };
-
-  const getUnreadCount = (msg) => {
-    if (!roomMembers || roomMembers.length === 0) return 0;
-    const msgTime = new Date(msg.created_at).getTime();
-
-    const unreadMembers = roomMembers.filter((m) => {
-      if (m.user_id === msg.sender_id) return false;
-      const lastReadTime = new Date(m.last_read_at).getTime();
-      return lastReadTime < msgTime - 1000;
-    });
-
-    return unreadMembers.length;
   };
 
   if (loading) {
@@ -426,8 +472,20 @@ export default function DMPage() {
 
   return (
     <div className="max-w-5xl mx-auto my-4 px-2 sm:px-4 font-sans text-xs">
+      {/* 토스트 안내 */}
+      {toastMsg.text && (
+        <div
+          className={`mb-3 p-3 rounded-2xl text-xs font-bold transition shadow-xs ${
+            toastMsg.type === 'success'
+              ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+              : 'bg-red-50 text-red-700 border border-red-200'
+          }`}
+        >
+          {toastMsg.text}
+        </div>
+      )}
+
       <div className="bg-white border border-gray-200 rounded-3xl shadow-xl h-[82vh] flex overflow-hidden">
-        
         {/* 👈 [좌측] 대화방 목록 */}
         <div
           className={`${
@@ -474,7 +532,7 @@ export default function DMPage() {
                   <div
                     key={room.id}
                     onClick={() => loadRoomDetails(room)}
-                    className={`p-3 rounded-2xl cursor-pointer transition flex items-center gap-3 ${
+                    className={`p-3 rounded-2xl cursor-pointer transition flex items-center gap-3 relative ${
                       isActive
                         ? 'bg-emerald-600 text-white shadow-xs'
                         : 'hover:bg-white active:bg-gray-100 text-gray-800'
@@ -491,24 +549,28 @@ export default function DMPage() {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between">
                         <h2 className="font-bold text-xs truncate">{roomDisplayName}</h2>
-                        {room.is_group && (
-                          <span
-                            className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold shrink-0 ${
-                              isActive ? 'bg-emerald-700 text-white' : 'bg-gray-200 text-gray-600'
-                            }`}
-                          >
-                            {room.members?.length}명
-                          </span>
-                        )}
+                        <span className="text-[9px] text-gray-400 shrink-0">
+                          {new Date(room.latestMsgTime).toLocaleTimeString('ko-KR', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </span>
                       </div>
                       <p
                         className={`text-[10px] truncate mt-0.5 ${
                           isActive ? 'text-emerald-100' : 'text-gray-400'
                         }`}
                       >
-                        대화 참여 중...
+                        {room.latestMsg}
                       </p>
                     </div>
+
+                    {/* 🔥 안 읽은 메시지 배지 카운트 */}
+                    {room.unreadCount > 0 && !isActive && (
+                      <span className="bg-amber-500 text-white font-black text-[10px] px-1.5 py-0.5 rounded-full min-w-[18px] text-center shrink-0">
+                        {room.unreadCount}
+                      </span>
+                    )}
                   </div>
                 );
               })
@@ -516,7 +578,7 @@ export default function DMPage() {
           </div>
         </div>
 
-        {/* 👉 [우측] 채팅 화면 */}
+        {/* 👉 [우측] 채팅 대화창 */}
         <div
           className={`${
             !showMobileSidebar ? 'flex' : 'hidden md:flex'
@@ -561,7 +623,6 @@ export default function DMPage() {
                   messages.map((msg) => {
                     const isMine = msg.sender_id === currentUser?.id;
                     const senderName = msg.profiles?.display_name || msg.profiles?.nickname || '익명';
-                    const unreadCount = getUnreadCount(msg);
 
                     return (
                       <div
@@ -576,19 +637,12 @@ export default function DMPage() {
 
                         <div className="flex items-end gap-1.5 max-w-[80%]">
                           {isMine && (
-                            <div className="flex flex-col items-end shrink-0">
-                              {unreadCount > 0 && (
-                                <span className="text-[10px] font-black text-amber-500 leading-none mb-0.5">
-                                  {unreadCount}
-                                </span>
-                              )}
-                              <span className="text-[8.5px] text-gray-400">
-                                {new Date(msg.created_at).toLocaleTimeString('ko-KR', {
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })}
-                              </span>
-                            </div>
+                            <span className="text-[8.5px] text-gray-400 shrink-0">
+                              {new Date(msg.created_at).toLocaleTimeString('ko-KR', {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </span>
                           )}
 
                           <div
@@ -602,19 +656,12 @@ export default function DMPage() {
                           </div>
 
                           {!isMine && (
-                            <div className="flex flex-col items-start shrink-0">
-                              {unreadCount > 0 && (
-                                <span className="text-[10px] font-black text-amber-500 leading-none mb-0.5">
-                                  {unreadCount}
-                                </span>
-                              )}
-                              <span className="text-[8.5px] text-gray-400">
-                                {new Date(msg.created_at).toLocaleTimeString('ko-KR', {
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })}
-                              </span>
-                            </div>
+                            <span className="text-[8.5px] text-gray-400 shrink-0">
+                              {new Date(msg.created_at).toLocaleTimeString('ko-KR', {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </span>
                           )}
                         </div>
                       </div>
@@ -649,14 +696,14 @@ export default function DMPage() {
               <span className="text-5xl">💬</span>
               <h3 className="font-bold text-gray-700 text-sm">대화방을 선택해 주세요</h3>
               <p className="text-xs max-w-xs text-gray-400">
-                좌측 상단 '🔍 찾기'에서 유저를 찾아 대화를 시작해 보세요. (상대방이 나를 팔로우 중이면 DM 가능)
+                좌측 상단 '🔍 찾기'에서 유저를 찾아 대화를 시작해 보세요.
               </p>
             </div>
           )}
         </div>
       </div>
 
-      {/* 🔍 유저 검색 & DM 모달 */}
+      {/* 🔍 유저 검색 모달 */}
       {isSearchModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-sm rounded-3xl p-5 shadow-2xl space-y-4 max-h-[80vh] flex flex-col border border-gray-100">
@@ -731,7 +778,6 @@ export default function DMPage() {
                           {u.iFollow ? '팔로잉' : '+ 팔로우'}
                         </button>
 
-                        {/* 🌟 상대방이 나를 팔로우 중이거나 맞팔인 경우 DM 가능 */}
                         {u.canDM ? (
                           <button
                             onClick={() => startOneOnOneChat(u)}
@@ -743,7 +789,6 @@ export default function DMPage() {
                           <button
                             disabled
                             className="px-2.5 py-1 bg-gray-100 text-gray-400 font-bold rounded-lg text-[10px] cursor-not-allowed"
-                            title="상대방이 회원님을 팔로우하고 있어야 DM이 가능합니다."
                           >
                             🔒 팔로워 전용
                           </button>
