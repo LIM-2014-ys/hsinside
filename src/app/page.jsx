@@ -6,44 +6,58 @@ import { supabase } from '@/lib/supabaseClient';
 import UserSearch from '@/components/UserSearch';
 
 export default function HomePage() {
-  const [recentPosts, setRecentPosts] = useState([]);
+  const [popularPosts, setPopularPosts] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // 갤러리 카테고리 정의
+  // 원래 구성된 갤러리 목록
   const galleries = [
     { id: 'free', name: '자유 갤러리', icon: '💬', desc: '자유로운 이야기를 나누는 공간' },
-    { id: 'tech', name: 'IT/개발 갤러리', icon: '💻', desc: '코딩, 프로그래밍, 신기술 정보' },
     { id: 'humor', name: '유머 갤러리', icon: '😆', desc: '유머 및 재미있는 이슈 모음' },
     { id: 'qna', name: '질문 갤러리', icon: '❓', desc: '궁금한 점을 서로 묻고 답하는 곳' },
+    { id: 'tech', name: 'IT/개발 갤러리', icon: '💻', desc: '코딩, 프로그래밍, 신기술 정보' },
   ];
 
-  // 최신 게시글 로드
+  // 3일 내 올라온 댓글 순 인기 게시글 조회
   useEffect(() => {
-    const fetchRecentPosts = async () => {
+    const fetchPopularPosts = async () => {
       setLoading(true);
       try {
-        const { data, error } = await supabase
+        // 현재 시간 기준 3일 전 ISO 날짜 계산
+        const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+
+        // 3일 내 생성된 게시글을 댓글 수(comment_count) 및 작성일 순으로 정렬
+        let { data, error } = await supabase
           .from('posts')
           .select('*')
+          .gte('created_at', threeDaysAgo)
+          .order('comment_count', { ascending: false })
           .order('created_at', { ascending: false })
           .limit(10);
 
-        if (!error && data) {
-          setRecentPosts(data);
+        // 만약 3일 내 작성된 글이 적거나 comment_count 정렬 예외 시 최근 글 보완
+        if (error || !data || data.length === 0) {
+          const fallbackQuery = await supabase
+            .from('posts')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(10);
+          data = fallbackQuery.data || [];
         }
+
+        setPopularPosts(data);
       } catch (err) {
-        console.error('최신글 로드 오류:', err);
+        console.error('인기글 조회 오류:', err);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchRecentPosts();
+    fetchPopularPosts();
   }, []);
 
   return (
     <main className="max-w-3xl mx-auto my-6 px-4 font-sans text-xs space-y-6">
-      {/* 🏠 메인 헤더 히어로 섹션 */}
+      {/* 🏠 메인 히어로 헤더 */}
       <div className="bg-gradient-to-r from-emerald-600 to-teal-600 rounded-3xl p-6 sm:p-8 text-white text-center space-y-2 shadow-lg shadow-emerald-500/10">
         <h1 className="text-2xl sm:text-3xl font-black tracking-tight">hsinside</h1>
         <p className="text-emerald-100 text-xs font-medium">
@@ -51,15 +65,15 @@ export default function HomePage() {
         </p>
       </div>
 
-      {/* 🔍 유저 닉네임 실시간 검색 컴포넌트 */}
+      {/* 🔍 유저 닉네임 검색 */}
       <section className="space-y-1.5">
         <h2 className="font-extrabold text-gray-700 text-xs px-1">👥 유저 찾기</h2>
         <UserSearch />
       </section>
 
-      {/* 📌 주요 갤러리 바로가기 */}
+      {/* 📌 갤러리 목록 */}
       <section className="space-y-2">
-        <h2 className="font-extrabold text-gray-700 text-xs px-1">📌 주요 갤러리</h2>
+        <h2 className="font-extrabold text-gray-700 text-xs px-1">📌 갤러리</h2>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
           {galleries.map((gallery) => (
             <Link
@@ -79,12 +93,17 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* 🔥 최신 전체 게시글 목록 */}
+      {/* 🔥 3일 내 인기 게시글 (댓글 많은 순) */}
       <section className="bg-white border border-gray-100 rounded-3xl p-5 sm:p-6 shadow-xs space-y-3">
         <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-          <h2 className="font-black text-sm text-gray-900 flex items-center gap-1.5">
-            🔥 실시간 최신글
-          </h2>
+          <div className="flex items-center gap-2">
+            <h2 className="font-black text-sm text-gray-900 flex items-center gap-1.5">
+              🔥 3일 내 인기글
+            </h2>
+            <span className="text-[10px] text-emerald-600 bg-emerald-50 font-bold px-2 py-0.5 rounded-full">
+              댓글 많은 순
+            </span>
+          </div>
           <Link
             href="/gallery/free"
             className="text-[11px] font-bold text-emerald-600 hover:underline"
@@ -95,15 +114,15 @@ export default function HomePage() {
 
         {loading ? (
           <div className="py-10 text-center text-gray-400 font-bold">
-            게시글을 불러오는 중입니다...
+            인기 게시글을 불러오는 중입니다...
           </div>
-        ) : recentPosts.length === 0 ? (
+        ) : popularPosts.length === 0 ? (
           <div className="py-10 text-center text-gray-400 font-medium">
-            작성된 게시글이 없습니다. 첫 글을 등록해 보세요!
+            최근 3일 간 등록된 인기 게시글이 없습니다.
           </div>
         ) : (
           <div className="divide-y divide-gray-100">
-            {recentPosts.map((post) => (
+            {popularPosts.map((post) => (
               <Link
                 key={post.id}
                 href={`/gallery/${post.gallery_id || 'free'}/${post.id}`}
@@ -125,9 +144,13 @@ export default function HomePage() {
                   </div>
                 </div>
 
-                <span className="text-[10px] font-bold text-gray-300 group-hover:text-emerald-600 shrink-0">
-                  보기 →
-                </span>
+                {/* 댓글 수 표시 */}
+                <div className="flex items-center gap-1 bg-gray-50 border border-gray-100 px-2.5 py-1 rounded-xl shrink-0 group-hover:bg-emerald-50 group-hover:border-emerald-200 transition">
+                  <span className="text-[10px]">💬</span>
+                  <span className="font-black text-xs text-gray-700 group-hover:text-emerald-700">
+                    {post.comment_count || 0}
+                  </span>
+                </div>
               </Link>
             ))}
           </div>
