@@ -41,13 +41,17 @@ export default function PostDetailPage() {
     }
   }, []);
 
-  // 게시글, 댓글 및 등록된 닉네임 데이터 조회
+  // 게시글(조회수 +1 처리 포함), 댓글 및 등록된 닉네임 데이터 조회
   useEffect(() => {
     if (!postId) return;
 
     const fetchData = async () => {
       setLoading(true);
       try {
+        // 👁️ 1. 조회수 1 증가 (RPC 함수 호출)
+        await supabase.rpc('increment_views', { post_id: postId });
+
+        // 2. 게시글 데이터 조회
         const { data: postData, error: postError } = await supabase
           .from('posts')
           .select('*')
@@ -58,6 +62,7 @@ export default function PostDetailPage() {
           setPost(postData);
         }
 
+        // 3. 댓글 목록 조회
         const { data: commentData, error: commentError } = await supabase
           .from('comments')
           .select('*')
@@ -68,7 +73,7 @@ export default function PostDetailPage() {
           setComments(commentData);
         }
 
-        // 등록된 닉네임 수집
+        // 4. 등록된 닉네임 수집 (멘션 하이라이트용)
         const nameSet = new Set();
 
         const { data: profileData } = await supabase
@@ -288,7 +293,6 @@ export default function PostDetailPage() {
               if (p.id && p.id !== user.id) mentionedUserIds.push(p.id);
             });
           } else {
-            // profiles에서 못 찾을 경우 기존 댓글 작성자 검색
             const { data: cData } = await supabase
               .from('comments')
               .select('user_id')
@@ -369,7 +373,7 @@ export default function PostDetailPage() {
             content: commentContent,
             author_name: commentAuthorName,
             author_email: user?.email || null,
-            user_id: user?.id || null, // 작성자 UUID 저장
+            user_id: user?.id || null,
           },
         ])
         .select('*')
@@ -520,7 +524,7 @@ export default function PostDetailPage() {
           </h1>
 
           <div className="flex items-center justify-between text-gray-400 text-[10px] sm:text-[11px] mt-2 pt-2 border-t border-gray-50 gap-2 min-w-0">
-            {/* 🔗 게시글 작성자 닉네임 클릭 -> 마이페이지(UUID) 이동 */}
+            {/* 작성자 닉네임 */}
             <div className="flex items-center gap-1 truncate min-w-0">
               {postAuthorUuid ? (
                 <Link
@@ -536,9 +540,13 @@ export default function PostDetailPage() {
               )}
               <AdminBadge email={post.author_email} />
             </div>
-            <span className="shrink-0 whitespace-nowrap text-gray-400">
-              {new Date(post.created_at).toLocaleString('ko-KR')}
-            </span>
+
+            {/* 👀 조회수 및 작성일시 */}
+            <div className="flex items-center gap-2 shrink-0 whitespace-nowrap text-gray-400 font-medium">
+              <span>👀 {post.views || 0}</span>
+              <span>•</span>
+              <span>{new Date(post.created_at).toLocaleString('ko-KR')}</span>
+            </div>
           </div>
         </div>
 
@@ -612,7 +620,6 @@ export default function PostDetailPage() {
                 <div key={comment.id} className="py-2.5 flex items-start justify-between gap-2">
                   <div className="space-y-0.5 flex-1 min-w-0">
                     <div className="flex items-center gap-1 flex-wrap">
-                      {/* 🔗 댓글 작성자 닉네임 클릭 -> 마이페이지(UUID) 이동 */}
                       {commentAuthorUuid ? (
                         <Link
                           href={`/mypage/${commentAuthorUuid}`}
