@@ -51,7 +51,7 @@ export default async function HomePage() {
             </div>
             
             <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white flex items-center gap-2">
-              🏛️ <span className="bg-clip-text text-transparent bg-gradient-to-r from-amber-200 via-emerald-200 to-white">hsinside</span>
+              <span className="bg-clip-text text-transparent bg-gradient-to-r from-amber-200 via-emerald-200 to-white">HSinside</span>
             </h1>
             
             <p className="text-slate-300 text-xs sm:text-sm font-medium leading-relaxed max-w-md">
