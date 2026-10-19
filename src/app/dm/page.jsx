@@ -158,7 +158,7 @@ export default function DMPage() {
     }
   }, [currentUser]);
 
-  // 4. 채팅방 선택 & 메시지/멤버 로드 (작성 시각 오름차순 엄격 정렬)
+  // 4. 채팅방 선택 & 메시지/멤버 로드
   const loadRoomDetails = useCallback(async (room) => {
     setActiveRoom(room);
     setShowMobileSidebar(false);
@@ -186,7 +186,7 @@ export default function DMPage() {
     updateLastRead(room.id);
   }, [updateLastRead]);
 
-  // 5. 🔥 Realtime 구독: 실시간 수신 시 자동 시간순 정렬로 1 0 1 0 섞임 방지
+  // 5. 🔥 Realtime 구독: 메시지 수신, 멤버 변경, 방 폭파(DELETE) 실시간 반영
   useEffect(() => {
     if (!currentUser) return;
 
@@ -233,6 +233,21 @@ export default function DMPage() {
           fetchMyRooms();
         }
       )
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'chat_rooms' },
+        (payload) => {
+          // 방장에 의해 방이 폭파되었을 때 실시간 닫기 처리
+          if (activeRoom && activeRoom.id === payload.old.id) {
+            setActiveRoom(null);
+            setMessages([]);
+            setRoomMembers([]);
+            setShowMobileSidebar(true);
+            showToast('방장에 의해 채팅방이 폭파되었습니다.');
+          }
+          fetchMyRooms();
+        }
+      )
       .subscribe();
 
     return () => {
@@ -244,7 +259,7 @@ export default function DMPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // 6. 각 메시지별 안 읽은 사람 수 정확한 계산
+  // 6. 각 메시지별 안 읽은 사람 수 계산
   const getUnreadCountForMessage = (msg) => {
     if (!roomMembers || roomMembers.length === 0) return 0;
     const msgTime = new Date(msg.created_at).getTime();
@@ -311,7 +326,36 @@ export default function DMPage() {
     }
   };
 
-  // 🚪 8. 채팅방 나가기 (DB에서 chat_room_members 삭제)
+  // 💣 8-1. 방장의 방 폭파 (채팅방 자체 삭제)
+  const handleDestroyRoom = async () => {
+    if (!activeRoom || !currentUser) return;
+    if (activeRoom.owner_id !== currentUser.id) {
+      showToast('방장만 방을 폭파할 수 있습니다.');
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('chat_rooms')
+        .delete()
+        .eq('id', activeRoom.id)
+        .eq('owner_id', currentUser.id);
+
+      if (error) throw error;
+
+      showToast('채팅방이 완전히 폭파되었습니다.', 'success');
+      setActiveRoom(null);
+      setMessages([]);
+      setRoomMembers([]);
+      setShowMobileSidebar(true);
+      fetchMyRooms();
+    } catch (err) {
+      console.error('방 폭파 오류:', err);
+      showToast('방 폭파 실패: RLS 삭제 권한을 확인해 주세요.');
+    }
+  };
+
+  // 🚪 8-2. 일반 멤버의 채팅방 나가기
   const handleLeaveRoom = async () => {
     if (!activeRoom || !currentUser) return;
 
@@ -484,7 +528,7 @@ export default function DMPage() {
     }
   };
 
-  // 1:1 대화 개설
+  // 1:1 대화 개설 (생성 시 owner_id에 currentUser.id 지정)
   const startOneOnOneChat = async (targetUser) => {
     if (!targetUser.canDM) {
       showToast('상대방이 회원님을 팔로우하고 있어야 메시지를 보낼 수 있습니다.');
@@ -512,7 +556,7 @@ export default function DMPage() {
       const targetName = targetUser.display_name || targetUser.nickname || '상대방';
       const { data: newRoom, error: roomErr } = await supabase
         .from('chat_rooms')
-        .insert([{ name: targetName, is_group: false }])
+        .insert([{ name: targetName, is_group: false, owner_id: currentUser.id }])
         .select()
         .single();
 
@@ -532,7 +576,7 @@ export default function DMPage() {
     }
   };
 
-  // 그룹 채팅 생성 모달 열기
+  // 새 그룹 채팅 개설 모달 열기
   const openGroupModal = async () => {
     if (!currentUser) return;
     setIsGroupModalOpen(true);
@@ -546,6 +590,7 @@ export default function DMPage() {
     setAvailableGroupUsers(validUsers);
   };
 
+  // 그룹 채팅 생성 (owner_id에 currentUser.id 설정)
   const createGroupChat = async () => {
     if (selectedGroupUserIds.length < 1) {
       showToast('최소 1명 이상의 상대를 선택해 주세요.');
@@ -558,7 +603,7 @@ export default function DMPage() {
     try {
       const { data: newRoom, error: roomErr } = await supabase
         .from('chat_rooms')
-        .insert([{ name, is_group: true }])
+        .insert([{ name, is_group: true, owner_id: currentUser.id }])
         .select()
         .single();
 
@@ -589,6 +634,8 @@ export default function DMPage() {
       </div>
     );
   }
+
+  const isOwner = activeRoom && currentUser && activeRoom.owner_id === currentUser.id;
 
   return (
     <div className="max-w-5xl mx-auto my-4 px-2 sm:px-4 font-sans text-xs">
@@ -668,7 +715,12 @@ export default function DMPage() {
 
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-1">
-                        <h2 className="font-bold text-xs truncate">{roomDisplayName}</h2>
+                        <h2 className="font-bold text-xs truncate flex items-center gap-1">
+                          <span>{roomDisplayName}</span>
+                          {room.owner_id === currentUser?.id && (
+                            <span className="text-[9px] font-extrabold text-amber-400">👑</span>
+                          )}
+                        </h2>
                         <span
                           className={`text-[9px] shrink-0 ${
                             isActive ? 'text-emerald-100' : 'text-gray-400'
@@ -730,6 +782,11 @@ export default function DMPage() {
                           ? activeRoom.name
                           : roomMembers.find((m) => m.user_id !== currentUser?.id)?.profiles?.display_name || '1:1 DM'}
                       </span>
+                      {isOwner && (
+                        <span className="bg-amber-100 text-amber-800 text-[9px] font-black px-1.5 py-0.5 rounded-md">
+                          👑 내가 방장
+                        </span>
+                      )}
                       <span className="text-[10px] text-gray-400 font-bold">
                         ({roomMembers.length}명)
                       </span>
@@ -746,12 +803,22 @@ export default function DMPage() {
                     + 초대
                   </button>
 
-                  <button
-                    onClick={handleLeaveRoom}
-                    className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-600 font-bold rounded-xl text-[10px] transition"
-                  >
-                    🚪 나가기
-                  </button>
+                  {/* 💣 방장인 경우 방 폭파 버튼 / 일반 멤버는 나가기 버튼 */}
+                  {isOwner ? (
+                    <button
+                      onClick={handleDestroyRoom}
+                      className="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-[10px] transition shadow-xs"
+                    >
+                      💣 방 폭파
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleLeaveRoom}
+                      className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-600 font-bold rounded-xl text-[10px] transition"
+                    >
+                      🚪 나가기
+                    </button>
+                  )}
 
                   <Link
                     href="/"
@@ -774,7 +841,7 @@ export default function DMPage() {
                     const isMine = msg.sender_id === currentUser?.id;
                     const senderName = msg.profiles?.display_name || msg.profiles?.nickname || '익명';
 
-                    // 메시지별 안 읽은 사람 수 (0 초과일 때만 노출)
+                    // 메시지별 안 읽은 사람 수
                     const unreadCount = getUnreadCountForMessage(msg);
 
                     return (
