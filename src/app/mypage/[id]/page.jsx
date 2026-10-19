@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 import AdminBadge from '@/components/AdminBadge';
+import GroupChatModal from '@/components/GroupChatModal';
 
 export default function MyPage() {
   const params = useParams();
@@ -21,7 +22,15 @@ export default function MyPage() {
   const [followers, setFollowers] = useState([]);
   const [followings, setFollowings] = useState([]);
   const [isFollowing, setIsFollowing] = useState(false);
-  const [modalType, setModalType] = useState(null);
+  const [modalType, setModalType] = useState(null); // 'followers' | 'followings' | null
+
+  // 👥 단체 DM 다중 선택 및 그룹 모달 상태
+  const [selectedGroupUsers, setSelectedGroupUsers] = useState([]);
+  const [groupChatModal, setGroupChatModal] = useState({
+    isOpen: false,
+    roomId: null,
+    roomTitle: '',
+  });
 
   // 💬 1:1 실시간 채팅 모달 상태
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -55,7 +64,7 @@ export default function MyPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
 
-  // 유저 데이터 로드
+  // 유저 데이터, 작성글, 팔로우 정보 로드
   const fetchUserData = useCallback(async () => {
     if (!targetUserId) return;
     setLoading(true);
@@ -93,6 +102,7 @@ export default function MyPage() {
         setEditNickname(initialNickname);
       }
 
+      // 작성한 게시글 조회
       const { data: postsData } = await supabase
         .from('posts')
         .select('*')
@@ -101,6 +111,7 @@ export default function MyPage() {
 
       setUserPosts(postsData || []);
 
+      // 팔로워 / 팔로잉 조회
       const { data: followerData } = await supabase
         .from('follows')
         .select('*, profiles:follower_id(*)')
@@ -119,7 +130,7 @@ export default function MyPage() {
         setIsFollowing(isFollowed);
       }
     } catch (err) {
-      console.error('마이페이지 로드 오류:', err);
+      console.error('마이페이지 데이터 로드 오류:', err);
     } finally {
       setLoading(false);
     }
@@ -132,14 +143,13 @@ export default function MyPage() {
   const isSelf = currentUser && currentUser.id === targetUserId;
   const currentDisplayName = profile?.display_name || profile?.nickname || '익명';
 
-  // 🚀 팔로우 / 팔로우 취소 토글 (화면 카운터 즉시 반영)
+  // 🚀 팔로우 / 팔로우 취소 토글 (+ 즉시 반영 & 푸시 알림)
   const handleFollowToggle = async () => {
     if (!currentUser) return alert('로그인이 필요합니다.');
 
     const wasFollowing = isFollowing;
-
-    // UI 즉시 업데이트 (사용자 경험 향상)
     setIsFollowing(!wasFollowing);
+
     if (wasFollowing) {
       setFollowers((prev) => prev.filter((f) => f.follower_id !== currentUser.id));
     } else {
@@ -147,6 +157,12 @@ export default function MyPage() {
     }
 
     try {
+      const myDisplayName =
+        currentUser.user_metadata?.display_name ||
+        currentUser.user_metadata?.nickname ||
+        currentUser.email?.split('@')[0] ||
+        '누군가';
+
       if (wasFollowing) {
         await supabase
           .from('follows')
@@ -157,15 +173,71 @@ export default function MyPage() {
         await supabase
           .from('follows')
           .insert([{ follower_id: currentUser.id, following_id: targetUserId }]);
+
+        // 🔔 팔로우 당한 사람에게 즉시 알림 발송
+        fetch('/api/push', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            targetUserId: targetUserId,
+            title: '👤 새로운 팔로워!',
+            body: `${myDisplayName}님이 회원님을 팔로우하기 시작했습니다.`,
+            url: `/mypage/${currentUser.id}`,
+          }),
+        }).catch((err) => console.error('팔로우 푸시 알림 발송 실패:', err));
       }
     } catch (err) {
       console.error('팔로우 처리 실패:', err);
-      // DB 에러 시 상태 원복
       setIsFollowing(wasFollowing);
       fetchUserData();
     }
   };
 
+  // 🚀 다중 인원 선택 그룹 채팅 시작
+  const startGroupChat = async () => {
+    if (!currentUser) return alert('로그인이 필요합니다.');
+    if (selectedGroupUsers.length < 1) return alert('최소 1명 이상 선택해 주세요.');
+
+    try {
+      const allMembers = [...new Set([...selectedGroupUsers, currentUser.id])];
+      const roomTitle = `그룹 채팅 (${allMembers.length}명)`;
+
+      const { data: newRoom, error: roomErr } = await supabase
+        .from('chat_rooms')
+        .insert([{ name: roomTitle, is_group: true }])
+        .select()
+        .single();
+
+      if (roomErr) throw roomErr;
+
+      const memberPayload = allMembers.map((uid) => ({
+        room_id: newRoom.id,
+        user_id: uid,
+      }));
+
+      await supabase.from('chat_room_members').insert(memberPayload);
+
+      setGroupChatModal({
+        isOpen: true,
+        roomId: newRoom.id,
+        roomTitle: roomTitle,
+      });
+
+      setSelectedGroupUsers([]);
+      setModalType(null);
+    } catch (err) {
+      console.error('그룹 채팅 생성 오류:', err);
+      alert('그룹 채팅방을 생성하는 중 오류가 발생했습니다.');
+    }
+  };
+
+  const toggleGroupUserSelect = (uid) => {
+    setSelectedGroupUsers((prev) =>
+      prev.includes(uid) ? prev.filter((id) => id !== uid) : [...prev, uid]
+    );
+  };
+
+  // 📬 1:1 메시지함 동기화 및 Realtime 수신
   useEffect(() => {
     if (!currentUser?.email || !isSelf) return;
 
@@ -187,11 +259,7 @@ export default function MyPage() {
       .channel(`realtime-dms-${currentUser.email}`)
       .on(
         'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'direct_messages',
-        },
+        { event: 'INSERT', schema: 'public', table: 'direct_messages' },
         (payload) => {
           const newDm = payload.new;
           if (
@@ -230,20 +298,10 @@ export default function MyPage() {
     }, {})
   );
 
-  // 💬 DM 모달 실행
   const handleOpenChat = (email, name) => {
-    if (!currentUser) {
-      alert('DM을 보내려면 로그인해야 합니다.');
-      return;
-    }
-    if (!email) {
-      alert('상대방 이메일 정보가 없습니다.');
-      return;
-    }
-    setActiveChatPartner({
-      email,
-      name: name || email.split('@')[0] || '익명',
-    });
+    if (!currentUser) return alert('DM을 보내려면 로그인해야 합니다.');
+    if (!email) return alert('상대방 이메일 정보가 없습니다.');
+    setActiveChatPartner({ email, name: name || email.split('@')[0] || '익명' });
     setIsChatOpen(true);
   };
 
@@ -261,9 +319,7 @@ export default function MyPage() {
         )
         .order('created_at', { ascending: true });
 
-      if (!error && data) {
-        setMessages(data);
-      }
+      if (!error && data) setMessages(data);
     };
 
     fetchMessages();
@@ -295,12 +351,10 @@ export default function MyPage() {
   }, [isChatOpen, currentUser, activeChatPartner]);
 
   useEffect(() => {
-    if (isChatOpen) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
+    if (isChatOpen) messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isChatOpen]);
 
-  // 💬 DM 전송 + 푸시 알림
+  // 💬 1:1 메시지 전송 + 푸시 알림
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!inputMessage.trim() || !currentUser?.email || !activeChatPartner.email || sending) return;
@@ -330,10 +384,7 @@ export default function MyPage() {
         .single();
 
       if (!error && data) {
-        setMessages((prev) => {
-          if (prev.some((m) => m.id === data.id)) return prev;
-          return [...prev, data];
-        });
+        setMessages((prev) => [...prev, data]);
         setAllDms((prev) => [data, ...prev.filter((m) => m.id !== data.id)]);
 
         fetch('/api/push', {
@@ -412,9 +463,7 @@ export default function MyPage() {
     }
 
     const reader = new FileReader();
-    reader.onloadend = () => {
-      setEditAvatarUrl(reader.result);
-    };
+    reader.onloadend = () => setEditAvatarUrl(reader.result);
     reader.readAsDataURL(file);
   };
 
@@ -428,7 +477,6 @@ export default function MyPage() {
     }
 
     const trimmedNickname = editNickname.trim();
-
     if (!trimmedNickname) {
       alert('닉네임을 입력해 주세요.');
       return;
@@ -551,7 +599,7 @@ export default function MyPage() {
         ← 뒤로 가기
       </button>
 
-      {/* 📌 상단 프로필 카드가 실시간 반영됩니다 */}
+      {/* 📌 상단 프로필 카드 */}
       <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-xs text-center space-y-4 relative">
         <div className="relative w-24 h-24 mx-auto rounded-full overflow-hidden bg-emerald-50 border-2 border-emerald-100 flex items-center justify-center shadow-xs">
           {profile?.avatar_url ? (
@@ -569,7 +617,7 @@ export default function MyPage() {
           {profile?.email && <p className="text-[11px] text-gray-400 font-medium">{profile.email}</p>}
         </div>
 
-        {/* 📊 팔로워/팔로잉 숫자가 즉시 늘어나고 줄어듭니다 */}
+        {/* 📊 팔로워/팔로잉 숫자가 즉시 반영됩니다 */}
         <div className="flex items-center justify-center gap-8 py-3 border-y border-gray-100">
           <button
             type="button"
@@ -673,7 +721,7 @@ export default function MyPage() {
               )}
             </>
           ) : (
-            /* 🎯 상대방 프로필 보기 시 팔로우 및 DM 버튼 */
+            /* 🎯 타인 프로필 시 팔로우 및 DM 버튼 */
             <div className="flex gap-2">
               <button
                 onClick={handleFollowToggle}
@@ -695,6 +743,7 @@ export default function MyPage() {
           )}
         </div>
 
+        {/* 메시지 목록 */}
         {isSelf && showInbox && (
           <div className="text-left pt-4 border-t border-gray-100 space-y-3">
             <h3 className="font-bold text-xs text-gray-900 flex items-center justify-between">
@@ -735,6 +784,7 @@ export default function MyPage() {
           </div>
         )}
 
+        {/* 프로필 수정 폼 */}
         {isSelf && isEditing && (
           <form onSubmit={handleUpdateProfile} className="text-left pt-4 border-t border-gray-100 space-y-3.5">
             <div>
@@ -821,6 +871,7 @@ export default function MyPage() {
           </form>
         )}
 
+        {/* 비밀번호 변경 폼 */}
         {isSelf && isChangingPassword && (
           <form onSubmit={handleChangePassword} className="text-left pt-4 border-t border-gray-100 space-y-3">
             <h3 className="font-bold text-xs text-gray-900 mb-2">🔒 비밀번호 변경</h3>
@@ -870,6 +921,7 @@ export default function MyPage() {
         )}
       </div>
 
+      {/* ✍️ 작성한 게시글 카드 */}
       <div className="bg-white border border-gray-100 rounded-3xl p-5 shadow-xs space-y-3">
         <h2 className="font-black text-xs text-gray-900 border-b border-gray-100 pb-2.5">
           ✍️ 작성한 게시글 <span className="text-emerald-600">{userPosts.length}</span>개
@@ -905,7 +957,7 @@ export default function MyPage() {
         </div>
       </div>
 
-      {/* 팔로워 / 팔로잉 모달 */}
+      {/* 👥 팔로워 / 팔로잉 팝업 모달 (+ 그룹 채팅 개설 지원) */}
       {modalType && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-xs rounded-3xl p-5 shadow-2xl space-y-4 max-h-[75vh] flex flex-col border border-gray-100">
@@ -914,17 +966,35 @@ export default function MyPage() {
                 {modalType === 'followers' ? '👥 팔로워' : '👥 팔로잉'} 목록 ({modalList.length})
               </h3>
               <button
-                onClick={() => setModalType(null)}
+                onClick={() => {
+                  setModalType(null);
+                  setSelectedGroupUsers([]);
+                }}
                 className="w-7 h-7 bg-gray-100 hover:bg-gray-200 text-gray-500 rounded-full font-bold flex items-center justify-center text-xs transition"
               >
                 ✕
               </button>
             </div>
 
+            {/* 다중 선택 시 그룹 채팅 개설 버튼 표시 */}
+            {selectedGroupUsers.length > 0 && (
+              <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center justify-between">
+                <span className="font-bold text-emerald-800 text-[11px]">
+                  {selectedGroupUsers.length}명 선택됨
+                </span>
+                <button
+                  onClick={startGroupChat}
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-[10px] shadow-xs"
+                >
+                  🚀 그룹 채팅 개설
+                </button>
+              </div>
+            )}
+
             <div className="flex-1 overflow-y-auto divide-y divide-gray-100 pr-1">
               {modalList.length === 0 ? (
                 <div className="py-8 text-center text-gray-400 font-medium text-[11px]">
-                  {modalType === 'followers' ? '팔로워가 없습니다.' : '팔로잉하는 유저가 없습니다.'}
+                  목록이 비어 있습니다.
                 </div>
               ) : (
                 modalList.map((item) => {
@@ -932,29 +1002,37 @@ export default function MyPage() {
                   if (!targetUser) return null;
 
                   const targetName = targetUser.display_name || targetUser.nickname || '익명';
+                  const isChecked = selectedGroupUsers.includes(targetUser.id);
 
                   return (
                     <div key={item.id} className="py-2.5 flex items-center justify-between gap-2">
-                      <Link
-                        href={`/mypage/${targetUser.id}`}
-                        onClick={() => setModalType(null)}
-                        className="flex items-center gap-2 min-w-0 group"
-                      >
-                        <div className="w-7 h-7 bg-emerald-100 text-emerald-700 font-black rounded-full flex items-center justify-center text-[10px] shrink-0">
-                          {targetName[0]}
-                        </div>
-                        <span className="font-bold text-gray-800 text-[11px] truncate group-hover:text-emerald-600 transition">
-                          {targetName}
-                        </span>
-                      </Link>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => toggleGroupUserSelect(targetUser.id)}
+                          className="w-4 h-4 accent-emerald-600 rounded cursor-pointer shrink-0"
+                        />
+                        <Link
+                          href={`/mypage/${targetUser.id}`}
+                          onClick={() => setModalType(null)}
+                          className="flex items-center gap-2 min-w-0 group"
+                        >
+                          <div className="w-7 h-7 bg-emerald-100 text-emerald-700 font-black rounded-full flex items-center justify-center text-[10px] shrink-0">
+                            {targetName[0]}
+                          </div>
+                          <span className="font-bold text-gray-800 text-[11px] truncate group-hover:text-emerald-600 transition">
+                            {targetName}
+                          </span>
+                        </Link>
+                      </div>
 
-                      <Link
-                        href={`/mypage/${targetUser.id}`}
-                        onClick={() => setModalType(null)}
+                      <button
+                        onClick={() => handleOpenChat(targetUser.email, targetName)}
                         className="px-2.5 py-1 bg-gray-100 hover:bg-emerald-50 hover:text-emerald-600 text-gray-600 font-bold rounded-lg text-[10px] shrink-0 transition"
                       >
-                        프로필 보기
-                      </Link>
+                        💬 DM
+                      </button>
                     </div>
                   );
                 })
@@ -964,7 +1042,16 @@ export default function MyPage() {
         </div>
       )}
 
-      {/* 실시간 1:1 DM 모달 */}
+      {/* 🚀 그룹 채팅 모달 */}
+      <GroupChatModal
+        isOpen={groupChatModal.isOpen}
+        roomId={groupChatModal.roomId}
+        roomTitle={groupChatModal.roomTitle}
+        currentUser={currentUser}
+        onClose={() => setGroupChatModal({ ...groupChatModal, isOpen: false })}
+      />
+
+      {/* 💬 1:1 실시간 DM 모달 */}
       {isChatOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 z-50">
           <div className="bg-white w-full max-w-sm h-[85vh] max-h-[650px] rounded-3xl flex flex-col overflow-hidden shadow-2xl border border-gray-100">
