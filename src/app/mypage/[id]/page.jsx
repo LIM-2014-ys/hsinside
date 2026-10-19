@@ -55,6 +55,7 @@ export default function MyPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
 
+  // 유저 데이터 로드
   const fetchUserData = useCallback(async () => {
     if (!targetUserId) return;
     setLoading(true);
@@ -131,11 +132,22 @@ export default function MyPage() {
   const isSelf = currentUser && currentUser.id === targetUserId;
   const currentDisplayName = profile?.display_name || profile?.nickname || '익명';
 
+  // 🚀 팔로우 / 팔로우 취소 토글 (화면 카운터 즉시 반영)
   const handleFollowToggle = async () => {
     if (!currentUser) return alert('로그인이 필요합니다.');
 
+    const wasFollowing = isFollowing;
+
+    // UI 즉시 업데이트 (사용자 경험 향상)
+    setIsFollowing(!wasFollowing);
+    if (wasFollowing) {
+      setFollowers((prev) => prev.filter((f) => f.follower_id !== currentUser.id));
+    } else {
+      setFollowers((prev) => [...prev, { follower_id: currentUser.id, profiles: currentUser }]);
+    }
+
     try {
-      if (isFollowing) {
+      if (wasFollowing) {
         await supabase
           .from('follows')
           .delete()
@@ -146,9 +158,11 @@ export default function MyPage() {
           .from('follows')
           .insert([{ follower_id: currentUser.id, following_id: targetUserId }]);
       }
-      fetchUserData();
     } catch (err) {
       console.error('팔로우 처리 실패:', err);
+      // DB 에러 시 상태 원복
+      setIsFollowing(wasFollowing);
+      fetchUserData();
     }
   };
 
@@ -216,6 +230,7 @@ export default function MyPage() {
     }, {})
   );
 
+  // 💬 DM 모달 실행
   const handleOpenChat = (email, name) => {
     if (!currentUser) {
       alert('DM을 보내려면 로그인해야 합니다.');
@@ -285,7 +300,7 @@ export default function MyPage() {
     }
   }, [messages, isChatOpen]);
 
-  // 💬 DM 전송 및 푸시 알림 연동
+  // 💬 DM 전송 + 푸시 알림
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!inputMessage.trim() || !currentUser?.email || !activeChatPartner.email || sending) return;
@@ -321,7 +336,6 @@ export default function MyPage() {
         });
         setAllDms((prev) => [data, ...prev.filter((m) => m.id !== data.id)]);
 
-        // 🚀 수신자 푸시 알림 연동
         fetch('/api/push', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -368,7 +382,6 @@ export default function MyPage() {
         .ilike('display_name', trimmed);
 
       if (error) {
-        console.error('중복 확인 쿼리 오류:', error);
         setNicknameCheckMsg({ type: 'error', text: '중복 확인 중 오류가 발생했습니다.' });
         setIsNicknameChecked(false);
         return;
@@ -383,8 +396,7 @@ export default function MyPage() {
         setNicknameCheckMsg({ type: 'success', text: '✅ 사용 가능한 닉네임입니다!' });
         setIsNicknameChecked(true);
       }
-    } catch (err) {
-      console.error('중복 확인 예외 발생:', err);
+    } catch {
       setNicknameCheckMsg({ type: 'error', text: '중복 확인 중 오류가 발생했습니다.' });
       setIsNicknameChecked(false);
     }
@@ -539,6 +551,7 @@ export default function MyPage() {
         ← 뒤로 가기
       </button>
 
+      {/* 📌 상단 프로필 카드가 실시간 반영됩니다 */}
       <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-xs text-center space-y-4 relative">
         <div className="relative w-24 h-24 mx-auto rounded-full overflow-hidden bg-emerald-50 border-2 border-emerald-100 flex items-center justify-center shadow-xs">
           {profile?.avatar_url ? (
@@ -556,6 +569,7 @@ export default function MyPage() {
           {profile?.email && <p className="text-[11px] text-gray-400 font-medium">{profile.email}</p>}
         </div>
 
+        {/* 📊 팔로워/팔로잉 숫자가 즉시 늘어나고 줄어듭니다 */}
         <div className="flex items-center justify-center gap-8 py-3 border-y border-gray-100">
           <button
             type="button"
@@ -587,6 +601,7 @@ export default function MyPage() {
           {profile?.bio || '작성된 소개 메시지가 없습니다.'}
         </div>
 
+        {/* 버튼 액션 */}
         <div className="pt-2 space-y-2">
           {isSelf ? (
             <>
@@ -658,22 +673,23 @@ export default function MyPage() {
               )}
             </>
           ) : (
+            /* 🎯 상대방 프로필 보기 시 팔로우 및 DM 버튼 */
             <div className="flex gap-2">
               <button
                 onClick={handleFollowToggle}
-                className={`flex-1 py-2.5 rounded-xl font-bold transition text-xs touch-manipulation ${
+                className={`flex-1 py-2.5 rounded-xl font-bold transition text-xs touch-manipulation active:scale-95 ${
                   isFollowing
-                    ? 'bg-gray-100 active:bg-gray-200 text-gray-700 hover:bg-gray-200'
-                    : 'bg-emerald-600 active:bg-emerald-700 text-white hover:bg-emerald-700'
+                    ? 'bg-gray-100 active:bg-gray-200 text-gray-700 hover:bg-gray-200 border border-gray-200'
+                    : 'bg-emerald-600 active:bg-emerald-700 text-white hover:bg-emerald-700 shadow-sm shadow-emerald-600/20'
                 }`}
               >
-                {isFollowing ? '✓ 팔로잉 중' : '+ 팔로우'}
+                {isFollowing ? '팔로우 취소' : '+ 팔로우'}
               </button>
               <button
                 onClick={() => handleOpenChat(profile?.email, currentDisplayName)}
-                className="flex-1 py-2.5 bg-gray-900 active:bg-black text-white font-bold rounded-xl transition text-xs shadow-xs touch-manipulation flex items-center justify-center gap-1.5"
+                className="flex-1 py-2.5 bg-gray-900 active:bg-black text-white font-bold rounded-xl transition text-xs shadow-xs touch-manipulation flex items-center justify-center gap-1.5 active:scale-95"
               >
-                💬 메시지 (DM)
+                💬 DM
               </button>
             </div>
           )}
@@ -889,6 +905,7 @@ export default function MyPage() {
         </div>
       </div>
 
+      {/* 팔로워 / 팔로잉 모달 */}
       {modalType && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-xs rounded-3xl p-5 shadow-2xl space-y-4 max-h-[75vh] flex flex-col border border-gray-100">
@@ -947,6 +964,7 @@ export default function MyPage() {
         </div>
       )}
 
+      {/* 실시간 1:1 DM 모달 */}
       {isChatOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 z-50">
           <div className="bg-white w-full max-w-sm h-[85vh] max-h-[650px] rounded-3xl flex flex-col overflow-hidden shadow-2xl border border-gray-100">
