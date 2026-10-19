@@ -1,93 +1,138 @@
+'use client';
+
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
-import InstallPrompt from '@/components/InstallPrompt';
-import NotificationPrompt from '@/components/NotificationPrompt'; // 👈 추가
+import UserSearch from '@/components/UserSearch';
 
-export const dynamic = 'force-dynamic';
-export const revalidate = 0;
+export default function HomePage() {
+  const [recentPosts, setRecentPosts] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-export default async function HomePage() {
-  const { data: galleries, error } = await supabase
-    .from('galleries')
-    .select('*')
-    .order('created_at', { ascending: true });
+  // 갤러리 카테고리 정의
+  const galleries = [
+    { id: 'free', name: '자유 갤러리', icon: '💬', desc: '자유로운 이야기를 나누는 공간' },
+    { id: 'tech', name: 'IT/개발 갤러리', icon: '💻', desc: '코딩, 프로그래밍, 신기술 정보' },
+    { id: 'humor', name: '유머 갤러리', icon: '😆', desc: '유머 및 재미있는 이슈 모음' },
+    { id: 'qna', name: '질문 갤러리', icon: '❓', desc: '궁금한 점을 서로 묻고 답하는 곳' },
+  ];
+
+  // 최신 게시글 로드
+  useEffect(() => {
+    const fetchRecentPosts = async () => {
+      setLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from('posts')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(10);
+
+        if (!error && data) {
+          setRecentPosts(data);
+        }
+      } catch (err) {
+        console.error('최신글 로드 오류:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchRecentPosts();
+  }, []);
 
   return (
-    <div className="max-w-4xl mx-auto my-10 p-6 sm:p-8 bg-white border border-gray-100 rounded-3xl shadow-2xl space-y-6 font-sans text-xs">
-      {/* 헤더 */}
-      <div className="flex items-center justify-between border-b pb-5">
-        <div>
-          <h1 className="text-3xl font-black text-gray-900 tracking-tight">
-            🏛️ hsinside
-          </h1>
-          <p className="text-gray-400 mt-1 text-xs">
-            원하는 갤러리를 선택하여 게시글을 확인하고 작성해 보세요.
-          </p>
-        </div>
-        <Link
-          href="/gallery-request"
-          className="px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl transition shadow-md shadow-amber-500/20 text-xs flex items-center gap-1.5"
-        >
-          📢 갤러리 신청하기
-        </Link>
+    <main className="max-w-3xl mx-auto my-6 px-4 font-sans text-xs space-y-6">
+      {/* 🏠 메인 헤더 히어로 섹션 */}
+      <div className="bg-gradient-to-r from-emerald-600 to-teal-600 rounded-3xl p-6 sm:p-8 text-white text-center space-y-2 shadow-lg shadow-emerald-500/10">
+        <h1 className="text-2xl sm:text-3xl font-black tracking-tight">hsinside</h1>
+        <p className="text-emerald-100 text-xs font-medium">
+          소통하고 공유하는 유저 중심 커뮤니티
+        </p>
       </div>
 
-      {/* 📱 PWA 앱 설치 배너 */}
-      <InstallPrompt />
+      {/* 🔍 유저 닉네임 실시간 검색 컴포넌트 */}
+      <section className="space-y-1.5">
+        <h2 className="font-extrabold text-gray-700 text-xs px-1">👥 유저 찾기</h2>
+        <UserSearch />
+      </section>
 
-      {/* 🔔 접속할 때마다 동의 안 되었으면 노출되는 알림 권한 배너 */}
-      <NotificationPrompt />
-
-      {/* DB 조회 에러 처리 */}
-      {error && (
-        <div className="p-4 bg-rose-50 border border-rose-100 text-rose-600 rounded-2xl font-semibold">
-          갤러리 목록을 불러오는 중 오류가 발생했습니다: {error.message}
+      {/* 📌 주요 갤러리 바로가기 */}
+      <section className="space-y-2">
+        <h2 className="font-extrabold text-gray-700 text-xs px-1">📌 주요 갤러리</h2>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+          {galleries.map((gallery) => (
+            <Link
+              key={gallery.id}
+              href={`/gallery/${gallery.id}`}
+              className="bg-white border border-gray-100 rounded-2xl p-3.5 hover:border-emerald-300 hover:shadow-xs transition group block space-y-1"
+            >
+              <div className="text-xl mb-1">{gallery.icon}</div>
+              <div className="font-bold text-gray-900 group-hover:text-emerald-600 transition text-xs">
+                {gallery.name}
+              </div>
+              <div className="text-[10px] text-gray-400 line-clamp-1">
+                {gallery.desc}
+              </div>
+            </Link>
+          ))}
         </div>
-      )}
+      </section>
 
-      {/* DB 갤러리 목록 */}
-      {!error && galleries && galleries.length === 0 ? (
-        <div className="text-center py-16 text-gray-400 font-medium">
-          등록된 갤러리가 없습니다.
+      {/* 🔥 최신 전체 게시글 목록 */}
+      <section className="bg-white border border-gray-100 rounded-3xl p-5 sm:p-6 shadow-xs space-y-3">
+        <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+          <h2 className="font-black text-sm text-gray-900 flex items-center gap-1.5">
+            🔥 실시간 최신글
+          </h2>
+          <Link
+            href="/gallery/free"
+            className="text-[11px] font-bold text-emerald-600 hover:underline"
+          >
+            전체보기 →
+          </Link>
         </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {galleries?.map((gallery) => {
-            const gallerySlug = gallery.slug || gallery.id;
-            const isRequest = gallerySlug === 'request';
 
-            return (
+        {loading ? (
+          <div className="py-10 text-center text-gray-400 font-bold">
+            게시글을 불러오는 중입니다...
+          </div>
+        ) : recentPosts.length === 0 ? (
+          <div className="py-10 text-center text-gray-400 font-medium">
+            작성된 게시글이 없습니다. 첫 글을 등록해 보세요!
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-100">
+            {recentPosts.map((post) => (
               <Link
-                key={gallery.id}
-                href={`/gallery/${gallerySlug}`}
-                className={`group p-5 border rounded-2xl transition-all shadow-sm hover:shadow-md flex flex-col justify-between space-y-3 ${
-                  isRequest
-                    ? 'border-amber-200 bg-amber-50/40 hover:bg-amber-100/50'
-                    : 'border-gray-100 bg-gray-50/50 hover:bg-blue-50/50 hover:border-blue-200'
-                }`}
+                key={post.id}
+                href={`/gallery/${post.gallery_id || 'free'}/${post.id}`}
+                className="py-3 flex items-center justify-between gap-3 group block hover:bg-gray-50/60 -mx-2 px-2 rounded-xl transition"
               >
-                <div className="flex items-center justify-between">
-                  <span className={`font-bold text-sm ${isRequest ? 'text-amber-800' : 'text-gray-900'}`}>
-                    {gallery.name || gallery.title}
-                  </span>
-                  <span
-                    className={`text-[11px] font-bold opacity-0 group-hover:opacity-100 transition ${
-                      isRequest ? 'text-amber-600' : 'text-blue-600'
-                    }`}
-                  >
-                    입장하기 →
-                  </span>
+                <div className="min-w-0 flex-1 space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 font-extrabold rounded-md text-[9.5px]">
+                      {post.gallery_id || '자유'}
+                    </span>
+                    <h3 className="font-bold text-gray-800 text-xs truncate group-hover:text-emerald-600 transition">
+                      {post.title}
+                    </h3>
+                  </div>
+                  <div className="text-[10px] text-gray-400 flex items-center gap-2">
+                    <span>✍️ {post.author_name || '익명'}</span>
+                    <span>•</span>
+                    <span>{new Date(post.created_at).toLocaleDateString('ko-KR')}</span>
+                  </div>
                 </div>
-                {gallery.description && (
-                  <p className="text-gray-500 text-[11px] leading-relaxed">
-                    {gallery.description}
-                  </p>
-                )}
+
+                <span className="text-[10px] font-bold text-gray-300 group-hover:text-emerald-600 shrink-0">
+                  보기 →
+                </span>
               </Link>
-            );
-          })}
-        </div>
-      )}
-    </div>
+            ))}
+          </div>
+        )}
+      </section>
+    </main>
   );
 }
