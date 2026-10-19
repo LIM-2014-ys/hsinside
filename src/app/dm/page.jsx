@@ -19,7 +19,9 @@ export default function DMPage() {
   const [roomMembers, setRoomMembers] = useState([]);
   const [inputMessage, setInputMessage] = useState('');
   const [sending, setSending] = useState(false);
+  
   const messagesEndRef = useRef(null);
+  const chatContainerRef = useRef(null); // 📌 채팅창 스크롤 감지용 Ref
 
   // 모바일 레이아웃 상태
   const [showMobileSidebar, setShowMobileSidebar] = useState(true);
@@ -48,6 +50,17 @@ export default function DMPage() {
     setToastMsg({ type, text });
     setTimeout(() => setToastMsg({ type: '', text: '' }), 3000);
   };
+
+  // 📌 스마트 스크롤: 사용자가 맨 아래 부근에 있을 때만 최하단으로 스크롤 이동
+  const scrollToBottomIfNear = useCallback((force = false) => {
+    if (!chatContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
+    const isNearBottom = scrollHeight - scrollTop - clientHeight < 150;
+
+    if (force || isNearBottom) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, []);
 
   // 1. 유저 인증 확인
   useEffect(() => {
@@ -158,7 +171,7 @@ export default function DMPage() {
     }
   }, [currentUser]);
 
-  // 4. 채팅방 선택 & 메시지/멤버 로드
+  // 4. 채팅방 선택 & 메시지/멤버 로드 (입장 시 맨 아래로 스크롤)
   const loadRoomDetails = useCallback(async (room) => {
     setActiveRoom(room);
     setShowMobileSidebar(false);
@@ -184,9 +197,10 @@ export default function DMPage() {
     if (memData) setRoomMembers(memData);
 
     updateLastRead(room.id);
-  }, [updateLastRead]);
+    setTimeout(() => scrollToBottomIfNear(true), 100);
+  }, [updateLastRead, scrollToBottomIfNear]);
 
-  // 5. 🔥 Realtime 구독: 메시지 수신, 멤버 변경, 방 폭파(DELETE) 실시간 반영
+  // 5. 🔥 Realtime 구독: 수신 시 스크롤 위치 감지하여 스마트 스크롤
   useEffect(() => {
     if (!currentUser) return;
 
@@ -217,6 +231,9 @@ export default function DMPage() {
 
             if (newMsg.sender_id !== currentUser.id) {
               updateLastRead(newMsg.room_id);
+              scrollToBottomIfNear(false);
+            } else {
+              scrollToBottomIfNear(true);
             }
           }
 
@@ -252,11 +269,7 @@ export default function DMPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [currentUser, activeRoom, fetchMyRooms, updateLastRead]);
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [currentUser, activeRoom, fetchMyRooms, updateLastRead, scrollToBottomIfNear]);
 
   // 6. 각 메시지별 안 읽은 사람 수 계산
   const getUnreadCountForMessage = (msg) => {
@@ -272,7 +285,7 @@ export default function DMPage() {
     return unreadMembers.length;
   };
 
-  // 7. 메시지 전송
+  // 7. 메시지 전송 (내가 전송할 때는 강제 아래로 스크롤)
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!inputMessage.trim() || !activeRoom || !currentUser || sending) return;
@@ -298,6 +311,7 @@ export default function DMPage() {
           );
         });
         updateLastRead(activeRoom.id);
+        setTimeout(() => scrollToBottomIfNear(true), 50);
 
         const otherMembers = roomMembers.filter((m) => m.user_id !== currentUser.id);
         const myName = currentUser.user_metadata?.display_name || '누군가';
@@ -325,7 +339,7 @@ export default function DMPage() {
     }
   };
 
-  // 💣 8-1. 방장의 방 폭파 (채팅방 자체 삭제)
+  // 💣 8-1. 방장의 방 폭파
   const handleDestroyRoom = async () => {
     if (!activeRoom || !currentUser) return;
     if (activeRoom.owner_id !== currentUser.id) {
@@ -379,7 +393,7 @@ export default function DMPage() {
     }
   };
 
-  // ➕ 9. 멤버 더 초대하기 (📢 초대 알림 시스템 메시지 자동 생성)
+  // ➕ 9. 멤버 더 초대하기
   const openInviteModal = async () => {
     if (!activeRoom || !currentUser) return;
 
@@ -420,7 +434,6 @@ export default function DMPage() {
           .eq('id', activeRoom.id);
       }
 
-      // 📢 초대 시스템 메시지 생성 및 DB 저장
       const invitedUserNames = invitableUsers
         .filter((u) => selectedInviteUserIds.includes(u.id))
         .map((u) => u.display_name || u.nickname || '익명')
@@ -591,7 +604,7 @@ export default function DMPage() {
     }
   };
 
-  // 새 그룹 채팅 생성 모달 열기
+  // 그룹 채팅 생성 모달 열기
   const openGroupModal = async () => {
     if (!currentUser) return;
     setIsGroupModalOpen(true);
@@ -605,7 +618,6 @@ export default function DMPage() {
     setAvailableGroupUsers(validUsers);
   };
 
-  // 그룹 채팅 생성
   const createGroupChat = async () => {
     if (selectedGroupUserIds.length < 1) {
       showToast('최소 1명 이상의 상대를 선택해 주세요.');
@@ -765,7 +777,6 @@ export default function DMPage() {
                           {room.latestMsg}
                         </p>
 
-                        {/* 🔴 원형 배지 스타일의 안 읽은 메시지 수 */}
                         {room.unreadCount > 0 && !isActive && (
                           <span className="bg-amber-500 text-white font-black text-[10px] px-1.5 py-0.5 rounded-full min-w-[18px] text-center shrink-0 shadow-xs">
                             {room.unreadCount}
@@ -847,8 +858,11 @@ export default function DMPage() {
                 </div>
               </div>
 
-              {/* 메시지 출력 영역 */}
-              <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-gray-50/40">
+              {/* 📌 메시지 출력 영역 (chatContainerRef 적용) */}
+              <div
+                ref={chatContainerRef}
+                className="flex-1 p-4 overflow-y-auto space-y-3 bg-gray-50/40"
+              >
                 {messages.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center text-center space-y-2 text-gray-400">
                     <span className="text-3xl">💬</span>
@@ -856,7 +870,6 @@ export default function DMPage() {
                   </div>
                 ) : (
                   messages.map((msg) => {
-                    // 📢 시스템 초대 알림 메시지인 경우 중앙 뱃지로 출력
                     if (msg.content.startsWith('📢')) {
                       return (
                         <div key={msg.id} className="flex justify-center my-2">
