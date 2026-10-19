@@ -5,7 +5,6 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 import AdminBadge from '@/components/AdminBadge';
-import GroupChatModal from '@/components/GroupChatModal';
 
 export default function MyPage() {
   const params = useParams();
@@ -24,27 +23,7 @@ export default function MyPage() {
   const [isFollowing, setIsFollowing] = useState(false);
   const [modalType, setModalType] = useState(null); // 'followers' | 'followings' | null
 
-  // 👥 단체 DM 다중 선택 및 그룹 모달 상태
-  const [selectedGroupUsers, setSelectedGroupUsers] = useState([]);
-  const [groupChatModal, setGroupChatModal] = useState({
-    isOpen: false,
-    roomId: null,
-    roomTitle: '',
-  });
-
-  // 💬 1:1 실시간 채팅 모달 상태
-  const [isChatOpen, setIsChatOpen] = useState(false);
-  const [activeChatPartner, setActiveChatPartner] = useState({ email: '', name: '' });
-  const [messages, setMessages] = useState([]);
-  const [inputMessage, setInputMessage] = useState('');
-  const [sending, setSending] = useState(false);
-  const messagesEndRef = useRef(null);
-
-  // 📬 DM 메시지 데이터 상태
-  const [showInbox, setShowInbox] = useState(false);
-  const [allDms, setAllDms] = useState([]);
-
-  // 내 프로필 수정 상태
+  // 프로필 수정 상태
   const [isEditing, setIsEditing] = useState(false);
   const [editNickname, setEditNickname] = useState('');
   const [isNicknameChecked, setIsNicknameChecked] = useState(true);
@@ -64,7 +43,7 @@ export default function MyPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
 
-  // 유저 데이터, 작성글, 팔로우 정보 로드
+  // 유저 데이터 및 팔로우 정보 로드
   const fetchUserData = useCallback(async () => {
     if (!targetUserId) return;
     setLoading(true);
@@ -102,7 +81,7 @@ export default function MyPage() {
         setEditNickname(initialNickname);
       }
 
-      // 작성한 게시글 조회
+      // 작성 글 조회
       const { data: postsData } = await supabase
         .from('posts')
         .select('*')
@@ -143,7 +122,7 @@ export default function MyPage() {
   const isSelf = currentUser && currentUser.id === targetUserId;
   const currentDisplayName = profile?.display_name || profile?.nickname || '익명';
 
-  // 🚀 팔로우 / 팔로우 취소 토글 (+ 즉시 반영 & 푸시 알림)
+  // 팔로우 / 팔로우 취소 토글
   const handleFollowToggle = async () => {
     if (!currentUser) return alert('로그인이 필요합니다.');
 
@@ -174,7 +153,7 @@ export default function MyPage() {
           .from('follows')
           .insert([{ follower_id: currentUser.id, following_id: targetUserId }]);
 
-        // 🔔 팔로우 당한 사람에게 즉시 알림 발송
+        // 상대방 알림 푸시
         fetch('/api/push', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -184,224 +163,12 @@ export default function MyPage() {
             body: `${myDisplayName}님이 회원님을 팔로우하기 시작했습니다.`,
             url: `/mypage/${currentUser.id}`,
           }),
-        }).catch((err) => console.error('팔로우 푸시 알림 발송 실패:', err));
+        }).catch((err) => console.error('팔로우 푸시 알림 실패:', err));
       }
     } catch (err) {
       console.error('팔로우 처리 실패:', err);
       setIsFollowing(wasFollowing);
       fetchUserData();
-    }
-  };
-
-  // 🚀 다중 인원 선택 그룹 채팅 시작
-  const startGroupChat = async () => {
-    if (!currentUser) return alert('로그인이 필요합니다.');
-    if (selectedGroupUsers.length < 1) return alert('최소 1명 이상 선택해 주세요.');
-
-    try {
-      const allMembers = [...new Set([...selectedGroupUsers, currentUser.id])];
-      const roomTitle = `그룹 채팅 (${allMembers.length}명)`;
-
-      const { data: newRoom, error: roomErr } = await supabase
-        .from('chat_rooms')
-        .insert([{ name: roomTitle, is_group: true }])
-        .select()
-        .single();
-
-      if (roomErr) throw roomErr;
-
-      const memberPayload = allMembers.map((uid) => ({
-        room_id: newRoom.id,
-        user_id: uid,
-      }));
-
-      await supabase.from('chat_room_members').insert(memberPayload);
-
-      setGroupChatModal({
-        isOpen: true,
-        roomId: newRoom.id,
-        roomTitle: roomTitle,
-      });
-
-      setSelectedGroupUsers([]);
-      setModalType(null);
-    } catch (err) {
-      console.error('그룹 채팅 생성 오류:', err);
-      alert('그룹 채팅방을 생성하는 중 오류가 발생했습니다.');
-    }
-  };
-
-  const toggleGroupUserSelect = (uid) => {
-    setSelectedGroupUsers((prev) =>
-      prev.includes(uid) ? prev.filter((id) => id !== uid) : [...prev, uid]
-    );
-  };
-
-  // 📬 1:1 메시지함 동기화 및 Realtime 수신
-  useEffect(() => {
-    if (!currentUser?.email || !isSelf) return;
-
-    const fetchAllDms = async () => {
-      const { data, error } = await supabase
-        .from('direct_messages')
-        .select('*')
-        .or(`receiver_email.eq.${currentUser.email},sender_email.eq.${currentUser.email}`)
-        .order('created_at', { ascending: false });
-
-      if (!error && data) {
-        setAllDms(data);
-      }
-    };
-
-    fetchAllDms();
-
-    const channel = supabase
-      .channel(`realtime-dms-${currentUser.email}`)
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'direct_messages' },
-        (payload) => {
-          const newDm = payload.new;
-          if (
-            newDm.receiver_email === currentUser.email ||
-            newDm.sender_email === currentUser.email
-          ) {
-            setAllDms((prev) => [newDm, ...prev.filter((m) => m.id !== newDm.id)]);
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [currentUser, isSelf]);
-
-  const conversationRooms = Object.values(
-    allDms.reduce((acc, dm) => {
-      const partnerEmail =
-        dm.sender_email === currentUser?.email ? dm.receiver_email : dm.sender_email;
-      const partnerName =
-        dm.sender_email === currentUser?.email
-          ? '상대방'
-          : dm.sender_name || dm.sender_email?.split('@')[0] || '익명';
-
-      if (!acc[partnerEmail]) {
-        acc[partnerEmail] = {
-          partner_email: partnerEmail,
-          partner_name: partnerName,
-          latestMessage: dm.content,
-          latestTime: dm.created_at,
-        };
-      }
-      return acc;
-    }, {})
-  );
-
-  const handleOpenChat = (email, name) => {
-    if (!currentUser) return alert('DM을 보내려면 로그인해야 합니다.');
-    if (!email) return alert('상대방 이메일 정보가 없습니다.');
-    setActiveChatPartner({ email, name: name || email.split('@')[0] || '익명' });
-    setIsChatOpen(true);
-  };
-
-  useEffect(() => {
-    if (!isChatOpen || !currentUser?.email || !activeChatPartner.email) return;
-
-    const partnerEmail = activeChatPartner.email;
-
-    const fetchMessages = async () => {
-      const { data, error } = await supabase
-        .from('direct_messages')
-        .select('*')
-        .or(
-          `and(sender_email.eq.${currentUser.email},receiver_email.eq.${partnerEmail}),and(sender_email.eq.${partnerEmail},receiver_email.eq.${currentUser.email})`
-        )
-        .order('created_at', { ascending: true });
-
-      if (!error && data) setMessages(data);
-    };
-
-    fetchMessages();
-
-    const channel = supabase
-      .channel(`chat-room-${currentUser.email}-${partnerEmail}`)
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'direct_messages' },
-        (payload) => {
-          const newDm = payload.new;
-          const isRelated =
-            (newDm.sender_email === currentUser.email && newDm.receiver_email === partnerEmail) ||
-            (newDm.sender_email === partnerEmail && newDm.receiver_email === currentUser.email);
-
-          if (isRelated) {
-            setMessages((prev) => {
-              if (prev.some((m) => m.id === newDm.id)) return prev;
-              return [...prev, newDm];
-            });
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [isChatOpen, currentUser, activeChatPartner]);
-
-  useEffect(() => {
-    if (isChatOpen) messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isChatOpen]);
-
-  // 💬 1:1 메시지 전송 + 푸시 알림
-  const handleSendMessage = async (e) => {
-    e.preventDefault();
-    if (!inputMessage.trim() || !currentUser?.email || !activeChatPartner.email || sending) return;
-
-    setSending(true);
-    const contentToSend = inputMessage.trim();
-    setInputMessage('');
-
-    try {
-      const senderName =
-        currentUser.user_metadata?.display_name ||
-        currentUser.user_metadata?.nickname ||
-        currentUser.email?.split('@')[0] ||
-        '익명';
-
-      const { data, error } = await supabase
-        .from('direct_messages')
-        .insert([
-          {
-            sender_email: currentUser.email,
-            sender_name: senderName,
-            receiver_email: activeChatPartner.email,
-            content: contentToSend,
-          },
-        ])
-        .select('*')
-        .single();
-
-      if (!error && data) {
-        setMessages((prev) => [...prev, data]);
-        setAllDms((prev) => [data, ...prev.filter((m) => m.id !== data.id)]);
-
-        fetch('/api/push', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            targetEmail: activeChatPartner.email,
-            title: `💬 ${senderName}님의 메시지`,
-            body: contentToSend,
-            url: `/mypage/${currentUser.id}`,
-          }),
-        }).catch((err) => console.error('DM 푸시 발송 에러:', err));
-      }
-    } catch (err) {
-      console.error('메시지 전송 오류:', err);
-    } finally {
-      setSending(false);
     }
   };
 
@@ -569,7 +336,7 @@ export default function MyPage() {
     try {
       await supabase.from('profiles').delete().eq('id', currentUser.id);
       await supabase.auth.signOut();
-      alert('회원 탈퇴가 완료되었습니다. 이용해 주셔서 감사합니다.');
+      alert('회원 탈퇴가 완료되었습니다.');
       router.push('/');
     } catch (err) {
       console.error('회원 탈퇴 오류:', err);
@@ -594,7 +361,7 @@ export default function MyPage() {
     <div className="max-w-md mx-auto my-6 px-4 font-sans text-xs space-y-5">
       <button
         onClick={() => router.back()}
-        className="px-3 py-1.5 bg-gray-100 active:bg-gray-200 text-gray-700 font-bold rounded-xl transition text-[11px] touch-manipulation"
+        className="px-3 py-1.5 bg-gray-100 active:bg-gray-200 text-gray-700 font-bold rounded-xl transition text-[11px]"
       >
         ← 뒤로 가기
       </button>
@@ -617,7 +384,7 @@ export default function MyPage() {
           {profile?.email && <p className="text-[11px] text-gray-400 font-medium">{profile.email}</p>}
         </div>
 
-        {/* 📊 팔로워/팔로잉 숫자가 즉시 반영됩니다 */}
+        {/* 팔로워/팔로잉 카운트 */}
         <div className="flex items-center justify-center gap-8 py-3 border-y border-gray-100">
           <button
             type="button"
@@ -649,30 +416,25 @@ export default function MyPage() {
           {profile?.bio || '작성된 소개 메시지가 없습니다.'}
         </div>
 
-        {/* 버튼 액션 */}
+        {/* 액션 버튼 */}
         <div className="pt-2 space-y-2">
           {isSelf ? (
             <>
-              <button
-                onClick={() => {
-                  setShowInbox(!showInbox);
-                  setIsEditing(false);
-                  setIsChangingPassword(false);
-                }}
-                className="w-full py-2.5 bg-blue-50 active:bg-blue-100 text-blue-700 font-bold rounded-xl transition text-xs touch-manipulation flex items-center justify-center gap-1.5"
+              <Link
+                href="/dm"
+                className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition text-xs flex items-center justify-center gap-1.5 shadow-xs"
               >
-                📬 메시지 목록 ({conversationRooms.length})
-              </button>
+                💬 DM / 채팅함으로 이동
+              </Link>
 
               <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => {
                     setIsEditing(!isEditing);
-                    setShowInbox(false);
                     setIsChangingPassword(false);
                     setNicknameCheckMsg({ type: '', text: '' });
                   }}
-                  className="py-2.5 bg-gray-100 active:bg-gray-200 text-gray-700 font-bold rounded-xl transition text-xs touch-manipulation"
+                  className="py-2.5 bg-gray-100 active:bg-gray-200 text-gray-700 font-bold rounded-xl transition text-xs"
                 >
                   {isEditing ? '수정 취소' : '⚙️ 프로필 수정'}
                 </button>
@@ -680,10 +442,9 @@ export default function MyPage() {
                 <button
                   onClick={() => {
                     setIsChangingPassword(!isChangingPassword);
-                    setShowInbox(false);
                     setIsEditing(false);
                   }}
-                  className="py-2.5 bg-emerald-50 active:bg-emerald-100 text-emerald-700 font-bold rounded-xl transition text-xs touch-manipulation"
+                  className="py-2.5 bg-emerald-50 active:bg-emerald-100 text-emerald-700 font-bold rounded-xl transition text-xs"
                 >
                   {isChangingPassword ? '변경 취소' : '🔒 비번 변경'}
                 </button>
@@ -692,27 +453,24 @@ export default function MyPage() {
               {!showDeleteConfirm ? (
                 <button
                   onClick={() => setShowDeleteConfirm(true)}
-                  className="w-full py-2.5 bg-red-600 active:bg-red-700 text-white font-bold rounded-xl transition text-xs shadow-xs touch-manipulation"
+                  className="w-full py-2.5 bg-red-600 active:bg-red-700 text-white font-bold rounded-xl transition text-xs shadow-xs"
                 >
                   🚪 회원 탈퇴하기
                 </button>
               ) : (
                 <div className="p-3 bg-red-50 rounded-2xl border border-red-100 space-y-2 text-left">
                   <p className="text-red-700 font-bold text-[11px]">⚠️ 정말로 탈퇴하시겠습니까?</p>
-                  <p className="text-red-600/80 text-[10px] leading-snug">
-                    탈퇴 시 프로필 데이터가 삭제되며 서비스에서 로그아웃됩니다.
-                  </p>
                   <div className="flex items-center gap-2 pt-1">
                     <button
                       onClick={handleDeleteAccount}
                       disabled={deletingAccount}
-                      className="flex-1 py-2 bg-red-600 active:bg-red-700 text-white font-bold rounded-xl text-[11px] transition touch-manipulation disabled:opacity-50"
+                      className="flex-1 py-2 bg-red-600 text-white font-bold rounded-xl text-[11px]"
                     >
-                      {deletingAccount ? '탈퇴 처리 중...' : '예, 탈퇴합니다'}
+                      {deletingAccount ? '탈퇴 중...' : '예, 탈퇴합니다'}
                     </button>
                     <button
                       onClick={() => setShowDeleteConfirm(false)}
-                      className="flex-1 py-2 bg-gray-200 active:bg-gray-300 text-gray-700 font-bold rounded-xl text-[11px] transition touch-manipulation"
+                      className="flex-1 py-2 bg-gray-200 text-gray-700 font-bold rounded-xl text-[11px]"
                     >
                       취소
                     </button>
@@ -721,109 +479,46 @@ export default function MyPage() {
               )}
             </>
           ) : (
-            /* 🎯 타인 프로필 시 팔로우 및 DM 버튼 */
-            <div className="flex gap-2">
-              <button
-                onClick={handleFollowToggle}
-                className={`flex-1 py-2.5 rounded-xl font-bold transition text-xs touch-manipulation active:scale-95 ${
-                  isFollowing
-                    ? 'bg-gray-100 active:bg-gray-200 text-gray-700 hover:bg-gray-200 border border-gray-200'
-                    : 'bg-emerald-600 active:bg-emerald-700 text-white hover:bg-emerald-700 shadow-sm shadow-emerald-600/20'
-                }`}
-              >
-                {isFollowing ? '팔로우 취소' : '+ 팔로우'}
-              </button>
-              <button
-                onClick={() => handleOpenChat(profile?.email, currentDisplayName)}
-                className="flex-1 py-2.5 bg-gray-900 active:bg-black text-white font-bold rounded-xl transition text-xs shadow-xs touch-manipulation flex items-center justify-center gap-1.5 active:scale-95"
-              >
-                💬 DM
-              </button>
-            </div>
+            <button
+              onClick={handleFollowToggle}
+              className={`w-full py-2.5 rounded-xl font-bold transition text-xs active:scale-95 ${
+                isFollowing
+                  ? 'bg-gray-100 text-gray-700 border border-gray-200'
+                  : 'bg-emerald-600 text-white shadow-sm'
+              }`}
+            >
+              {isFollowing ? '팔로우 취소' : '+ 팔로우'}
+            </button>
           )}
         </div>
-
-        {/* 메시지 목록 */}
-        {isSelf && showInbox && (
-          <div className="text-left pt-4 border-t border-gray-100 space-y-3">
-            <h3 className="font-bold text-xs text-gray-900 flex items-center justify-between">
-              <span>📬 1:1 대화 목록</span>
-              <span className="text-[10px] text-gray-400 font-normal">총 {conversationRooms.length}개 대화방</span>
-            </h3>
-
-            {conversationRooms.length === 0 ? (
-              <div className="p-4 text-center text-gray-400 text-[11px] bg-gray-50 rounded-2xl border border-dashed border-gray-200">
-                메시지 내역이 없습니다.
-              </div>
-            ) : (
-              <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-                {conversationRooms.map((room) => (
-                  <div
-                    key={room.partner_email}
-                    onClick={() => handleOpenChat(room.partner_email, room.partner_name)}
-                    className="p-3 bg-gray-50 hover:bg-emerald-50/60 active:bg-emerald-100/80 rounded-2xl border border-gray-100 cursor-pointer transition space-y-1 group"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-gray-900 text-[12px] group-hover:text-emerald-700 transition truncate">
-                        {room.partner_name}님과의 대화
-                      </span>
-                      <span className="text-[9px] text-gray-400 shrink-0">
-                        {new Date(room.latestTime).toLocaleTimeString('ko-KR', {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-gray-500 group-hover:text-gray-700 truncate font-medium">
-                      최근: "{room.latestMessage}"
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
 
         {/* 프로필 수정 폼 */}
         {isSelf && isEditing && (
           <form onSubmit={handleUpdateProfile} className="text-left pt-4 border-t border-gray-100 space-y-3.5">
             <div>
-              <label className="block text-[10px] font-bold text-gray-500 mb-1">🏷️ 닉네임 변경 및 중복 확인 (공백 불가)</label>
+              <label className="block text-[10px] font-bold text-gray-500 mb-1">🏷️ 닉네임 변경 및 중복 확인</label>
               <div className="flex gap-1.5">
                 <input
                   type="text"
-                  placeholder="새 닉네임 입력 (공백 제외)"
+                  placeholder="새 닉네임 입력"
                   value={editNickname}
                   onChange={(e) => {
-                    const val = e.target.value;
-                    setEditNickname(val);
-
-                    if (/\s/.test(val)) {
-                      setIsNicknameChecked(false);
-                      setNicknameCheckMsg({ type: 'error', text: '❌ 닉네임에 공백을 포함할 수 없습니다.' });
-                    } else if (val.trim().toLowerCase() === currentDisplayName.toLowerCase()) {
-                      setIsNicknameChecked(true);
-                      setNicknameCheckMsg({ type: 'success', text: '현재 본인의 닉네임입니다.' });
-                    } else {
-                      setIsNicknameChecked(false);
-                      setNicknameCheckMsg({ type: '', text: '' });
-                    }
+                    setEditNickname(e.target.value);
+                    setIsNicknameChecked(false);
                   }}
                   required
-                  className="flex-1 min-w-0 px-3 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-xs text-gray-800 touch-manipulation font-semibold"
+                  className="flex-1 px-3 py-2 border border-gray-200 rounded-xl text-xs"
                 />
                 <button
                   type="button"
                   onClick={handleCheckNicknameDuplicate}
-                  className="px-3 py-2 bg-gray-100 active:bg-gray-200 text-gray-700 font-bold rounded-xl transition text-[11px] shrink-0 touch-manipulation"
+                  className="px-3 py-2 bg-gray-100 text-gray-700 font-bold rounded-xl text-[11px]"
                 >
                   중복 확인
                 </button>
               </div>
               {nicknameCheckMsg.text && (
-                <p className={`text-[10px] font-semibold mt-1 ${
-                  nicknameCheckMsg.type === 'error' ? 'text-red-600' : 'text-emerald-600'
-                }`}>
+                <p className={`text-[10px] font-semibold mt-1 ${nicknameCheckMsg.type === 'error' ? 'text-red-600' : 'text-emerald-600'}`}>
                   {nicknameCheckMsg.text}
                 </p>
               )}
@@ -835,18 +530,7 @@ export default function MyPage() {
                 type="file"
                 accept="image/*"
                 onChange={handleImageFileUpload}
-                className="w-full text-[11px] text-gray-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-[11px] file:font-bold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 touch-manipulation"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[10px] font-bold text-gray-500 mb-1">🔗 또는 웹 이미지 URL</label>
-              <input
-                type="url"
-                placeholder="https://example.com/photo.jpg"
-                value={editAvatarUrl}
-                onChange={(e) => setEditAvatarUrl(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-xs text-gray-800 touch-manipulation"
+                className="w-full text-[11px] text-gray-500"
               />
             </div>
 
@@ -857,14 +541,14 @@ export default function MyPage() {
                 placeholder="자기소개를 작성해 보세요!"
                 value={editBio}
                 onChange={(e) => setEditBio(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-xs text-gray-800 touch-manipulation resize-none leading-relaxed"
+                className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs resize-none"
               />
             </div>
 
             <button
               type="submit"
               disabled={updatingProfile}
-              className="w-full py-2.5 bg-emerald-600 active:bg-emerald-700 text-white font-bold rounded-xl transition text-xs disabled:opacity-50 touch-manipulation"
+              className="w-full py-2.5 bg-emerald-600 text-white font-bold rounded-xl text-xs"
             >
               {updatingProfile ? '저장 중...' : '프로필 저장하기'}
             </button>
@@ -877,43 +561,32 @@ export default function MyPage() {
             <h3 className="font-bold text-xs text-gray-900 mb-2">🔒 비밀번호 변경</h3>
 
             {passwordStatus.message && (
-              <div className={`p-2.5 rounded-xl text-[11px] font-semibold ${
-                passwordStatus.type === 'error'
-                  ? 'bg-red-50 text-red-600 border border-red-200'
-                  : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-              }`}>
+              <div className={`p-2.5 rounded-xl text-[11px] font-semibold ${passwordStatus.type === 'error' ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-700'}`}>
                 {passwordStatus.message}
               </div>
             )}
 
-            <div>
-              <label className="block text-[10px] font-bold text-gray-500 mb-1">새 비밀번호 (6자리 이상)</label>
-              <input
-                type="password"
-                placeholder="새 비밀번호 입력"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                required
-                className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-xs text-gray-800 touch-manipulation"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[10px] font-bold text-gray-500 mb-1">새 비밀번호 확인</label>
-              <input
-                type="password"
-                placeholder="새 비밀번호 다시 입력"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                required
-                className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-xs text-gray-800 touch-manipulation"
-              />
-            </div>
+            <input
+              type="password"
+              placeholder="새 비밀번호 입력"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              required
+              className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs"
+            />
+            <input
+              type="password"
+              placeholder="새 비밀번호 다시 입력"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
+              className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs"
+            />
 
             <button
               type="submit"
-              disabled={updatingPassword || !newPassword || !confirmPassword}
-              className="w-full py-2.5 bg-emerald-600 active:bg-emerald-700 text-white font-bold rounded-xl transition text-xs disabled:opacity-50 touch-manipulation"
+              disabled={updatingPassword}
+              className="w-full py-2.5 bg-emerald-600 text-white font-bold rounded-xl text-xs"
             >
               {updatingPassword ? '변경 처리 중...' : '비밀번호 변경하기'}
             </button>
@@ -921,7 +594,7 @@ export default function MyPage() {
         )}
       </div>
 
-      {/* ✍️ 작성한 게시글 카드 */}
+      {/* 작성한 게시글 카드 */}
       <div className="bg-white border border-gray-100 rounded-3xl p-5 shadow-xs space-y-3">
         <h2 className="font-black text-xs text-gray-900 border-b border-gray-100 pb-2.5">
           ✍️ 작성한 게시글 <span className="text-emerald-600">{userPosts.length}</span>개
@@ -947,7 +620,6 @@ export default function MyPage() {
                     {new Date(post.created_at).toLocaleDateString('ko-KR')}
                   </div>
                 </div>
-
                 <span className="text-[10px] font-bold text-gray-400 group-hover:text-emerald-600 shrink-0">
                   보기 →
                 </span>
@@ -957,7 +629,7 @@ export default function MyPage() {
         </div>
       </div>
 
-      {/* 👥 팔로워 / 팔로잉 팝업 모달 (+ 그룹 채팅 개설 지원) */}
+      {/* 👥 단순화된 팔로워 / 팔로잉 팝업 (닉네임 & 프로필 사진만 노출, DM 버튼 없음) */}
       {modalType && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-xs rounded-3xl p-5 shadow-2xl space-y-4 max-h-[75vh] flex flex-col border border-gray-100">
@@ -966,30 +638,12 @@ export default function MyPage() {
                 {modalType === 'followers' ? '👥 팔로워' : '👥 팔로잉'} 목록 ({modalList.length})
               </h3>
               <button
-                onClick={() => {
-                  setModalType(null);
-                  setSelectedGroupUsers([]);
-                }}
+                onClick={() => setModalType(null)}
                 className="w-7 h-7 bg-gray-100 hover:bg-gray-200 text-gray-500 rounded-full font-bold flex items-center justify-center text-xs transition"
               >
                 ✕
               </button>
             </div>
-
-            {/* 다중 선택 시 그룹 채팅 개설 버튼 표시 */}
-            {selectedGroupUsers.length > 0 && (
-              <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center justify-between">
-                <span className="font-bold text-emerald-800 text-[11px]">
-                  {selectedGroupUsers.length}명 선택됨
-                </span>
-                <button
-                  onClick={startGroupChat}
-                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-[10px] shadow-xs"
-                >
-                  🚀 그룹 채팅 개설
-                </button>
-              </div>
-            )}
 
             <div className="flex-1 overflow-y-auto divide-y divide-gray-100 pr-1">
               {modalList.length === 0 ? (
@@ -1002,140 +656,38 @@ export default function MyPage() {
                   if (!targetUser) return null;
 
                   const targetName = targetUser.display_name || targetUser.nickname || '익명';
-                  const isChecked = selectedGroupUsers.includes(targetUser.id);
 
                   return (
                     <div key={item.id} className="py-2.5 flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={() => toggleGroupUserSelect(targetUser.id)}
-                          className="w-4 h-4 accent-emerald-600 rounded cursor-pointer shrink-0"
-                        />
-                        <Link
-                          href={`/mypage/${targetUser.id}`}
-                          onClick={() => setModalType(null)}
-                          className="flex items-center gap-2 min-w-0 group"
-                        >
-                          <div className="w-7 h-7 bg-emerald-100 text-emerald-700 font-black rounded-full flex items-center justify-center text-[10px] shrink-0">
-                            {targetName[0]}
-                          </div>
-                          <span className="font-bold text-gray-800 text-[11px] truncate group-hover:text-emerald-600 transition">
-                            {targetName}
-                          </span>
-                        </Link>
-                      </div>
+                      <Link
+                        href={`/mypage/${targetUser.id}`}
+                        onClick={() => setModalType(null)}
+                        className="flex items-center gap-2.5 min-w-0 group"
+                      >
+                        <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 font-black flex items-center justify-center text-xs shrink-0 overflow-hidden">
+                          {targetUser.avatar_url ? (
+                            <img src={targetUser.avatar_url} alt={targetName} className="w-full h-full object-cover" />
+                          ) : (
+                            targetName[0]
+                          )}
+                        </div>
+                        <span className="font-bold text-gray-800 text-xs truncate group-hover:text-emerald-600 transition">
+                          {targetName}
+                        </span>
+                      </Link>
 
-                      <button
-                        onClick={() => handleOpenChat(targetUser.email, targetName)}
+                      <Link
+                        href={`/mypage/${targetUser.id}`}
+                        onClick={() => setModalType(null)}
                         className="px-2.5 py-1 bg-gray-100 hover:bg-emerald-50 hover:text-emerald-600 text-gray-600 font-bold rounded-lg text-[10px] shrink-0 transition"
                       >
-                        💬 DM
-                      </button>
+                        프로필 보기
+                      </Link>
                     </div>
                   );
                 })
               )}
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* 🚀 그룹 채팅 모달 */}
-      <GroupChatModal
-        isOpen={groupChatModal.isOpen}
-        roomId={groupChatModal.roomId}
-        roomTitle={groupChatModal.roomTitle}
-        currentUser={currentUser}
-        onClose={() => setGroupChatModal({ ...groupChatModal, isOpen: false })}
-      />
-
-      {/* 💬 1:1 실시간 DM 모달 */}
-      {isChatOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 z-50">
-          <div className="bg-white w-full max-w-sm h-[85vh] max-h-[650px] rounded-3xl flex flex-col overflow-hidden shadow-2xl border border-gray-100">
-            <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between bg-white shrink-0">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div className="w-9 h-9 rounded-full overflow-hidden bg-emerald-50 border border-emerald-100 shrink-0 flex items-center justify-center text-sm font-bold text-emerald-800">
-                  💬
-                </div>
-                <div className="min-w-0">
-                  <h3 className="font-black text-xs text-gray-900 truncate">
-                    {activeChatPartner.name}
-                  </h3>
-                  <p className="text-[9px] text-emerald-600 font-semibold">● 실시간 대화 중</p>
-                </div>
-              </div>
-
-              <button
-                onClick={() => setIsChatOpen(false)}
-                className="w-8 h-8 flex items-center justify-center rounded-full active:bg-gray-100 text-gray-400 hover:text-gray-600 font-bold text-sm transition"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-gray-50/50">
-              {messages.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-center space-y-2 text-gray-400">
-                  <span className="text-3xl">💬</span>
-                  <p className="text-[11px] font-medium">
-                    {activeChatPartner.name}님에게 첫 메시지를 보내보세요!
-                  </p>
-                </div>
-              ) : (
-                messages.map((msg) => {
-                  const isMine = msg.sender_email === currentUser?.email;
-
-                  return (
-                    <div
-                      key={msg.id}
-                      className={`flex flex-col ${isMine ? 'items-end' : 'items-start'} space-y-1`}
-                    >
-                      <div
-                        className={`max-w-[78%] px-3.5 py-2 rounded-2xl text-[11px] leading-relaxed break-words ${
-                          isMine
-                            ? 'bg-emerald-600 text-white rounded-br-none shadow-xs'
-                            : 'bg-white text-gray-800 rounded-bl-none border border-gray-100 shadow-2xs'
-                        }`}
-                      >
-                        {msg.content}
-                      </div>
-
-                      <span className="text-[9px] text-gray-400 px-1">
-                        {new Date(msg.created_at).toLocaleTimeString('ko-KR', {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                          hour12: true,
-                        })}
-                      </span>
-                    </div>
-                  );
-                })
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-
-            <form
-              onSubmit={handleSendMessage}
-              className="p-3 bg-white border-t border-gray-100 flex items-center gap-2 shrink-0"
-            >
-              <input
-                type="text"
-                placeholder="메시지 보내기..."
-                value={inputMessage}
-                onChange={(e) => setInputMessage(e.target.value)}
-                className="flex-1 px-4 py-2 bg-gray-100 rounded-full focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-xs text-gray-800 placeholder:text-gray-400 touch-manipulation"
-              />
-              <button
-                type="submit"
-                disabled={!inputMessage.trim() || sending}
-                className="px-3.5 py-2 text-emerald-600 active:text-emerald-800 font-bold text-xs disabled:opacity-30 transition touch-manipulation shrink-0"
-              >
-                전송
-              </button>
-            </form>
           </div>
         </div>
       )}
