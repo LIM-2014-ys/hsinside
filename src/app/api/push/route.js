@@ -1,42 +1,72 @@
 import { NextResponse } from 'next/server';
-import webPush from 'web-push';
+import webpush from 'web-push';
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
-const publicKey =
-  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ||
-  'BHdKkw3BjcrNyfFvCiahQH6fzxKznwEcwTIgX3pjzHLaggQb60FNKuJMC2hPcHGWJFwPrjov91ikVAAHI5KRNAE';
-const privateKey =
-  process.env.VAPID_PRIVATE_KEY ||
-  '5GYfvvbjNKZ9dFmd058oIDMsXBlqXvgxpi6V-WWp0lo';
+webpush.setVapidDetails(
+  'mailto:admin@hsinside.com',
+  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
+  process.env.VAPID_PRIVATE_KEY
+);
 
-webPush.setVapidDetails('mailto:admin@example.com', publicKey, privateKey);
-
-export async function POST(request) {
+export async function POST(req) {
   try {
-    const { targetUserId, title, body, url } = await request.json();
+    const { type, targetUserId, targetEmail, title, body, url } = await req.json();
 
-    if (!targetUserId) {
-      return NextResponse.json({ error: 'Target user ID is required' }, { status: 400 });
+    let targetUserIds = [];
+
+    // 1. DM 수신용: 이메일 기반 수신자 ID 조회
+    if (targetEmail) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('email', targetEmail)
+        .maybeSingle();
+
+      if (profile) targetUserIds.push(profile.id);
     }
 
-    // 대상 유저의 알림 구독 정보 조회
+    // 2. 단일 타겟 ID 지정 시
+    if (targetUserId && type !== 'new_post') {
+      targetUserIds.push(targetUserId);
+    }
+
+    // 3. 새 글 작성 알림: 작성자를 팔로우하는 모든 팔로워 ID 조회
+    if (type === 'new_post' && targetUserId) {
+      const { data: followerRows } = await supabase
+        .from('follows')
+        .select('follower_id')
+        .eq('following_id', targetUserId);
+
+      if (followerRows && followerRows.length > 0) {
+        targetUserIds = followerRows.map((f) => f.follower_id);
+      }
+    }
+
+    // 중복 ID 제거
+    targetUserIds = [...new Set(targetUserIds)];
+
+    if (targetUserIds.length === 0) {
+      return NextResponse.json({ success: true, message: '발송 대상이 없습니다.' });
+    }
+
+    // 대상 유저들의 푸시 구독(Subscription) 정보 조회
     const { data: subscriptions, error } = await supabase
       .from('push_subscriptions')
       .select('*')
-      .eq('user_id', targetUserId);
+      .in('user_id', targetUserIds);
 
     if (error || !subscriptions || subscriptions.length === 0) {
-      return NextResponse.json({ message: 'No subscriptions found for user' });
+      return NextResponse.json({ success: true, message: '구독 정보를 찾을 수 없습니다.' });
     }
 
+    // 푸시 발송
     const payload = JSON.stringify({ title, body, url });
 
-    // 등록된 모든 기기로 백그라운드 푸시 발송
     const sendPromises = subscriptions.map(async (sub) => {
       const pushSubscription = {
         endpoint: sub.endpoint,
@@ -47,9 +77,9 @@ export async function POST(request) {
       };
 
       try {
-        await webPush.sendNotification(pushSubscription, payload);
+        await webpush.sendNotification(pushSubscription, payload);
       } catch (err) {
-        // 더 이상 유효하지 않은 구독 주소는 DB에서 삭제
+        // 만료된 구독 정보(410, 404) 자동 삭제
         if (err.statusCode === 410 || err.statusCode === 404) {
           await supabase.from('push_subscriptions').delete().eq('id', sub.id);
         }
@@ -60,7 +90,7 @@ export async function POST(request) {
 
     return NextResponse.json({ success: true });
   } catch (err) {
-    console.error('푸시 발송 API 오류:', err);
+    console.error('푸시 발송 실패:', err);
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
