@@ -134,20 +134,33 @@ export default function DMPage() {
     fetchMyRooms();
   }, [fetchMyRooms]);
 
-  // 3. 방 선택 시 나의 last_read_at 업데이트 (원형 숫자 배지 제거)
+  // 3. 내가 방에 들어갈 때: 서버 DB에 last_read_at 저장 및 내 화면 안 읽은 수 0으로 처리
   const updateLastRead = useCallback(async (roomId) => {
     if (!currentUser || !roomId) return;
     const nowISO = new Date().toISOString();
 
+    // 1) UI 화면 로컬 상태 즉시 반영 (방 목록 숫자 지우기)
     setRooms((prev) =>
       prev.map((r) => (r.id === roomId ? { ...r, unreadCount: 0 } : r))
     );
 
-    await supabase
+    // 2) 현재 멤버 상태 내 last_read_at 즉시 반영
+    setRoomMembers((prev) =>
+      prev.map((m) =>
+        m.user_id === currentUser.id ? { ...m, last_read_at: nowISO } : m
+      )
+    );
+
+    // 3) Supabase DB 서버에 실제 저장
+    const { error } = await supabase
       .from('chat_room_members')
       .update({ last_read_at: nowISO })
       .eq('room_id', roomId)
       .eq('user_id', currentUser.id);
+
+    if (error) {
+      console.error('서버 last_read_at 저장 실패 (RLS 정책 확인 필요):', error.message);
+    }
   }, [currentUser]);
 
   // 4. 채팅방 선택 & 메시지/멤버 로드
@@ -228,7 +241,7 @@ export default function DMPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // 6. 각 메시지별 안 읽은 사람 수 (상대방들이 들어올 때마다 1씩 실시간 감소)
+  // 6. 각 메시지별 안 읽은 사람 수 (상대방들이 들어와서 읽을 때마다 1씩 실시간 감소)
   const getUnreadCountForMessage = (msg) => {
     if (!roomMembers || roomMembers.length === 0) return 0;
     const msgTime = new Date(msg.created_at).getTime();
@@ -318,7 +331,6 @@ export default function DMPage() {
   const openInviteModal = async () => {
     if (!activeRoom || !currentUser) return;
 
-    // 팔로워 유저 중 현재 방 멤버가 아닌 사람만 필터링
     const { data: myFollowers } = await supabase
       .from('follows')
       .select('follower_id, profiles:follower_id(*)')
@@ -349,7 +361,6 @@ export default function DMPage() {
       const { error } = await supabase.from('chat_room_members').insert(payload);
       if (error) throw error;
 
-      // 방 형태가 1:1이었는데 멤버가 늘어났다면 is_group을 true로 업데이트
       if (!activeRoom.is_group && roomMembers.length + selectedInviteUserIds.length > 2) {
         await supabase
           .from('chat_rooms')
@@ -361,7 +372,6 @@ export default function DMPage() {
       setIsInviteModalOpen(false);
       setSelectedInviteUserIds([]);
 
-      // 멤버 목록 새로고침
       const { data: memData } = await supabase
         .from('chat_room_members')
         .select('*, profiles:user_id(*)')
@@ -573,7 +583,7 @@ export default function DMPage() {
 
   return (
     <div className="max-w-5xl mx-auto my-4 px-2 sm:px-4 font-sans text-xs">
-      {/* 토스트 안내 */}
+      {/* 토스트 알림 */}
       {toastMsg.text && (
         <div
           className={`mb-3 p-3 rounded-2xl text-xs font-bold transition shadow-xs ${
@@ -694,7 +704,7 @@ export default function DMPage() {
         >
           {activeRoom ? (
             <>
-              {/* 상단 액션 바 (초대 / 나가기 버튼 추가) */}
+              {/* 상단 액션 바 */}
               <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between bg-white shrink-0">
                 <div className="flex items-center gap-2 min-w-0">
                   <button
@@ -720,7 +730,6 @@ export default function DMPage() {
                 </div>
 
                 <div className="flex items-center gap-1.5 shrink-0">
-                  {/* ➕ 멤버 더 초대하기 */}
                   <button
                     onClick={openInviteModal}
                     className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold rounded-xl text-[10px] transition"
@@ -728,7 +737,6 @@ export default function DMPage() {
                     + 초대
                   </button>
 
-                  {/* 🚪 채팅방 나가기 */}
                   <button
                     onClick={handleLeaveRoom}
                     className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-600 font-bold rounded-xl text-[10px] transition"
