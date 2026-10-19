@@ -48,8 +48,14 @@ export default function PostDetailPage() {
     const fetchData = async () => {
       setLoading(true);
       try {
-        // 👁️ 1. 조회수 1 증가 (RPC 함수 호출)
-        await supabase.rpc('increment_views', { post_id: postId });
+        // 👁️ 1. 조회수 1 증가 (RPC 실행 에러 확인)
+        const { error: rpcError } = await supabase.rpc('increment_views', {
+          post_id: postId,
+        });
+
+        if (rpcError) {
+          console.error('조회수 증가 실패 (SQL GRANT EXECUTE 확인 필요):', rpcError.message);
+        }
 
         // 2. 게시글 데이터 조회
         const { data: postData, error: postError } = await supabase
