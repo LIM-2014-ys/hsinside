@@ -15,11 +15,12 @@ webpush.setVapidDetails(
 
 export async function POST(req) {
   try {
-    const { type, targetUserId, targetEmail, title, body, url } = await req.json();
+    // 1. req.json()에서 tag와 renotify 옵션을 함께 추출합니다.
+    const { type, targetUserId, targetEmail, title, body, url, tag, renotify } = await req.json();
 
     let targetUserIds = [];
 
-    // 1. DM 수신용: 이메일 기반 수신자 ID 조회
+    // DM 수신용: 이메일 기반 수신자 ID 조회
     if (targetEmail) {
       const { data: profile } = await supabase
         .from('profiles')
@@ -30,12 +31,12 @@ export async function POST(req) {
       if (profile) targetUserIds.push(profile.id);
     }
 
-    // 2. 단일 타겟 ID 지정 시
+    // 단일 타겟 ID 지정 시
     if (targetUserId && type !== 'new_post') {
       targetUserIds.push(targetUserId);
     }
 
-    // 3. 새 글 작성 알림: 작성자를 팔로우하는 모든 팔로워 ID 조회
+    // 새 글 작성 알림: 작성자를 팔로우하는 모든 팔로워 ID 조회
     if (type === 'new_post' && targetUserId) {
       const { data: followerRows } = await supabase
         .from('follows')
@@ -64,8 +65,15 @@ export async function POST(req) {
       return NextResponse.json({ success: true, message: '구독 정보를 찾을 수 없습니다.' });
     }
 
-    // 푸시 발송
-    const payload = JSON.stringify({ title, body, url });
+    // 2. 푸시 데이터(payload)에 tag 및 renotify 포함
+    // tag가 동일하면(예: "room-123") 브라우저가 이전 알림을 지우고 1개로 합쳐서 보여줍니다.
+    const payload = JSON.stringify({ 
+      title, 
+      body, 
+      url, 
+      tag, 
+      renotify: renotify !== undefined ? renotify : true 
+    });
 
     const sendPromises = subscriptions.map(async (sub) => {
       const pushSubscription = {
