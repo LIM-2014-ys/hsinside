@@ -5,6 +5,24 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 
+// 🎨 벡터 SVG 답장 웹 아이콘
+function ReplyIcon({ className = "w-3.5 h-3.5" }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" strokeWidth={2.2} viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+    </svg>
+  );
+}
+
+// 📎 파일/이미지 첨부 SVG 아이콘
+function ClipIcon({ className = "w-4 h-4" }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+    </svg>
+  );
+}
+
 export default function DMPage() {
   const router = useRouter();
   const [currentUser, setCurrentUser] = useState(null);
@@ -14,11 +32,15 @@ export default function DMPage() {
   const [rooms, setRooms] = useState([]);
   const [activeRoom, setActiveRoom] = useState(null);
 
+  // ⚡ [실시간 Presence] 현재 대화방을 열어보고 있는 유저 ID 세트 (0초 실시간 판단)
+  const [activePresenceUserIds, setActivePresenceUserIds] = useState(new Set());
+
   // 채팅 메시지 및 멤버 상태
   const [messages, setMessages] = useState([]);
   const [roomMembers, setRoomMembers] = useState([]);
   const [inputMessage, setInputMessage] = useState('');
   const [sending, setSending] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   // ↩️ 답장 상태
   const [replyingTo, setReplyingTo] = useState(null);
@@ -26,8 +48,11 @@ export default function DMPage() {
   // ✏️ 메시지 수정 상태
   const [editingMsg, setEditingMsg] = useState(null);
 
-  // 📱 메시지 길게 누르기(Long Press) / 우클릭 액션 모달 상태
+  // 📱 메시지 액션 모달 상태
   const [actionMenuMsg, setActionMenuMsg] = useState(null);
+
+  // 👥 멤버 목록 & 강퇴 관리 모달
+  const [isMemberListOpen, setIsMemberListOpen] = useState(false);
 
   // 🏷️ @멘션 태그 자동완성 상태
   const [showMentionMenu, setShowMentionMenu] = useState(false);
@@ -36,6 +61,7 @@ export default function DMPage() {
   const messagesEndRef = useRef(null);
   const chatContainerRef = useRef(null);
   const inputRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   // 모바일 레이아웃 상태
   const [showMobileSidebar, setShowMobileSidebar] = useState(true);
@@ -160,7 +186,7 @@ export default function DMPage() {
     fetchMyRooms();
   }, [fetchMyRooms]);
 
-  // 3. 읽은 시간 업데이트 함수
+  // 3. 읽은 시간 업데이트
   const updateLastRead = useCallback(async (roomId) => {
     if (!currentUser || !roomId) return;
     const nowISO = new Date().toISOString();
@@ -182,19 +208,37 @@ export default function DMPage() {
       .eq('user_id', currentUser.id);
   }, [currentUser]);
 
-  // 🔔 [카카오톡 방식] 대화방을 열어보고 있는 동안 10초마다 읽음 상태 최신화 (알림 차단 기준)
+  // ⚡ [실시간 Presence 접속자 감지]: 들어올 때 바로 등록, 나가면 바로 삭제 (0초 반응)
   useEffect(() => {
     if (!activeRoom || !currentUser) return;
 
+    // 방 진입 시 즉시 DB 읽음 처리
     updateLastRead(activeRoom.id);
 
-    const interval = setInterval(() => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-        updateLastRead(activeRoom.id);
-      }
-    }, 10000);
+    const presenceChannel = supabase.channel(`presence-room-${activeRoom.id}`, {
+      config: { presence: { key: currentUser.id } },
+    });
 
-    return () => clearInterval(interval);
+    presenceChannel
+      .on('presence', { event: 'sync' }, () => {
+        const state = presenceChannel.presenceState();
+        const activeIds = Object.keys(state);
+        setActivePresenceUserIds(new Set(activeIds));
+      })
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          await presenceChannel.track({
+            user_id: currentUser.id,
+            online_at: new Date().toISOString(),
+          });
+        }
+      });
+
+    return () => {
+      presenceChannel.untrack();
+      supabase.removeChannel(presenceChannel);
+      setActivePresenceUserIds(new Set());
+    };
   }, [activeRoom, currentUser, updateLastRead]);
 
   // 4. 대화방 선택 및 상세 로드
@@ -228,7 +272,7 @@ export default function DMPage() {
     setTimeout(() => scrollToBottomIfNear(true), 100);
   }, [updateLastRead, scrollToBottomIfNear]);
 
-  // 5. 실시간 데이터베이스 이벤트 구독
+  // 5. 실시간 메시지 및 방 멤버 변동 구독
   useEffect(() => {
     if (!currentUser) return;
 
@@ -253,7 +297,7 @@ export default function DMPage() {
               if (prev.some((m) => m.id === newMsg.id)) return prev;
               const next = [...prev, fullMsg];
               return next.sort(
-                (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+                (a, b) => new Date(a.created_at).getTime() - new Date(a.created_at).getTime()
               );
             });
 
@@ -286,11 +330,26 @@ export default function DMPage() {
       )
       .on(
         'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'chat_room_members' },
-        (payload) => {
-          setRoomMembers((prev) =>
-            prev.map((m) => (m.id === payload.new.id ? { ...m, ...payload.new } : m))
-          );
+        { event: '*', schema: 'public', table: 'chat_room_members' },
+        async (payload) => {
+          if (activeRoom) {
+            if (payload.eventType === 'DELETE' && payload.old.user_id === currentUser.id && payload.old.room_id === activeRoom.id) {
+              setActiveRoom(null);
+              setMessages([]);
+              setRoomMembers([]);
+              setShowMobileSidebar(true);
+              showToast('채팅방에서 퇴장되었거나 강퇴되었습니다.');
+              fetchMyRooms();
+              return;
+            }
+
+            const { data: memData } = await supabase
+              .from('chat_room_members')
+              .select('*, profiles:user_id(*)')
+              .eq('room_id', activeRoom.id);
+
+            if (memData) setRoomMembers(memData);
+          }
           fetchMyRooms();
         }
       )
@@ -315,6 +374,59 @@ export default function DMPage() {
     };
   }, [currentUser, activeRoom, fetchMyRooms, updateLastRead, scrollToBottomIfNear]);
 
+  const isOwner = activeRoom && currentUser && activeRoom.owner_id === currentUser.id;
+
+  // 📁 이미지 및 파일 전송 기능
+  const handleFileUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !activeRoom || !currentUser || uploading) return;
+
+    setUploading(true);
+    showToast('파일 업로드 중...', 'success');
+
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
+      const filePath = `${activeRoom.id}/${fileName}`;
+
+      const { error: uploadErr } = await supabase.storage
+        .from('chat-attachments')
+        .upload(filePath, file);
+
+      if (uploadErr) throw uploadErr;
+
+      const { data: urlData } = supabase.storage
+        .from('chat-attachments')
+        .getPublicUrl(filePath);
+
+      const publicUrl = urlData.publicUrl;
+      const isImage = file.type.startsWith('image/');
+      const contentStr = isImage
+        ? `🖼️ [IMAGE]: ${publicUrl}`
+        : `📎 [FILE]: ${file.name}|${publicUrl}`;
+
+      const { data, error } = await supabase
+        .from('chat_messages')
+        .insert([{ room_id: activeRoom.id, sender_id: currentUser.id, content: contentStr }])
+        .select('*, profiles:sender_id(*)')
+        .single();
+
+      if (error) throw error;
+
+      if (data) {
+        setMessages((prev) => [...prev, data]);
+        updateLastRead(activeRoom.id);
+        setTimeout(() => scrollToBottomIfNear(true), 50);
+      }
+    } catch (err) {
+      console.error('파일 업로드 오류:', err);
+      showToast('파일 업로드 실패 (스토리지 버킷 설정을 확인해주세요)');
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
   // 입력창 변경 시 @ 태그 감지
   const handleInputChange = (e) => {
     const val = e.target.value;
@@ -334,9 +446,12 @@ export default function DMPage() {
     setShowMentionMenu(false);
   };
 
-  // 멘션 태그 자동완성 선택
-  const insertMention = (member) => {
-    const name = member.profiles?.display_name || member.profiles?.nickname || '익명';
+  // 멘션 선택
+  const insertMention = (target) => {
+    const name = target.isAll
+      ? 'all'
+      : target.profiles?.display_name || target.profiles?.nickname || '익명';
+
     const cursor = inputRef.current?.selectionStart || inputMessage.length;
     const lastAt = inputMessage.lastIndexOf('@', cursor - 1);
 
@@ -350,7 +465,7 @@ export default function DMPage() {
     inputRef.current?.focus();
   };
 
-  // 메시지 삭제 처리
+  // 메시지 삭제
   const handleDeleteMessage = async (msgId) => {
     try {
       const { error } = await supabase
@@ -369,6 +484,37 @@ export default function DMPage() {
     }
   };
 
+  // ⛔ 강퇴 처리
+  const handleKickMember = async (targetMember) => {
+    if (!activeRoom || !currentUser || !isOwner) return;
+    const targetName = targetMember.profiles?.display_name || targetMember.profiles?.nickname || '익명';
+
+    try {
+      const { error } = await supabase
+        .from('chat_room_members')
+        .delete()
+        .eq('room_id', activeRoom.id)
+        .eq('user_id', targetMember.user_id);
+
+      if (error) throw error;
+
+      await supabase.from('chat_messages').insert([
+        {
+          room_id: activeRoom.id,
+          sender_id: currentUser.id,
+          content: `📢 ${targetName}님이 방장에 의해 강퇴되었습니다.`,
+        },
+      ]);
+
+      showToast(`${targetName}님을 강퇴했습니다.`, 'success');
+      setRoomMembers((prev) => prev.filter((m) => m.user_id !== targetMember.user_id));
+      fetchMyRooms();
+    } catch (err) {
+      console.error('강퇴 에러:', err);
+      showToast('강퇴 처리 실패');
+    }
+  };
+
   // 메시지 수정 시작
   const startEditingMessage = (msg) => {
     const cleanContent = msg.content.replace(/^↩️ \[.*?\]: ".*?"\n\n/, '');
@@ -379,14 +525,13 @@ export default function DMPage() {
     setTimeout(() => inputRef.current?.focus(), 50);
   };
 
-  // 메시지 전송 및 수정
+  // 메시지 전송
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!inputMessage.trim() || !activeRoom || !currentUser || sending) return;
 
     setSending(true);
 
-    // ✏️ 수정 모드인 경우
     if (editingMsg) {
       let updatedContent = inputMessage.trim();
       const replyMatch = editingMsg.content.match(/^↩️ \[(.*?)\]: "(.*?)"\n\n/);
@@ -417,7 +562,6 @@ export default function DMPage() {
       return;
     }
 
-    // 💬 일반 신규 메시지 전송 모드
     let finalContent = inputMessage.trim();
     if (replyingTo) {
       const cleanReplyContent = replyingTo.content.replace(/^↩️ \[.*?\]: ".*?"\n\n/, '');
@@ -444,16 +588,13 @@ export default function DMPage() {
 
         const otherMembers = roomMembers.filter((m) => m.user_id !== currentUser.id);
         const myName = currentUser.user_metadata?.display_name || '누군가';
-        const now = Date.now();
 
-        // 🔕 [카카오톡 방식 스마트 푸시]
-        // 1) 상대방이 대화방을 보고 있으면(최근 25초 이내 읽음 갱신) 푸시 발송 생략
-        // 2) 부재 중인 상대에게는 tag: "room-${activeRoom.id}"로 발송하여 기존 알림을 덮어씀 (단일 알림 유지)
+        // 🔕 [0초 실시간 판단]: Presence 소켓 채널에 들어와 있는지 바로 확인!
         otherMembers.forEach((m) => {
-          const lastReadTime = m.last_read_at ? new Date(m.last_read_at).getTime() : 0;
-          const isCurrentlyReading = now - lastReadTime < 25000; // 대화방 보고 있는 중
+          const isCurrentlyInRoom = activePresenceUserIds.has(m.user_id);
 
-          if (!isCurrentlyReading && m.profiles?.email) {
+          // 채팅방에 안 열고 있는 유저에게만 즉시 푸시 알림 발송!
+          if (!isCurrentlyInRoom && m.profiles?.email) {
             fetch('/api/push', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -461,8 +602,8 @@ export default function DMPage() {
                 targetEmail: m.profiles.email,
                 title: `💬 ${activeRoom.is_group ? activeRoom.name : myName}`,
                 body: finalContent,
-                tag: `room-${activeRoom.id}`, // 👈 카톡 방식: 이전 알림을 지우고 1개로 덮어쓰기
-                renotify: true,               // 👈 덮어쓰며 새 알람 소리/진동 울리기
+                tag: `room-${activeRoom.id}`,
+                renotify: true,
                 url: `/dm`,
               }),
             }).catch((err) => console.error('푸시 에러:', err));
@@ -477,8 +618,41 @@ export default function DMPage() {
     }
   };
 
-  // 메시지 내용 렌더링
-  const renderMessageContent = (content) => {
+  // 🖼️/📎 메시지 및 이미지/파일 렌더링
+  const renderMessageContent = (content, isMine = false) => {
+    // 1. 이미지 렌더링
+    if (content.startsWith('🖼️ [IMAGE]: ')) {
+      const imageUrl = content.replace('🖼️ [IMAGE]: ', '').trim();
+      return (
+        <div className="py-1">
+          <img
+            src={imageUrl}
+            alt="첨부 이미지"
+            className="max-w-xs max-h-60 rounded-xl object-cover cursor-pointer shadow-xs hover:opacity-95 transition"
+            onClick={() => window.open(imageUrl, '_blank')}
+          />
+        </div>
+      );
+    }
+
+    // 2. 일반 파일 렌더링
+    if (content.startsWith('📎 [FILE]: ')) {
+      const fileData = content.replace('📎 [FILE]: ', '').trim();
+      const [fileName, fileUrl] = fileData.split('|');
+      return (
+        <a
+          href={fileUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="p-2.5 bg-black/10 rounded-xl flex items-center gap-2 hover:bg-black/20 transition text-xs font-bold"
+        >
+          <ClipIcon className="w-4 h-4 shrink-0" />
+          <span className="truncate">{fileName || '다운로드 파일'}</span>
+        </a>
+      );
+    }
+
+    // 3. 텍스트 및 답장/멘션 렌더링
     let replyHeader = null;
     let mainContent = content;
 
@@ -493,16 +667,32 @@ export default function DMPage() {
     return (
       <div className="space-y-1.5 min-w-0 break-all break-words">
         {replyHeader && (
-          <div className="p-2 bg-black/10 rounded-lg border-l-2 border-emerald-400 text-[10px] space-y-0.5 opacity-90 truncate">
-            <div className="font-bold text-emerald-300">↩️ {replyHeader.sender}에게 답장</div>
-            <div className="truncate italic">{replyHeader.text}</div>
+          <div className="p-2 bg-black/10 rounded-lg border-l-2 border-emerald-400 text-[10px] space-y-0.5 opacity-90 truncate flex items-center gap-1.5">
+            <ReplyIcon className="w-3 h-3 text-emerald-300 shrink-0" />
+            <div className="min-w-0">
+              <div className="font-bold text-emerald-300">{replyHeader.sender}에게 답장</div>
+              <div className="truncate italic">{replyHeader.text}</div>
+            </div>
           </div>
         )}
         <div className="whitespace-pre-wrap leading-relaxed break-all break-words overflow-hidden">
           {parts.map((part, idx) => {
             if (part.startsWith('@')) {
+              const isAllMention = part.toLowerCase() === '@all';
+
+              let badgeStyle = '';
+              if (isMine) {
+                badgeStyle = isAllMention
+                  ? 'bg-amber-300 text-gray-900 font-extrabold px-1.5 py-0.5 rounded shadow-xs'
+                  : 'bg-white/20 text-amber-200 font-bold px-1.5 py-0.5 rounded border border-white/20';
+              } else {
+                badgeStyle = isAllMention
+                  ? 'bg-amber-500 text-white font-extrabold px-1.5 py-0.5 rounded shadow-xs'
+                  : 'bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded border border-emerald-200/60';
+              }
+
               return (
-                <span key={idx} className="font-bold bg-emerald-500/20 text-emerald-200 px-1 py-0.5 rounded">
+                <span key={idx} className={badgeStyle}>
                   {part}
                 </span>
               );
@@ -545,8 +735,17 @@ export default function DMPage() {
   // 방 나가기
   const handleLeaveRoom = async () => {
     if (!activeRoom || !currentUser) return;
+    const myName = currentUser.user_metadata?.display_name || currentUser.user_metadata?.nickname || '누군가';
 
     try {
+      await supabase.from('chat_messages').insert([
+        {
+          room_id: activeRoom.id,
+          sender_id: currentUser.id,
+          content: `📢 ${myName}님이 퇴장하셨습니다.`,
+        },
+      ]);
+
       const { error } = await supabase
         .from('chat_room_members')
         .delete()
@@ -603,6 +802,7 @@ export default function DMPage() {
       const { error } = await supabase.from('chat_room_members').insert(payload);
       if (error) throw error;
 
+      const inviterName = currentUser.user_metadata?.display_name || currentUser.user_metadata?.nickname || '누군가';
       const invitedUserNames = invitableUsers
         .filter((u) => selectedInviteUserIds.includes(u.id))
         .map((u) => u.display_name || u.nickname || '익명')
@@ -612,7 +812,7 @@ export default function DMPage() {
         {
           room_id: activeRoom.id,
           sender_id: currentUser.id,
-          content: `📢 ${invitedUserNames}님이 초대되었습니다.`,
+          content: `📢 ${inviterName}님이 ${invitedUserNames}님을 초대하셨습니다.`,
         },
       ]);
 
@@ -767,8 +967,6 @@ export default function DMPage() {
     );
   }
 
-  const isOwner = activeRoom && currentUser && activeRoom.owner_id === currentUser.id;
-
   const activePartner =
     roomMembers.find((m) => m.user_id !== currentUser?.id)?.profiles ||
     rooms.find((r) => r.id === activeRoom?.id)?.members?.find((m) => m.user_id !== currentUser?.id)?.profiles;
@@ -777,7 +975,6 @@ export default function DMPage() {
     ? activeRoom.name
     : activePartner?.display_name || activePartner?.nickname || '상대방';
 
-  // 필터링된 유저 목록
   const filteredGroupUsers = availableGroupUsers.filter((u) => {
     const name = u.display_name || u.nickname || '';
     return name.toLowerCase().includes(groupSearchQuery.toLowerCase());
@@ -793,8 +990,23 @@ export default function DMPage() {
     return name.toLowerCase().includes(mentionSearch.toLowerCase());
   });
 
+  const mentionOptions = [
+    ...(isOwner && 'all'.includes(mentionSearch.toLowerCase())
+      ? [{ isAll: true, id: 'all-option' }]
+      : []),
+    ...filteredMentionMembers,
+  ];
+
   return (
     <div className="fixed inset-0 z-50 bg-white w-screen h-screen h-[100dvh] flex flex-col font-sans text-xs overflow-hidden select-none">
+      {/* 숨겨진 파일 선택 Input */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileUpload}
+        className="hidden"
+      />
+
       {/* 토스트 알림 */}
       {toastMsg.text && (
         <div
@@ -937,9 +1149,12 @@ export default function DMPage() {
                           👑 내가 방장
                         </span>
                       )}
-                      <span className="text-[10px] text-gray-400 font-bold">
-                        ({roomMembers.length}명)
-                      </span>
+                      <button
+                        onClick={() => setIsMemberListOpen(true)}
+                        className="text-[10px] text-emerald-700 hover:underline font-bold bg-emerald-50 px-2 py-0.5 rounded-full"
+                      >
+                        👥 멤버 ({roomMembers.length}명)
+                      </button>
                     </h2>
                     <p className="text-[9px] text-emerald-600 font-semibold">● 실시간 연결됨</p>
                   </div>
@@ -1003,12 +1218,23 @@ export default function DMPage() {
                     const isMine = msg.sender_id === currentUser?.id;
                     const senderName = msg.profiles?.display_name || msg.profiles?.nickname || '익명';
 
+                    // 🔢 [숫자 로직]: 전체 멤버 중 (실시간 소켓 접속자 + DB 읽은 시각 만족자) 차감
+                    const readCount = roomMembers.filter((m) => {
+                      if (activePresenceUserIds.has(m.user_id)) return true; // 실시간 대화방에 열어두고 있음!
+                      const lastRead = m.last_read_at ? new Date(m.last_read_at).getTime() : 0;
+                      const msgTime = new Date(msg.created_at).getTime();
+                      return lastRead >= msgTime - 500;
+                    }).length;
+
+                    const unreadCount = Math.max(0, roomMembers.length - readCount);
+
                     return (
                       <MessageItem
                         key={msg.id}
                         msg={msg}
                         isMine={isMine}
                         senderName={senderName}
+                        unreadCount={unreadCount}
                         onReply={(m, name) => setReplyingTo({ id: m.id, senderName: name, content: m.content })}
                         onLongPress={(m, mine, name) => setActionMenuMsg({ msg: m, isMine: mine, senderName: name })}
                         renderContent={renderMessageContent}
@@ -1019,18 +1245,36 @@ export default function DMPage() {
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* 하단 메시지 입력 폼 및 레이어 */}
+              {/* 하단 메시지 및 파일 입력 폼 */}
               <div className="relative bg-white border-t border-gray-100">
                 {/* 🏷️ @멘션 자동완성 팝오버 */}
-                {showMentionMenu && filteredMentionMembers.length > 0 && (
-                  <div className="absolute bottom-full left-3 right-3 mb-1 bg-white border border-gray-200 rounded-2xl shadow-xl max-h-36 overflow-y-auto p-1.5 z-20">
-                    <div className="text-[9.5px] font-bold text-gray-400 px-2 py-1">멘션할 멤버 선택</div>
-                    {filteredMentionMembers.map((m) => {
-                      const name = m.profiles?.display_name || m.profiles?.nickname || '익명';
+                {showMentionMenu && mentionOptions.length > 0 && (
+                  <div className="absolute bottom-full left-3 right-3 mb-1 bg-white border border-gray-200 rounded-2xl shadow-xl max-h-40 overflow-y-auto p-1.5 z-20">
+                    <div className="text-[9.5px] font-bold text-gray-400 px-2 py-1 flex items-center justify-between">
+                      <span>멘션할 대상 선택</span>
+                      {isOwner && <span className="text-amber-600 font-extrabold">👑 방장 모드 (@all 가능)</span>}
+                    </div>
+                    {mentionOptions.map((item) => {
+                      if (item.isAll) {
+                        return (
+                          <div
+                            key="all-option"
+                            onClick={() => insertMention(item)}
+                            className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 rounded-xl cursor-pointer flex items-center gap-2 text-xs font-black text-amber-900 mb-1"
+                          >
+                            <span className="w-5 h-5 rounded-full bg-amber-400 text-gray-900 flex items-center justify-center text-[9px]">
+                              📢
+                            </span>
+                            <span>@all (전체 멘션)</span>
+                          </div>
+                        );
+                      }
+
+                      const name = item.profiles?.display_name || item.profiles?.nickname || '익명';
                       return (
                         <div
-                          key={m.user_id}
-                          onClick={() => insertMention(m)}
+                          key={item.user_id}
+                          onClick={() => insertMention(item)}
                           className="px-2.5 py-1.5 hover:bg-emerald-50 rounded-xl cursor-pointer flex items-center gap-2 text-xs font-bold text-gray-800"
                         >
                           <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-[9px] font-black">
@@ -1043,7 +1287,7 @@ export default function DMPage() {
                   </div>
                 )}
 
-                {/* ✏️ 메시지 수정 상태 레이어 */}
+                {/* ✏️ 메시지 수정 레이어 */}
                 {editingMsg && (
                   <div className="px-4 py-2 bg-amber-50/90 border-b border-amber-200 flex items-center justify-between text-xs">
                     <div className="min-w-0 flex-1 truncate pr-2">
@@ -1065,9 +1309,12 @@ export default function DMPage() {
                 {/* ↩️ 답장 모드 레이어 */}
                 {replyingTo && !editingMsg && (
                   <div className="px-4 py-2 bg-emerald-50/80 border-b border-emerald-100 flex items-center justify-between text-xs">
-                    <div className="min-w-0 flex-1 truncate pr-2">
-                      <span className="font-bold text-emerald-800">↩️ {replyingTo.senderName}에게 답장: </span>
-                      <span className="text-gray-600 italic">{replyingTo.content}</span>
+                    <div className="min-w-0 flex-1 truncate pr-2 flex items-center gap-1.5">
+                      <ReplyIcon className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                      <div className="truncate">
+                        <span className="font-bold text-emerald-800">{replyingTo.senderName}에게 답장: </span>
+                        <span className="text-gray-600 italic">{replyingTo.content}</span>
+                      </div>
                     </div>
                     <button
                       onClick={() => setReplyingTo(null)}
@@ -1079,10 +1326,27 @@ export default function DMPage() {
                 )}
 
                 <form onSubmit={handleSendMessage} className="p-3 flex items-center gap-2">
+                  {/* 📎 파일/이미지 업로드 버튼 */}
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploading}
+                    className="p-2 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-full transition shrink-0"
+                    title="사진/파일 첨부"
+                  >
+                    <ClipIcon className="w-4 h-4" />
+                  </button>
+
                   <input
                     ref={inputRef}
                     type="text"
-                    placeholder={editingMsg ? "수정할 내용 입력..." : "메시지 입력... (@로 멘션)"}
+                    placeholder={
+                      editingMsg
+                        ? "수정할 내용 입력..."
+                        : isOwner
+                        ? "메시지 입력... (@로 멘션, @all 가능)"
+                        : "메시지 입력... (@로 멘션)"
+                    }
                     value={inputMessage}
                     onChange={handleInputChange}
                     className="flex-1 px-4 py-2.5 bg-gray-100 rounded-full focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-xs text-gray-800 select-text"
@@ -1106,7 +1370,7 @@ export default function DMPage() {
         </div>
       </div>
 
-      {/* 📱 메시지 길게 누르기(Long Press) / 우클릭 액션 모달 */}
+      {/* 📱 메시지 액션 시트 모달 */}
       {actionMenuMsg && (
         <div
           className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
@@ -1133,7 +1397,7 @@ export default function DMPage() {
               }}
               className="w-full py-2.5 px-3 bg-gray-50 hover:bg-emerald-50 text-gray-800 hover:text-emerald-700 font-bold rounded-2xl transition text-xs flex items-center justify-center gap-2"
             >
-              <span>↩️</span> 답장하기
+              <ReplyIcon className="w-4 h-4" /> 답장하기
             </button>
 
             <button
@@ -1176,7 +1440,68 @@ export default function DMPage() {
         </div>
       )}
 
-      {/* ➕ 멤버 초대 모달 (친구 검색 포함) */}
+      {/* 👥 멤버 목록 & 강퇴 모달 */}
+      {isMemberListOpen && activeRoom && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-sm rounded-3xl p-5 shadow-2xl space-y-3 max-h-[80vh] flex flex-col border border-gray-100">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <h3 className="font-black text-xs text-gray-900 flex items-center gap-1.5">
+                <span>👥 대화방 멤버</span>
+                <span className="text-emerald-600">({roomMembers.length}명)</span>
+              </h3>
+              <button
+                onClick={() => setIsMemberListOpen(false)}
+                className="w-7 h-7 bg-gray-100 hover:bg-gray-200 text-gray-500 rounded-full font-bold flex items-center justify-center text-xs"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+              {roomMembers.map((member) => {
+                const name = member.profiles?.display_name || member.profiles?.nickname || '익명';
+                const isRoomOwner = activeRoom.owner_id === member.user_id;
+                const isMe = currentUser?.id === member.user_id;
+
+                return (
+                  <div
+                    key={member.user_id}
+                    className="p-3 bg-gray-50 rounded-2xl border border-gray-100 flex items-center justify-between gap-2"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-800 font-black flex items-center justify-center text-xs shrink-0 overflow-hidden">
+                        {member.profiles?.avatar_url ? (
+                          <img src={member.profiles.avatar_url} alt={name} className="w-full h-full object-cover" />
+                        ) : (
+                          name[0]
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="font-bold text-gray-900 text-xs truncate flex items-center gap-1">
+                          <span>{name}</span>
+                          {isMe && <span className="text-[9px] text-emerald-600 font-extrabold">(나)</span>}
+                          {isRoomOwner && <span className="text-[9px] text-amber-500 font-black">👑 방장</span>}
+                        </div>
+                      </div>
+                    </div>
+
+                    {isOwner && !isMe && (
+                      <button
+                        onClick={() => handleKickMember(member)}
+                        className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold rounded-lg text-[10px] transition shrink-0"
+                      >
+                        ⛔ 강퇴
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ➕ 멤버 초대 모달 */}
       {isInviteModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-sm rounded-3xl p-5 shadow-2xl space-y-3 max-h-[80vh] flex flex-col border border-gray-100">
@@ -1251,7 +1576,7 @@ export default function DMPage() {
         </div>
       )}
 
-      {/* 👥 그룹 채팅 생성 모달 (친구 검색 포함) */}
+      {/* 👥 그룹 채팅 생성 모달 */}
       {isGroupModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-sm rounded-3xl p-5 shadow-2xl space-y-3 max-h-[80vh] flex flex-col border border-gray-100">
@@ -1423,15 +1748,15 @@ export default function DMPage() {
   );
 }
 
-// 📱 스와이프 및 길게 누르기(Long Press) 지원 개별 메시지 컴포넌트
-function MessageItem({ msg, isMine, senderName, onReply, onLongPress, renderContent }) {
+// 📱 스와이프 및 안읽은 수('방인원수-읽은수') 표시 개별 메시지 컴포넌트
+function MessageItem({ msg, isMine, senderName, unreadCount, onReply, onLongPress, renderContent }) {
   const [translateX, setTranslateX] = useState(0);
   const touchStartX = useRef(0);
   const touchStartY = useRef(0);
   const timerRef = useRef(null);
   const isSwiping = useRef(false);
 
-  // 터치 시작 (Long Press 타이머 설정)
+  // 터치 시작
   const handleTouchStart = (e) => {
     const touch = e.touches[0];
     touchStartX.current = touch.clientX;
@@ -1482,6 +1807,11 @@ function MessageItem({ msg, isMine, senderName, onReply, onLongPress, renderCont
     onLongPress(msg, isMine, senderName);
   };
 
+  const formattedTime = new Date(msg.created_at).toLocaleTimeString('ko-KR', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
   return (
     <div className={`group flex flex-col ${isMine ? 'items-end' : 'items-start'} space-y-0.5 select-none touch-pan-y`}>
       {!isMine && (
@@ -1498,25 +1828,38 @@ function MessageItem({ msg, isMine, senderName, onReply, onLongPress, renderCont
         onTouchEnd={handleTouchEnd}
         onContextMenu={handleContextMenu}
       >
+        {/* 스와이프 반응 벡터 SVG 아이콘 */}
         {translateX > 15 && (
           <div
-            className="absolute -left-7 top-1/2 -translate-y-1/2 text-xs text-emerald-600 font-bold transition-opacity"
+            className="absolute -left-7 top-1/2 -translate-y-1/2 text-emerald-600 font-bold transition-opacity"
             style={{ opacity: Math.min(translateX / 50, 1) }}
           >
-            ↩️
+            <ReplyIcon className="w-4 h-4" />
           </div>
         )}
 
+        {/* 🔢 내가 보낸 메시지: 안읽은 사람 수 + 시간 (말풍선 좌측) */}
+        {isMine && (
+          <div className="flex flex-col items-end text-[9px] text-gray-400 shrink-0 select-none leading-tight">
+            {unreadCount > 0 && (
+              <span className="font-extrabold text-amber-500 text-[10px]">{unreadCount}</span>
+            )}
+            <span>{formattedTime}</span>
+          </div>
+        )}
+
+        {/* 호버 시 답장 웹 벡터 아이콘 */}
         {isMine && (
           <button
             onClick={() => onReply(msg, senderName)}
-            className="opacity-0 group-hover:opacity-100 transition text-[10px] text-gray-400 hover:text-emerald-600 p-1 shrink-0"
+            className="opacity-0 group-hover:opacity-100 transition text-gray-400 hover:text-emerald-600 p-1 shrink-0"
             title="답장하기"
           >
-            ↩️
+            <ReplyIcon className="w-3.5 h-3.5" />
           </button>
         )}
 
+        {/* 말풍선 본문 */}
         <div
           className={`px-3.5 py-2 rounded-2xl text-[11px] leading-relaxed break-all break-words overflow-hidden ${
             isMine
@@ -1524,17 +1867,28 @@ function MessageItem({ msg, isMine, senderName, onReply, onLongPress, renderCont
               : 'bg-white text-gray-800 rounded-bl-none border border-gray-100 shadow-2xs'
           }`}
         >
-          {renderContent(msg.content)}
+          {renderContent(msg.content, isMine)}
         </div>
 
+        {/* 호버 시 답장 웹 벡터 아이콘 */}
         {!isMine && (
           <button
             onClick={() => onReply(msg, senderName)}
-            className="opacity-0 group-hover:opacity-100 transition text-[10px] text-gray-400 hover:text-emerald-600 p-1 shrink-0"
+            className="opacity-0 group-hover:opacity-100 transition text-gray-400 hover:text-emerald-600 p-1 shrink-0"
             title="답장하기"
           >
-            ↩️
+            <ReplyIcon className="w-3.5 h-3.5" />
           </button>
+        )}
+
+        {/* 🔢 상대방이 보낸 메시지: 시간 + 안읽은 사람 수 (말풍선 우측) */}
+        {!isMine && (
+          <div className="flex flex-col items-start text-[9px] text-gray-400 shrink-0 select-none leading-tight">
+            {unreadCount > 0 && (
+              <span className="font-extrabold text-amber-500 text-[10px]">{unreadCount}</span>
+            )}
+            <span>{formattedTime}</span>
+          </div>
         )}
       </div>
     </div>
