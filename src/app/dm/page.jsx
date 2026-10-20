@@ -32,7 +32,7 @@ export default function DMPage() {
   const [rooms, setRooms] = useState([]);
   const [activeRoom, setActiveRoom] = useState(null);
 
-  // ⚡ [실시간 Presence] 현재 대화방을 열어보고 있는 유저 ID 세트 (0초 실시간 판단)
+  // ⚡ [실시간 Presence] 현재 대화방을 열어보고 있는 유저 ID 세트
   const [activePresenceUserIds, setActivePresenceUserIds] = useState(new Set());
 
   // 채팅 메시지 및 멤버 상태
@@ -54,9 +54,10 @@ export default function DMPage() {
   // 👥 멤버 목록 & 강퇴 관리 모달
   const [isMemberListOpen, setIsMemberListOpen] = useState(false);
 
-  // 🏷️ @멘션 태그 자동완성 상태
+  // 🏷️ @멘션 태그 자동완성 상태 & 키보드 인덱스
   const [showMentionMenu, setShowMentionMenu] = useState(false);
   const [mentionSearch, setMentionSearch] = useState('');
+  const [mentionSelectedIndex, setMentionSelectedIndex] = useState(0);
 
   const messagesEndRef = useRef(null);
   const chatContainerRef = useRef(null);
@@ -208,11 +209,10 @@ export default function DMPage() {
       .eq('user_id', currentUser.id);
   }, [currentUser]);
 
-  // ⚡ [실시간 Presence 접속자 감지]: 들어올 때 바로 등록, 나가면 바로 삭제 (0초 반응)
+  // ⚡ [실시간 Presence 접속자 감지]
   useEffect(() => {
     if (!activeRoom || !currentUser) return;
 
-    // 방 진입 시 즉시 DB 읽음 처리
     updateLastRead(activeRoom.id);
 
     const presenceChannel = supabase.channel(`presence-room-${activeRoom.id}`, {
@@ -256,7 +256,7 @@ export default function DMPage() {
 
     if (msgData) {
       const sorted = [...msgData].sort(
-        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+        (a, b) => new Date(a.created_at).getTime() - new Date(a.created_at).getTime()
       );
       setMessages(sorted);
     }
@@ -376,6 +376,24 @@ export default function DMPage() {
 
   const isOwner = activeRoom && currentUser && activeRoom.owner_id === currentUser.id;
 
+  // 🎯 멘션 필터링: 실제 이 대화방에 들어있는 멤버만 대상으로 함
+  const filteredMentionMembers = roomMembers.filter((m) => {
+    const name = m.profiles?.display_name || m.profiles?.nickname || '';
+    return name.toLowerCase().includes(mentionSearch.toLowerCase());
+  });
+
+  const mentionOptions = [
+    ...(isOwner && 'all'.includes(mentionSearch.toLowerCase())
+      ? [{ isAll: true, id: 'all-option' }]
+      : []),
+    ...filteredMentionMembers,
+  ];
+
+  // 멘션 입력 검색어 변경 시 하이라이트 인덱스 초기화
+  useEffect(() => {
+    setMentionSelectedIndex(0);
+  }, [mentionSearch, showMentionMenu]);
+
   // 📁 이미지 및 파일 전송 기능
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
@@ -446,8 +464,9 @@ export default function DMPage() {
     setShowMentionMenu(false);
   };
 
-  // 멘션 선택
+  // 멘션 자동완성 삽입 함수
   const insertMention = (target) => {
+    if (!target) return;
     const name = target.isAll
       ? 'all'
       : target.profiles?.display_name || target.profiles?.nickname || '익명';
@@ -462,7 +481,28 @@ export default function DMPage() {
       setInputMessage(newText);
     }
     setShowMentionMenu(false);
-    inputRef.current?.focus();
+    setTimeout(() => inputRef.current?.focus(), 10);
+  };
+
+  // ⌨️ 키보드 이벤트 조작 (Space / Enter 자동완성, 방향키 조작)
+  const handleKeyDown = (e) => {
+    if (showMentionMenu && mentionOptions.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setMentionSelectedIndex((prev) => (prev + 1) % mentionOptions.length);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setMentionSelectedIndex((prev) => (prev - 1 + mentionOptions.length) % mentionOptions.length);
+      } else if (e.key === 'Enter') {
+        e.preventDefault(); // 메시지 전송 차단 후 멘션 자동완성 먼저 수행
+        insertMention(mentionOptions[mentionSelectedIndex]);
+      } else if (e.key === ' ') {
+        e.preventDefault(); // 스페이스 누르면 자동완성 적용 후 공백 띄움
+        insertMention(mentionOptions[mentionSelectedIndex]);
+      } else if (e.key === 'Escape') {
+        setShowMentionMenu(false);
+      }
+    }
   };
 
   // 메시지 삭제
@@ -589,11 +629,9 @@ export default function DMPage() {
         const otherMembers = roomMembers.filter((m) => m.user_id !== currentUser.id);
         const myName = currentUser.user_metadata?.display_name || '누군가';
 
-        // 🔕 [0초 실시간 판단]: Presence 소켓 채널에 들어와 있는지 바로 확인!
         otherMembers.forEach((m) => {
           const isCurrentlyInRoom = activePresenceUserIds.has(m.user_id);
 
-          // 채팅방에 안 열고 있는 유저에게만 즉시 푸시 알림 발송!
           if (!isCurrentlyInRoom && m.profiles?.email) {
             fetch('/api/push', {
               method: 'POST',
@@ -620,7 +658,6 @@ export default function DMPage() {
 
   // 🖼️/📎 메시지 및 이미지/파일 렌더링
   const renderMessageContent = (content, isMine = false) => {
-    // 1. 이미지 렌더링
     if (content.startsWith('🖼️ [IMAGE]: ')) {
       const imageUrl = content.replace('🖼️ [IMAGE]: ', '').trim();
       return (
@@ -635,7 +672,6 @@ export default function DMPage() {
       );
     }
 
-    // 2. 일반 파일 렌더링
     if (content.startsWith('📎 [FILE]: ')) {
       const fileData = content.replace('📎 [FILE]: ', '').trim();
       const [fileName, fileUrl] = fileData.split('|');
@@ -652,7 +688,6 @@ export default function DMPage() {
       );
     }
 
-    // 3. 텍스트 및 답장/멘션 렌더링
     let replyHeader = null;
     let mainContent = content;
 
@@ -985,18 +1020,6 @@ export default function DMPage() {
     return name.toLowerCase().includes(inviteSearchQuery.toLowerCase());
   });
 
-  const filteredMentionMembers = roomMembers.filter((m) => {
-    const name = m.profiles?.display_name || m.profiles?.nickname || '';
-    return name.toLowerCase().includes(mentionSearch.toLowerCase());
-  });
-
-  const mentionOptions = [
-    ...(isOwner && 'all'.includes(mentionSearch.toLowerCase())
-      ? [{ isAll: true, id: 'all-option' }]
-      : []),
-    ...filteredMentionMembers,
-  ];
-
   return (
     <div className="fixed inset-0 z-50 bg-white w-screen h-screen h-[100dvh] flex flex-col font-sans text-xs overflow-hidden select-none">
       {/* 숨겨진 파일 선택 Input */}
@@ -1220,7 +1243,7 @@ export default function DMPage() {
 
                     // 🔢 [숫자 로직]: 전체 멤버 중 (실시간 소켓 접속자 + DB 읽은 시각 만족자) 차감
                     const readCount = roomMembers.filter((m) => {
-                      if (activePresenceUserIds.has(m.user_id)) return true; // 실시간 대화방에 열어두고 있음!
+                      if (activePresenceUserIds.has(m.user_id)) return true;
                       const lastRead = m.last_read_at ? new Date(m.last_read_at).getTime() : 0;
                       const msgTime = new Date(msg.created_at).getTime();
                       return lastRead >= msgTime - 500;
@@ -1247,20 +1270,26 @@ export default function DMPage() {
 
               {/* 하단 메시지 및 파일 입력 폼 */}
               <div className="relative bg-white border-t border-gray-100">
-                {/* 🏷️ @멘션 자동완성 팝오버 */}
+                {/* 🏷️ @멘션 자동완성 팝오버 (방 멤버 전용 & 키보드 탐색) */}
                 {showMentionMenu && mentionOptions.length > 0 && (
                   <div className="absolute bottom-full left-3 right-3 mb-1 bg-white border border-gray-200 rounded-2xl shadow-xl max-h-40 overflow-y-auto p-1.5 z-20">
-                    <div className="text-[9.5px] font-bold text-gray-400 px-2 py-1 flex items-center justify-between">
-                      <span>멘션할 대상 선택</span>
-                      {isOwner && <span className="text-amber-600 font-extrabold">👑 방장 모드 (@all 가능)</span>}
+                    <div className="text-[9.5px] font-bold text-gray-400 px-2 py-1 flex items-center justify-between border-b border-gray-100 mb-1">
+                      <span>방 멤버 선택 (Space/Enter로 완료, ▲▼ 탐색)</span>
+                      {isOwner && <span className="text-amber-600 font-extrabold">👑 방장 모드 (@all)</span>}
                     </div>
-                    {mentionOptions.map((item) => {
+                    {mentionOptions.map((item, idx) => {
+                      const isSelected = idx === mentionSelectedIndex;
+
                       if (item.isAll) {
                         return (
                           <div
                             key="all-option"
                             onClick={() => insertMention(item)}
-                            className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 rounded-xl cursor-pointer flex items-center gap-2 text-xs font-black text-amber-900 mb-1"
+                            className={`px-2.5 py-1.5 rounded-xl cursor-pointer flex items-center gap-2 text-xs font-black transition mb-1 ${
+                              isSelected
+                                ? 'bg-amber-400 text-gray-900 shadow-xs scale-[0.99]'
+                                : 'bg-amber-50 text-amber-900 hover:bg-amber-100'
+                            }`}
                           >
                             <span className="w-5 h-5 rounded-full bg-amber-400 text-gray-900 flex items-center justify-center text-[9px]">
                               📢
@@ -1275,9 +1304,17 @@ export default function DMPage() {
                         <div
                           key={item.user_id}
                           onClick={() => insertMention(item)}
-                          className="px-2.5 py-1.5 hover:bg-emerald-50 rounded-xl cursor-pointer flex items-center gap-2 text-xs font-bold text-gray-800"
+                          className={`px-2.5 py-1.5 rounded-xl cursor-pointer flex items-center gap-2 text-xs font-bold transition ${
+                            isSelected
+                              ? 'bg-emerald-600 text-white shadow-xs scale-[0.99]'
+                              : 'text-gray-800 hover:bg-emerald-50'
+                          }`}
                         >
-                          <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-[9px] font-black">
+                          <span
+                            className={`w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-black ${
+                              isSelected ? 'bg-white text-emerald-800' : 'bg-emerald-100 text-emerald-800'
+                            }`}
+                          >
                             {name[0]}
                           </span>
                           <span>@{name}</span>
@@ -1326,7 +1363,6 @@ export default function DMPage() {
                 )}
 
                 <form onSubmit={handleSendMessage} className="p-3 flex items-center gap-2">
-                  {/* 📎 파일/이미지 업로드 버튼 */}
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
@@ -1349,6 +1385,7 @@ export default function DMPage() {
                     }
                     value={inputMessage}
                     onChange={handleInputChange}
+                    onKeyDown={handleKeyDown}
                     className="flex-1 px-4 py-2.5 bg-gray-100 rounded-full focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-xs text-gray-800 select-text"
                   />
                   <button
@@ -1828,7 +1865,6 @@ function MessageItem({ msg, isMine, senderName, unreadCount, onReply, onLongPres
         onTouchEnd={handleTouchEnd}
         onContextMenu={handleContextMenu}
       >
-        {/* 스와이프 반응 벡터 SVG 아이콘 */}
         {translateX > 15 && (
           <div
             className="absolute -left-7 top-1/2 -translate-y-1/2 text-emerald-600 font-bold transition-opacity"
@@ -1838,7 +1874,7 @@ function MessageItem({ msg, isMine, senderName, unreadCount, onReply, onLongPres
           </div>
         )}
 
-        {/* 🔢 내가 보낸 메시지: 안읽은 사람 수 + 시간 (말풍선 좌측) */}
+        {/* 🔢 내가 보낸 메시지: 안읽은 사람 수 + 시간 */}
         {isMine && (
           <div className="flex flex-col items-end text-[9px] text-gray-400 shrink-0 select-none leading-tight">
             {unreadCount > 0 && (
@@ -1881,7 +1917,7 @@ function MessageItem({ msg, isMine, senderName, unreadCount, onReply, onLongPres
           </button>
         )}
 
-        {/* 🔢 상대방이 보낸 메시지: 시간 + 안읽은 사람 수 (말풍선 우측) */}
+        {/* 🔢 상대방이 보낸 메시지: 시간 + 안읽은 사람 수 */}
         {!isMine && (
           <div className="flex flex-col items-start text-[9px] text-gray-400 shrink-0 select-none leading-tight">
             {unreadCount > 0 && (
