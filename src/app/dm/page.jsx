@@ -256,7 +256,7 @@ export default function DMPage() {
 
     if (msgData) {
       const sorted = [...msgData].sort(
-        (a, b) => new Date(a.created_at).getTime() - new Date(a.created_at).getTime()
+        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
       );
       setMessages(sorted);
     }
@@ -297,7 +297,7 @@ export default function DMPage() {
               if (prev.some((m) => m.id === newMsg.id)) return prev;
               const next = [...prev, fullMsg];
               return next.sort(
-                (a, b) => new Date(a.created_at).getTime() - new Date(a.created_at).getTime()
+                (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
               );
             });
 
@@ -376,7 +376,7 @@ export default function DMPage() {
 
   const isOwner = activeRoom && currentUser && activeRoom.owner_id === currentUser.id;
 
-  // 🎯 멘션 필터링: 실제 이 대화방에 들어있는 멤버만 대상으로 함
+  // 🎯 멘션 필터링 (현재 대화방 멤버 전용)
   const filteredMentionMembers = roomMembers.filter((m) => {
     const name = m.profiles?.display_name || m.profiles?.nickname || '';
     return name.toLowerCase().includes(mentionSearch.toLowerCase());
@@ -389,7 +389,6 @@ export default function DMPage() {
     ...filteredMentionMembers,
   ];
 
-  // 멘션 입력 검색어 변경 시 하이라이트 인덱스 초기화
   useEffect(() => {
     setMentionSelectedIndex(0);
   }, [mentionSearch, showMentionMenu]);
@@ -411,7 +410,12 @@ export default function DMPage() {
         .from('chat-attachments')
         .upload(filePath, file);
 
-      if (uploadErr) throw uploadErr;
+      if (uploadErr) {
+        if (uploadErr.message?.includes('not found') || uploadErr.statusCode === '404') {
+          throw new Error('스토리지 버킷이 없습니다. 제공된 SQL을 먼저 실행해 주세요.');
+        }
+        throw uploadErr;
+      }
 
       const { data: urlData } = supabase.storage
         .from('chat-attachments')
@@ -435,10 +439,11 @@ export default function DMPage() {
         setMessages((prev) => [...prev, data]);
         updateLastRead(activeRoom.id);
         setTimeout(() => scrollToBottomIfNear(true), 50);
+        showToast('파일이 업로드되었습니다.', 'success');
       }
     } catch (err) {
       console.error('파일 업로드 오류:', err);
-      showToast('파일 업로드 실패 (스토리지 버킷 설정을 확인해주세요)');
+      showToast(err.message || '파일 업로드 실패');
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -464,7 +469,7 @@ export default function DMPage() {
     setShowMentionMenu(false);
   };
 
-  // 멘션 자동완성 삽입 함수
+  // 멘션 자동완성 함수
   const insertMention = (target) => {
     if (!target) return;
     const name = target.isAll
@@ -484,7 +489,7 @@ export default function DMPage() {
     setTimeout(() => inputRef.current?.focus(), 10);
   };
 
-  // ⌨️ 키보드 이벤트 조작 (Space / Enter 자동완성, 방향키 조작)
+  // ⌨️ 키보드 이벤트 조작 (Space / Enter 자동완성)
   const handleKeyDown = (e) => {
     if (showMentionMenu && mentionOptions.length > 0) {
       if (e.key === 'ArrowDown') {
@@ -494,10 +499,10 @@ export default function DMPage() {
         e.preventDefault();
         setMentionSelectedIndex((prev) => (prev - 1 + mentionOptions.length) % mentionOptions.length);
       } else if (e.key === 'Enter') {
-        e.preventDefault(); // 메시지 전송 차단 후 멘션 자동완성 먼저 수행
+        e.preventDefault();
         insertMention(mentionOptions[mentionSelectedIndex]);
       } else if (e.key === ' ') {
-        e.preventDefault(); // 스페이스 누르면 자동완성 적용 후 공백 띄움
+        e.preventDefault();
         insertMention(mentionOptions[mentionSelectedIndex]);
       } else if (e.key === 'Escape') {
         setShowMentionMenu(false);
@@ -505,7 +510,7 @@ export default function DMPage() {
     }
   };
 
-  // 메시지 삭제
+  // 🗑️ 메시지 삭제 (DB 반영 및 오류 시 복구)
   const handleDeleteMessage = async (msgId) => {
     try {
       const { error } = await supabase
@@ -520,7 +525,7 @@ export default function DMPage() {
       showToast('메시지가 삭제되었습니다.', 'success');
     } catch (err) {
       console.error('메시지 삭제 에러:', err);
-      showToast('메시지 삭제 실패');
+      showToast('삭제 실패: SQL RLS 권한을 확인해 주세요.');
     }
   };
 
@@ -565,7 +570,7 @@ export default function DMPage() {
     setTimeout(() => inputRef.current?.focus(), 50);
   };
 
-  // 메시지 전송
+  // ✏️ 메시지 전송 및 수정 (DB 저장 필수)
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!inputMessage.trim() || !activeRoom || !currentUser || sending) return;
@@ -593,7 +598,7 @@ export default function DMPage() {
         showToast('메시지가 수정되었습니다.', 'success');
       } catch (err) {
         console.error('메시지 수정 에러:', err);
-        showToast('메시지 수정 실패');
+        showToast('수정 실패: SQL RLS 권한을 확인해 주세요.');
       } finally {
         setEditingMsg(null);
         setInputMessage('');
@@ -1270,7 +1275,7 @@ export default function DMPage() {
 
               {/* 하단 메시지 및 파일 입력 폼 */}
               <div className="relative bg-white border-t border-gray-100">
-                {/* 🏷️ @멘션 자동완성 팝오버 (방 멤버 전용 & 키보드 탐색) */}
+                {/* 🏷️ @멘션 자동완성 팝오버 */}
                 {showMentionMenu && mentionOptions.length > 0 && (
                   <div className="absolute bottom-full left-3 right-3 mb-1 bg-white border border-gray-200 rounded-2xl shadow-xl max-h-40 overflow-y-auto p-1.5 z-20">
                     <div className="text-[9.5px] font-bold text-gray-400 px-2 py-1 flex items-center justify-between border-b border-gray-100 mb-1">
@@ -1785,7 +1790,7 @@ export default function DMPage() {
   );
 }
 
-// 📱 스와이프 및 안읽은 수('방인원수-읽은수') 표시 개별 메시지 컴포넌트
+// 📱 스와이프 및 안읽은 수 표시 개별 메시지 컴포넌트
 function MessageItem({ msg, isMine, senderName, unreadCount, onReply, onLongPress, renderContent }) {
   const [translateX, setTranslateX] = useState(0);
   const touchStartX = useRef(0);
@@ -1793,7 +1798,6 @@ function MessageItem({ msg, isMine, senderName, unreadCount, onReply, onLongPres
   const timerRef = useRef(null);
   const isSwiping = useRef(false);
 
-  // 터치 시작
   const handleTouchStart = (e) => {
     const touch = e.touches[0];
     touchStartX.current = touch.clientX;
@@ -1810,7 +1814,6 @@ function MessageItem({ msg, isMine, senderName, unreadCount, onReply, onLongPres
     }, 500);
   };
 
-  // 터치 이동
   const handleTouchMove = (e) => {
     const touch = e.touches[0];
     const deltaX = touch.clientX - touchStartX.current;
@@ -1826,7 +1829,6 @@ function MessageItem({ msg, isMine, senderName, unreadCount, onReply, onLongPres
     }
   };
 
-  // 터치 종료
   const handleTouchEnd = () => {
     clearTimeout(timerRef.current);
     if (translateX > 50) {
@@ -1838,7 +1840,6 @@ function MessageItem({ msg, isMine, senderName, unreadCount, onReply, onLongPres
     setTranslateX(0);
   };
 
-  // 마우스 우클릭
   const handleContextMenu = (e) => {
     e.preventDefault();
     onLongPress(msg, isMine, senderName);
@@ -1874,7 +1875,6 @@ function MessageItem({ msg, isMine, senderName, unreadCount, onReply, onLongPres
           </div>
         )}
 
-        {/* 🔢 내가 보낸 메시지: 안읽은 사람 수 + 시간 */}
         {isMine && (
           <div className="flex flex-col items-end text-[9px] text-gray-400 shrink-0 select-none leading-tight">
             {unreadCount > 0 && (
@@ -1884,7 +1884,6 @@ function MessageItem({ msg, isMine, senderName, unreadCount, onReply, onLongPres
           </div>
         )}
 
-        {/* 호버 시 답장 웹 벡터 아이콘 */}
         {isMine && (
           <button
             onClick={() => onReply(msg, senderName)}
@@ -1895,7 +1894,6 @@ function MessageItem({ msg, isMine, senderName, unreadCount, onReply, onLongPres
           </button>
         )}
 
-        {/* 말풍선 본문 */}
         <div
           className={`px-3.5 py-2 rounded-2xl text-[11px] leading-relaxed break-all break-words overflow-hidden ${
             isMine
@@ -1906,7 +1904,6 @@ function MessageItem({ msg, isMine, senderName, unreadCount, onReply, onLongPres
           {renderContent(msg.content, isMine)}
         </div>
 
-        {/* 호버 시 답장 웹 벡터 아이콘 */}
         {!isMine && (
           <button
             onClick={() => onReply(msg, senderName)}
@@ -1917,7 +1914,6 @@ function MessageItem({ msg, isMine, senderName, unreadCount, onReply, onLongPres
           </button>
         )}
 
-        {/* 🔢 상대방이 보낸 메시지: 시간 + 안읽은 사람 수 */}
         {!isMine && (
           <div className="flex flex-col items-start text-[9px] text-gray-400 shrink-0 select-none leading-tight">
             {unreadCount > 0 && (
