@@ -23,6 +23,8 @@ function ClipIcon({ className = "w-4 h-4" }) {
   );
 }
 
+const PAGE_SIZE = 30; // 한 번에 불러올 메시지 수
+
 // 💾 로컬 스토리지 캐시 전량 삭제 헬퍼
 const clearAllDMCache = () => {
   try {
@@ -83,6 +85,10 @@ export default function DMPage() {
   const [inputMessage, setInputMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [uploading, setUploading] = useState(false);
+
+  // 📜 과거 메시지 추가 로딩 관련 상태
+  const [hasMoreMessages, setHasMoreMessages] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const [replyingTo, setReplyingTo] = useState(null);
   const [editingMsg, setEditingMsg] = useState(null);
@@ -146,19 +152,17 @@ export default function DMPage() {
     initUser();
   }, [router]);
 
-  // 2. 대화방 목록 로드 (캐시 없거나 forceServer인 경우 서버 직접 스크랩)
+  // 2. 대화방 목록 로드
   const fetchMyRooms = useCallback(async (forceServer = false) => {
     if (!currentUser) return;
 
     const cachedRooms = getLocalRooms();
-    // 캐시 데이터가 있고 강제 스크랩 요청이 없으면 캐시 우선 노출
     if (!forceServer && cachedRooms.length > 0) {
       setRooms(cachedRooms);
       setLoading(false);
       return;
     }
 
-    // 캐시가 비어있거나 forceServer인 경우 서버에서 가져옴
     try {
       const { data: myMemberships } = await supabase
         .from('chat_room_members')
@@ -227,7 +231,7 @@ export default function DMPage() {
     fetchMyRooms();
   }, [fetchMyRooms]);
 
-  // 3. ?RESET URL 파라미터 감지 및 서버 자동 스크랩
+  // 3. ?RESET 파라미터 감지 및 브로드캐스트 리셋
   useEffect(() => {
     if (!currentUser) return;
 
@@ -247,9 +251,7 @@ export default function DMPage() {
         }
       });
 
-      showToast('캐시를 초기화하고 서버 데이터를 가져오는 중입니다...', 'success');
-      
-      // 서버에서 전체 목록 재조회
+      showToast('캐시를 초기화하고 최신 서버 데이터를 스크랩합니다.', 'success');
       fetchMyRooms(true);
       if (activeRoom) {
         loadRoomDetails(activeRoom, true);
@@ -260,7 +262,7 @@ export default function DMPage() {
       .channel('global-dm-sync-broadcast')
       .on('broadcast', { event: 'TRIGGER_GLOBAL_RESET' }, () => {
         clearAllDMCache();
-        showToast('전체 동기화 신호를 수신하여 서버 데이터를 가져옵니다.', 'success');
+        showToast('동기화 명령을 수신하여 리셋합니다.', 'success');
         fetchMyRooms(true);
         if (activeRoom) {
           loadRoomDetails(activeRoom, true);
@@ -297,7 +299,7 @@ export default function DMPage() {
       .eq('user_id', currentUser.id);
   }, [currentUser]);
 
-  // ⚡ 실시간 Presence 접속자 감지
+  // ⚡ 실시간 Presence 감지
   useEffect(() => {
     if (!activeRoom || !currentUser) return;
 
@@ -329,36 +331,45 @@ export default function DMPage() {
     };
   }, [activeRoom, currentUser, updateLastRead]);
 
-  // 5. 대화방 데이터 로드 (캐시 없으면 서버에서 즉시 스크랩)
+  // 5. 대화방 초기 로드 (최신 PAGE_SIZE 개 우선 로드)
   const loadRoomDetails = useCallback(async (room, forceServer = false) => {
     setActiveRoom(room);
     setShowMobileSidebar(false);
     setReplyingTo(null);
     setEditingMsg(null);
+    setHasMoreMessages(true);
 
     let cachedMsgs = forceServer ? [] : getLocalMessages(room.id);
-    setMessages(cachedMsgs);
-    setTimeout(() => scrollToBottomIfNear(true), 10);
+    if (cachedMsgs.length > 0 && !forceServer) {
+      setMessages(cachedMsgs);
+      setTimeout(() => scrollToBottomIfNear(true), 10);
+    }
 
     try {
-      // 서버에서 해당 방 메시지 200개를 직접 스크랩
+      // ⚡ 서버에서 최신순으로 PAGE_SIZE 개만 스크랩
       const { data: serverMsgs, error } = await supabase
         .from('chat_messages')
         .select('*, profiles:sender_id(*)')
         .eq('room_id', room.id)
-        .order('created_at', { ascending: true })
-        .limit(200);
+        .order('created_at', { ascending: false })
+        .limit(PAGE_SIZE);
 
       if (error) throw error;
 
       if (serverMsgs && serverMsgs.length > 0) {
-        setMessages(serverMsgs);
-        setLocalMessages(room.id, serverMsgs);
+        const chronological = [...serverMsgs].reverse();
+        setMessages(chronological);
+        setLocalMessages(room.id, chronological);
+
+        if (serverMsgs.length < PAGE_SIZE) {
+          setHasMoreMessages(false);
+        }
       } else if (cachedMsgs.length === 0) {
         setMessages([]);
+        setHasMoreMessages(false);
       }
     } catch (err) {
-      console.error('서버 메시지 가져오기 에러:', err);
+      console.error('메시지 불러오기 에러:', err);
     }
 
     const { data: memData } = await supabase
@@ -372,7 +383,68 @@ export default function DMPage() {
     setTimeout(() => scrollToBottomIfNear(true), 50);
   }, [updateLastRead, scrollToBottomIfNear]);
 
-  // 6. 실시간 메시지 및 멤버 변경 구독
+  // 📜 6. 위로 스크랩(스크롤) 시 더 오래된 메시지 추가 페이징 로드
+  const fetchOlderMessages = useCallback(async () => {
+    if (!activeRoom || loadingMore || !hasMoreMessages || messages.length === 0) return;
+
+    setLoadingMore(true);
+    const oldestMsg = messages[0];
+    const container = chatContainerRef.current;
+    const previousScrollHeight = container ? container.scrollHeight : 0;
+
+    try {
+      const { data: olderMsgs, error } = await supabase
+        .from('chat_messages')
+        .select('*, profiles:sender_id(*)')
+        .eq('room_id', activeRoom.id)
+        .lt('created_at', oldestMsg.created_at)
+        .order('created_at', { ascending: false })
+        .limit(PAGE_SIZE);
+
+      if (error) throw error;
+
+      if (olderMsgs && olderMsgs.length > 0) {
+        const chronologicalOlder = [...olderMsgs].reverse();
+
+        setMessages((prev) => {
+          const map = new Map();
+          [...chronologicalOlder, ...prev].forEach((m) => map.set(m.id, m));
+          const merged = Array.from(map.values()).sort(
+            (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+          );
+          return merged;
+        });
+
+        if (olderMsgs.length < PAGE_SIZE) {
+          setHasMoreMessages(false);
+        }
+
+        // 스크롤 위치 유지 처리 (위로 올라가지 않도록 스크롤바 높이 차이 보정)
+        requestAnimationFrame(() => {
+          if (container) {
+            const newScrollHeight = container.scrollHeight;
+            container.scrollTop = newScrollHeight - previousScrollHeight;
+          }
+        });
+      } else {
+        setHasMoreMessages(false);
+      }
+    } catch (err) {
+      console.error('과거 메시지 불러오기 에러:', err);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [activeRoom, loadingMore, hasMoreMessages, messages]);
+
+  // 📜 스크롤 최상단 감지 핸들러
+  const handleScroll = () => {
+    if (!chatContainerRef.current) return;
+    if (chatContainerRef.current.scrollTop < 50 && hasMoreMessages && !loadingMore) {
+      fetchOlderMessages();
+    }
+  };
+
+  // 7. 실시간 메시지 구독
   useEffect(() => {
     if (!currentUser) return;
 
@@ -1248,11 +1320,25 @@ export default function DMPage() {
                 </div>
               </div>
 
-              {/* 메시지 영역 */}
+              {/* 메시지 영역 (위로 스크롤 시 과거 내역 자동 로드) */}
               <div
                 ref={chatContainerRef}
+                onScroll={handleScroll}
                 className="flex-1 p-4 overflow-y-auto space-y-3 bg-gray-50/40 touch-pan-y"
               >
+                {/* ⏳ 상단 로딩 표시줄 */}
+                {loadingMore && (
+                  <div className="text-center py-2 text-[10px] text-emerald-600 font-bold animate-pulse">
+                    ⏳ 이전 대화 내역 불러오는 중...
+                  </div>
+                )}
+
+                {!hasMoreMessages && messages.length > 0 && (
+                  <div className="text-center py-2 text-[9.5px] text-gray-400 font-medium">
+                    --- 대화의 시작입니다 ---
+                  </div>
+                )}
+
                 {messages.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center text-center space-y-2 text-gray-400">
                     <span className="text-3xl">💬</span>
