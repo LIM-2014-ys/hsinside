@@ -146,19 +146,19 @@ export default function DMPage() {
     initUser();
   }, [router]);
 
-  // 2. 대화방 목록 로드
+  // 2. 대화방 목록 로드 (캐시 없거나 forceServer인 경우 서버 직접 스크랩)
   const fetchMyRooms = useCallback(async (forceServer = false) => {
     if (!currentUser) return;
 
-    if (!forceServer) {
-      const cachedRooms = getLocalRooms();
-      if (cachedRooms.length > 0) {
-        setRooms(cachedRooms);
-        setLoading(false);
-        return;
-      }
+    const cachedRooms = getLocalRooms();
+    // 캐시 데이터가 있고 강제 스크랩 요청이 없으면 캐시 우선 노출
+    if (!forceServer && cachedRooms.length > 0) {
+      setRooms(cachedRooms);
+      setLoading(false);
+      return;
     }
 
+    // 캐시가 비어있거나 forceServer인 경우 서버에서 가져옴
     try {
       const { data: myMemberships } = await supabase
         .from('chat_room_members')
@@ -227,7 +227,7 @@ export default function DMPage() {
     fetchMyRooms();
   }, [fetchMyRooms]);
 
-  // 3. ?RESET 쿼리 처리 및 브로드캐스트 리셋
+  // 3. ?RESET URL 파라미터 감지 및 서버 자동 스크랩
   useEffect(() => {
     if (!currentUser) return;
 
@@ -247,15 +247,20 @@ export default function DMPage() {
         }
       });
 
-      showToast('전체 캐시가 리셋되었습니다.', 'success');
+      showToast('캐시를 초기화하고 서버 데이터를 가져오는 중입니다...', 'success');
+      
+      // 서버에서 전체 목록 재조회
       fetchMyRooms(true);
+      if (activeRoom) {
+        loadRoomDetails(activeRoom, true);
+      }
     }
 
     const syncChannel = supabase
       .channel('global-dm-sync-broadcast')
       .on('broadcast', { event: 'TRIGGER_GLOBAL_RESET' }, () => {
         clearAllDMCache();
-        showToast('전체 동기화 신호를 수신하여 리셋합니다.', 'success');
+        showToast('전체 동기화 신호를 수신하여 서버 데이터를 가져옵니다.', 'success');
         fetchMyRooms(true);
         if (activeRoom) {
           loadRoomDetails(activeRoom, true);
@@ -324,7 +329,7 @@ export default function DMPage() {
     };
   }, [activeRoom, currentUser, updateLastRead]);
 
-  // 5. 대화방 선택 및 데이터 로드
+  // 5. 대화방 데이터 로드 (캐시 없으면 서버에서 즉시 스크랩)
   const loadRoomDetails = useCallback(async (room, forceServer = false) => {
     setActiveRoom(room);
     setShowMobileSidebar(false);
@@ -335,29 +340,25 @@ export default function DMPage() {
     setMessages(cachedMsgs);
     setTimeout(() => scrollToBottomIfNear(true), 10);
 
-    let query = supabase
-      .from('chat_messages')
-      .select('*, profiles:sender_id(*)')
-      .eq('room_id', room.id);
+    try {
+      // 서버에서 해당 방 메시지 200개를 직접 스크랩
+      const { data: serverMsgs, error } = await supabase
+        .from('chat_messages')
+        .select('*, profiles:sender_id(*)')
+        .eq('room_id', room.id)
+        .order('created_at', { ascending: true })
+        .limit(200);
 
-    if (cachedMsgs.length > 0 && !forceServer) {
-      const lastMsgTime = cachedMsgs[cachedMsgs.length - 1].created_at;
-      query = query.gt('created_at', lastMsgTime);
-    }
+      if (error) throw error;
 
-    const { data: newMsgData } = await query.order('created_at', { ascending: true });
-
-    if (newMsgData) {
-      setMessages((prev) => {
-        const baseMsgs = forceServer ? [] : prev;
-        const map = new Map();
-        [...baseMsgs, ...newMsgData].forEach((m) => map.set(m.id, m));
-        const merged = Array.from(map.values()).sort(
-          (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-        );
-        setLocalMessages(room.id, merged);
-        return merged;
-      });
+      if (serverMsgs && serverMsgs.length > 0) {
+        setMessages(serverMsgs);
+        setLocalMessages(room.id, serverMsgs);
+      } else if (cachedMsgs.length === 0) {
+        setMessages([]);
+      }
+    } catch (err) {
+      console.error('서버 메시지 가져오기 에러:', err);
     }
 
     const { data: memData } = await supabase
@@ -371,7 +372,7 @@ export default function DMPage() {
     setTimeout(() => scrollToBottomIfNear(true), 50);
   }, [updateLastRead, scrollToBottomIfNear]);
 
-  // 6. 실시간 변경 구독
+  // 6. 실시간 메시지 및 멤버 변경 구독
   useEffect(() => {
     if (!currentUser) return;
 
@@ -488,7 +489,7 @@ export default function DMPage() {
     setMentionSelectedIndex(0);
   }, [mentionSearch, showMentionMenu]);
 
-  // 📋 메시지 텍스트 복사 기능
+  // 메시지 복사
   const handleCopyMessage = (content) => {
     const cleanText = content
       .replace(/^↩️ \[.*?\]: ".*?"\n\n/, '')
@@ -1434,7 +1435,7 @@ export default function DMPage() {
         </div>
       </div>
 
-      {/* 📱 메시지 액션 모달 (답장, 복사, 수정, 삭제) */}
+      {/* 📱 메시지 액션 모달 */}
       {actionMenuMsg && (
         <div
           className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
@@ -1444,7 +1445,6 @@ export default function DMPage() {
             className="bg-white w-full max-w-xs rounded-t-3xl sm:rounded-3xl p-4 shadow-2xl space-y-2 border border-gray-100 overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* 답장 */}
             <button
               onClick={() => {
                 setReplyingTo({
@@ -1459,7 +1459,6 @@ export default function DMPage() {
               <ReplyIcon className="w-4 h-4" /> 답장하기
             </button>
 
-            {/* 📋 메시지 복사 */}
             <button
               onClick={() => handleCopyMessage(actionMenuMsg.msg.content)}
               className="w-full py-2.5 px-3 bg-gray-50 hover:bg-blue-50 text-gray-800 hover:text-blue-700 font-bold rounded-2xl transition text-xs flex items-center justify-center gap-2"
@@ -1467,7 +1466,6 @@ export default function DMPage() {
               <span>📋</span> 메시지 복사
             </button>
 
-            {/* 메시지 수정 (본인 메시지일 때만) */}
             {actionMenuMsg.isMine && (
               <button
                 onClick={() => startEditingMessage(actionMenuMsg.msg)}
@@ -1477,7 +1475,6 @@ export default function DMPage() {
               </button>
             )}
 
-            {/* 메시지 삭제 (본인 또는 방장) */}
             {(actionMenuMsg.isMine || isOwner) && (
               <button
                 onClick={() => handleDeleteMessage(actionMenuMsg.msg.id)}
@@ -1805,7 +1802,7 @@ export default function DMPage() {
   );
 }
 
-// 📱 스와이프 답장 & 롱 프레스 감지 기능이 추가된 메시지 컴포넌트
+// 스와이프 및 롱 프레스 지원 메시지 항목
 function MessageItem({ msg, isMine, senderName, unreadCount, onReply, onLongPress, renderContent }) {
   const [dragX, setDragX] = useState(0);
   const touchStartX = useRef(0);
@@ -1817,37 +1814,32 @@ function MessageItem({ msg, isMine, senderName, unreadCount, onReply, onLongPres
     minute: '2-digit',
   });
 
-  // 👆 터치 시작: 롱 프레스 타이머(0.5초) 시작
   const handleTouchStart = (e) => {
     touchStartX.current = e.touches[0].clientX;
     touchStartY.current = e.touches[0].clientY;
 
     longPressTimer.current = setTimeout(() => {
-      if (navigator.vibrate) navigator.vibrate(40); // 햅틱 피드백
+      if (navigator.vibrate) navigator.vibrate(40);
       onLongPress(msg, isMine, senderName);
     }, 500);
   };
 
-  // 👆 터치 이동: 스와이프 제스처 처리 및 롱 프레스 취소
   const handleTouchMove = (e) => {
     const currentX = e.touches[0].clientX;
     const currentY = e.touches[0].clientY;
     const diffX = currentX - touchStartX.current;
     const diffY = Math.abs(currentY - touchStartY.current);
 
-    // 손가락이 조금이라도 움직이면 롱 프레스 취소
     if ((Math.abs(diffX) > 8 || diffY > 8) && longPressTimer.current) {
       clearTimeout(longPressTimer.current);
       longPressTimer.current = null;
     }
 
-    // 오른쪽으로 스와이프 (답장 제스처)
     if (diffX > 0 && diffX < 100 && diffY < 30) {
       setDragX(diffX);
     }
   };
 
-  // 👆 터치 끝: 일정 거리 이상 스와이프 시 답장 실행
   const handleTouchEnd = () => {
     if (longPressTimer.current) {
       clearTimeout(longPressTimer.current);
@@ -1881,7 +1873,6 @@ function MessageItem({ msg, isMine, senderName, unreadCount, onReply, onLongPres
           onLongPress(msg, isMine, senderName);
         }}
       >
-        {/* 스와이프 답장 힌트 아이콘 */}
         {dragX > 15 && (
           <div className="absolute -left-6 top-1/2 -translate-y-1/2 text-emerald-600 font-bold text-xs flex items-center">
             <ReplyIcon className="w-4 h-4" />
@@ -1919,4 +1910,3 @@ function MessageItem({ msg, isMine, senderName, unreadCount, onReply, onLongPres
     </div>
   );
 }
-
