@@ -1,7 +1,6 @@
 // 관리자 이메일 목록 (추후 수정 시 이 파일만 변경)
 export const ADMIN_EMAILS = [
   'treetowood@goedu.kr',
-  '2026ys6807@goe.go.kr',
   '2026ys6809@goe.go.kr',
   '2026ys6805@goe.go.kr',
 ];
