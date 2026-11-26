@@ -5,16 +5,14 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 
-// 🎨 벡터 SVG 답장 웹 아이콘
 function ReplyIcon({ className = "w-3.5 h-3.5" }) {
   return (
     <svg className={className} fill="none" stroke="currentColor" strokeWidth={2.2} viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
     </svg>
   );
 }
 
-// 📎 파일/이미지 첨부 SVG 아이콘
 function ClipIcon({ className = "w-4 h-4" }) {
   return (
     <svg className={className} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
@@ -34,7 +32,6 @@ const formatBytes = (bytes) => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + sizes[i];
 };
 
-// 🗜️ 클라이언트 사이드 파일 자동 압축 함수
 const compressFileBeforeUpload = async (file) => {
   const originalSize = file.size;
 
@@ -124,7 +121,6 @@ const compressFileBeforeUpload = async (file) => {
   return { file, originalSize, finalSize: originalSize, isGzipped: false, displayName: file.name };
 };
 
-// 💾 로컬 스토리지 캐시 헬퍼
 const clearAllDMCache = () => {
   try {
     localStorage.removeItem('dm_rooms_list');
@@ -133,6 +129,14 @@ const clearAllDMCache = () => {
         localStorage.removeItem(key);
       }
     });
+  } catch (e) {}
+};
+
+const removeRoomCache = (roomId) => {
+  try {
+    localStorage.removeItem(`dm_msgs_${roomId}`);
+    const rooms = getLocalRooms().filter((r) => r.id !== roomId);
+    setLocalRooms(rooms);
   } catch (e) {}
 };
 
@@ -147,7 +151,7 @@ const getLocalMessages = (roomId) => {
 
 const setLocalMessages = (roomId, msgs) => {
   try {
-    const sliced = msgs.slice(-100); // 캐시 용량 및 파싱 속도 최적화 (최근 100개 유지)
+    const sliced = msgs.slice(-100);
     localStorage.setItem(`dm_msgs_${roomId}`, JSON.stringify(sliced));
   } catch (e) {}
 };
@@ -200,7 +204,7 @@ export default function DMPage() {
   const chatContainerRef = useRef(null);
   const inputRef = useRef(null);
   const fileInputRef = useRef(null);
-  const profileCacheRef = useRef(new Map()); // ⚡ 유저 프로필 메모리 캐시 (중복 DB 조회 차단)
+  const profileCacheRef = useRef(new Map());
 
   const [showMobileSidebar, setShowMobileSidebar] = useState(true);
   const [toastMsg, setToastMsg] = useState({ type: '', text: '' });
@@ -236,7 +240,6 @@ export default function DMPage() {
     }
   }, []);
 
-  // ⚡ 프로필 매핑 헬퍼 (메모리 캐시 우선 사용)
   const attachProfilesToMessages = useCallback((rawMsgs, membersList = []) => {
     membersList.forEach((m) => {
       if (m.profiles) {
@@ -256,7 +259,7 @@ export default function DMPage() {
     });
   }, []);
 
-  // 1. 유저 인증 (getSession으로 로컬 토큰 우선 확인하여 속도 단축)
+  // 1. 유저 인증
   useEffect(() => {
     const initUser = async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -274,14 +277,14 @@ export default function DMPage() {
     initUser();
   }, [router]);
 
-  // ⚡ 2. 대화방 목록 경량 로드 (전체 메시지 긁어오기 제거 -> 방별 최신 메시지 1건만 조회)
+  // 2. 대화방 목록 경량 로드
   const fetchMyRooms = useCallback(async (forceServer = false) => {
     if (!currentUser) return;
 
     const cachedRooms = getLocalRooms();
-    if (cachedRooms.length > 0) {
+    if (cachedRooms.length > 0 && !forceServer) {
       setRooms(cachedRooms);
-      setLoading(false); // 캐시가 있으면 즉시 로딩 해제 (0ms 렌더링)
+      setLoading(false);
     }
 
     try {
@@ -302,7 +305,6 @@ export default function DMPage() {
         myMemberships.map((m) => [m.room_id, m.last_read_at ? new Date(m.last_read_at).getTime() : 0])
       );
 
-      // 방 정보 + 멤버 정보 조회 (무거운 전체 메시지 조인 제외)
       const { data: roomData } = await supabase
         .from('chat_rooms')
         .select('*, members:chat_room_members(user_id, last_read_at, profiles:user_id(id, display_name, nickname, avatar_url, email))')
@@ -310,14 +312,12 @@ export default function DMPage() {
 
       if (!roomData) return;
 
-      // 멤버 프로필을 메모리 캐시에 저장
       roomData.forEach((r) => {
         r.members?.forEach((m) => {
           if (m.profiles) profileCacheRef.current.set(m.user_id, m.profiles);
         });
       });
 
-      // 각 방별로 최신 메시지 1건 + 안 읽은 메시지 개수만 병렬로 가볍게 조회
       const processedRooms = await Promise.all(
         roomData.map(async (room) => {
           const lastReadTime = lastReadMap.get(room.id) || 0;
@@ -436,7 +436,7 @@ export default function DMPage() {
       .eq('user_id', currentUser.id);
   }, [currentUser]);
 
-  // ⚡ 실시간 Presence 감지
+  // 실시간 Presence 감지
   useEffect(() => {
     if (!activeRoom || !currentUser) return;
 
@@ -468,7 +468,7 @@ export default function DMPage() {
     };
   }, [activeRoom, currentUser, updateLastRead]);
 
-  // ⚡ 5. 대화방 초기 로드 (메시지와 멤버 병렬 조회 + 중복 프로필 조인 제거)
+  // 5. 대화방 초기 로드
   const loadRoomDetails = useCallback(async (room, forceServer = false) => {
     setActiveRoom(room);
     setShowMobileSidebar(false);
@@ -476,7 +476,6 @@ export default function DMPage() {
     setEditingMsg(null);
     setHasMoreMessages(true);
 
-    // 이미 목록에서 가져온 멤버 정보가 있으면 즉시 세팅
     if (room.members && room.members.length > 0) {
       setRoomMembers(room.members);
     }
@@ -490,7 +489,6 @@ export default function DMPage() {
     }
 
     try {
-      // 메시지와 최신 멤버 목록을 병렬(Promise.all)로 동시 요청
       const [msgsRes, memRes] = await Promise.all([
         supabase
           .from('chat_messages')
@@ -530,7 +528,7 @@ export default function DMPage() {
     setTimeout(() => scrollToBottomIfNear(true), 30);
   }, [updateLastRead, scrollToBottomIfNear, attachProfilesToMessages]);
 
-  // 📜 6. 과거 메시지 추가 페이징 로드 (경량 쿼리)
+  // 6. 과거 메시지 추가 페이징 로드
   const fetchOlderMessages = useCallback(async () => {
     if (!activeRoom || loadingMore || !hasMoreMessages || messages.length === 0) return;
 
@@ -588,7 +586,7 @@ export default function DMPage() {
     }
   };
 
-  // 7. 실시간 메시지 구독
+  // 7. 실시간 메시지 & 방 폭파(DELETE) 구독
   useEffect(() => {
     if (!currentUser) return;
 
@@ -600,7 +598,6 @@ export default function DMPage() {
         async (payload) => {
           const newMsg = payload.new;
 
-          // 메모리 캐시에 프로필이 있으면 DB 조회 생략
           let senderProfile = profileCacheRef.current.get(newMsg.sender_id);
           if (!senderProfile) {
             const { data } = await supabase
@@ -632,7 +629,6 @@ export default function DMPage() {
             }
           }
 
-          // 전체 DB 재조회 대신 좌측 방 목록 상태만 즉시 업데이트
           setRooms((prev) => {
             const updated = prev.map((r) => {
               if (r.id !== newMsg.room_id) return r;
@@ -676,17 +672,37 @@ export default function DMPage() {
           }
         }
       )
+      // 💥 방장이 방을 나가서 chat_rooms 자체가 삭제된 경우 실시간 감지
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'chat_rooms' },
+        (payload) => {
+          const deletedRoomId = payload.old.id;
+          removeRoomCache(deletedRoomId);
+          setRooms((prev) => prev.filter((r) => r.id !== deletedRoomId));
+
+          if (activeRoom && activeRoom.id === deletedRoomId) {
+            setActiveRoom(null);
+            setMessages([]);
+            setRoomMembers([]);
+            setIsMemberListOpen(false);
+            setShowMobileSidebar(true);
+            showToast('방장이 퇴장하여 대화방이 삭제되었습니다.');
+          }
+        }
+      )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'chat_room_members' },
         async (payload) => {
           if (activeRoom) {
             if (payload.eventType === 'DELETE' && payload.old.user_id === currentUser.id && payload.old.room_id === activeRoom.id) {
+              removeRoomCache(activeRoom.id);
               setActiveRoom(null);
               setMessages([]);
               setRoomMembers([]);
               setShowMobileSidebar(true);
-              showToast('채팅방에서 퇴장되었거나 강퇴되었습니다.');
+              showToast('채팅방에서 퇴장되었습니다.');
               fetchMyRooms(true);
               return;
             }
@@ -710,6 +726,67 @@ export default function DMPage() {
 
   const isOwner = activeRoom && currentUser && activeRoom.owner_id === currentUser.id;
 
+  // 🚪 방 나가기 (방장이면 방 자체 삭제, 일반 멤버면 본인만 퇴장)
+  const handleLeaveRoom = async () => {
+    if (!activeRoom || !currentUser) return;
+
+    const confirmMsg = isOwner
+      ? '방장이 나가면 대화방과 모든 대화 내용이 영구적으로 삭제됩니다. 정말 나가시겠습니까?'
+      : '이 대화방에서 나가시겠습니까?';
+
+    if (!window.confirm(confirmMsg)) return;
+
+    const targetRoomId = activeRoom.id;
+
+    try {
+      if (isOwner) {
+        // 방장인 경우: chat_rooms 행 자체를 삭제 (ON DELETE CASCADE로 멤버/메시지 일괄 삭제)
+        const { error } = await supabase
+          .from('chat_rooms')
+          .delete()
+          .eq('id', targetRoomId)
+          .eq('owner_id', currentUser.id);
+
+        if (error) throw error;
+        showToast('대화방이 삭제되었습니다.', 'success');
+      } else {
+        // 일반 멤버인 경우: 퇴장 알림 후 멤버 테이블에서 본인 제거
+        const myName =
+          currentUser.user_metadata?.display_name ||
+          currentUser.user_metadata?.nickname ||
+          '멤버';
+
+        await supabase.from('chat_messages').insert([
+          {
+            room_id: targetRoomId,
+            sender_id: currentUser.id,
+            content: `📢 ${myName}님이 대화방을 나갔습니다.`,
+          },
+        ]);
+
+        const { error } = await supabase
+          .from('chat_room_members')
+          .delete()
+          .eq('room_id', targetRoomId)
+          .eq('user_id', currentUser.id);
+
+        if (error) throw error;
+        showToast('대화방에서 나갔습니다.', 'success');
+      }
+
+      removeRoomCache(targetRoomId);
+      setRooms((prev) => prev.filter((r) => r.id !== targetRoomId));
+      setActiveRoom(null);
+      setMessages([]);
+      setRoomMembers([]);
+      setIsMemberListOpen(false);
+      setShowMobileSidebar(true);
+    } catch (err) {
+      console.error('방 나가기/삭제 오류:', err);
+      showToast('처리 실패: Supabase SQL 설정(CASCADE 및 DELETE 권한)을 확인해 주세요.');
+    }
+  };
+
   const filteredMentionMembers = roomMembers.filter((m) => {
     const name = m.profiles?.display_name || m.profiles?.nickname || '';
     return name.toLowerCase().includes(mentionSearch.toLowerCase());
@@ -726,7 +803,6 @@ export default function DMPage() {
     setMentionSelectedIndex(0);
   }, [mentionSearch, showMentionMenu]);
 
-  // 메시지 복사
   const handleCopyMessage = (content) => {
     const cleanText = content
       .replace(/^↩️ \[.*?\]: ".*?"\n\n/, '')
@@ -739,7 +815,6 @@ export default function DMPage() {
     setActionMenuMsg(null);
   };
 
-  // 🗜️ 파일 자동 압축 후 업로드
   const handleFileUpload = async (e) => {
     const rawFile = e.target.files?.[0];
     if (!rawFile || !activeRoom || !currentUser || uploading) return;
@@ -819,7 +894,6 @@ export default function DMPage() {
     }
   };
 
-  // 🗜️ GZIP 압축 파일 다운로드 및 자동 해제 헬퍼
   const handleDownloadGzippedFile = async (fileUrl, originalFileName) => {
     try {
       showToast('파일 압축 해제 및 다운로드 중...', 'success');
@@ -1398,7 +1472,7 @@ export default function DMPage() {
       )}
 
       <div className="flex-1 flex overflow-hidden w-full h-full">
-        {/* 👈 [좌측] 대화방 목록 */}
+        {/* 좌측 대화방 목록 */}
         <div
           className={`${
             showMobileSidebar ? 'flex' : 'hidden md:flex'
@@ -1501,7 +1575,7 @@ export default function DMPage() {
           </div>
         </div>
 
-        {/* 👉 [우측] 채팅 대화창 */}
+        {/* 우측 채팅 대화창 */}
         <div
           className={`${
             !showMobileSidebar ? 'flex' : 'hidden md:flex'
@@ -1518,17 +1592,17 @@ export default function DMPage() {
                     ← 목록
                   </button>
 
-                  <div>
+                  <div className="min-w-0">
                     <h2 className="font-black text-xs text-gray-900 truncate flex items-center gap-1.5">
-                      <span>{activeRoomTitle}</span>
+                      <span className="truncate">{activeRoomTitle}</span>
                       {isOwner && activeRoom.is_group && (
-                        <span className="bg-amber-100 text-amber-800 text-[9px] font-black px-1.5 py-0.5 rounded-md">
+                        <span className="bg-amber-100 text-amber-800 text-[9px] font-black px-1.5 py-0.5 rounded-md shrink-0">
                           👑 방장
                         </span>
                       )}
                       <button
                         onClick={() => setIsMemberListOpen(true)}
-                        className="text-[10px] text-emerald-700 hover:underline font-bold bg-emerald-50 px-2 py-0.5 rounded-full"
+                        className="text-[10px] text-emerald-700 hover:underline font-bold bg-emerald-50 px-2 py-0.5 rounded-full shrink-0"
                       >
                         👥 멤버 ({roomMembers.length}명)
                       </button>
@@ -1543,6 +1617,14 @@ export default function DMPage() {
                     className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold rounded-xl text-[10px] transition"
                   >
                     + 초대
+                  </button>
+
+                  <button
+                    onClick={handleLeaveRoom}
+                    className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold rounded-xl text-[10px] transition"
+                    title={isOwner ? '방장이 나가면 방이 삭제됩니다' : '대화방 나가기'}
+                  >
+                    {isOwner ? '💥 방 삭제' : '🚪 나가기'}
                   </button>
 
                   <Link
@@ -1759,7 +1841,7 @@ export default function DMPage() {
         </div>
       </div>
 
-      {/* 📱 메시지 액션 모달 */}
+      {/* 메시지 액션 모달 */}
       {actionMenuMsg && (
         <div
           className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
@@ -1818,7 +1900,7 @@ export default function DMPage() {
         </div>
       )}
 
-      {/* 👥 멤버 목록 모달 */}
+      {/* 멤버 목록 모달 */}
       {isMemberListOpen && activeRoom && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-sm rounded-3xl p-5 shadow-2xl space-y-3 max-h-[80vh] flex flex-col border border-gray-100">
@@ -1875,11 +1957,18 @@ export default function DMPage() {
                 );
               })}
             </div>
+
+            <button
+              onClick={handleLeaveRoom}
+              className="w-full py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold rounded-xl transition text-xs"
+            >
+              {isOwner ? '💥 방 나가기 및 대화방 삭제' : '🚪 대화방 나가기'}
+            </button>
           </div>
         </div>
       )}
 
-      {/* ➕ 멤버 추가 모달 */}
+      {/* 멤버 추가 모달 */}
       {isInviteModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-sm rounded-3xl p-5 shadow-2xl space-y-3 max-h-[80vh] flex flex-col border border-gray-100">
@@ -1954,7 +2043,7 @@ export default function DMPage() {
         </div>
       )}
 
-      {/* 👥 그룹 채팅 생성 모달 */}
+      {/* 그룹 채팅 생성 모달 */}
       {isGroupModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-sm rounded-3xl p-5 shadow-2xl space-y-3 max-h-[80vh] flex flex-col border border-gray-100">
@@ -2039,7 +2128,7 @@ export default function DMPage() {
         </div>
       )}
 
-      {/* 🔍 유저 검색 모달 */}
+      {/* 유저 검색 모달 */}
       {isSearchModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-sm rounded-3xl p-5 shadow-2xl space-y-4 max-h-[80vh] flex flex-col border border-gray-100">
@@ -2126,7 +2215,6 @@ export default function DMPage() {
   );
 }
 
-// 스와이프 및 롱 프레스 지원 메시지 항목
 function MessageItem({ msg, isMine, senderName, unreadCount, onReply, onLongPress, renderContent }) {
   const [dragX, setDragX] = useState(0);
   const touchStartX = useRef(0);
