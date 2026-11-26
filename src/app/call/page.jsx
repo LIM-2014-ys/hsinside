@@ -19,12 +19,13 @@ export default function StandaloneGroupCallPage() {
   // 유저 검색 및 초대 상태
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
-  const [selectedInvitees, setSelectedInvitees] = useState([]); // [{ id, display_name, nickname, email }]
+  const [selectedInvitees, setSelectedInvitees] = useState([]);
   const [searching, setSearching] = useState(false);
 
   // 실시간 통화 참여자 및 오디오 상태
-  const [participants, setParticipants] = useState([]); // [{ userId, name, isMuted, isSpeaking }]
+  const [participants, setParticipants] = useState([]);
   const [isMuted, setIsMuted] = useState(false);
+  const [hasMic, setHasMic] = useState(true);
   const [callDuration, setCallDuration] = useState(0);
   const [toast, setToast] = useState({ type: '', text: '' });
 
@@ -51,7 +52,6 @@ export default function StandaloneGroupCallPage() {
       }
       setCurrentUser(user);
 
-      // URL에 ?room=코드 가 있으면 자동 입력
       const params = new URLSearchParams(window.location.search);
       const roomParam = params.get('room');
       if (roomParam) {
@@ -108,6 +108,7 @@ export default function StandaloneGroupCallPage() {
     }
     setParticipants([]);
     setIsMuted(false);
+    setHasMic(true);
     setViewMode('lobby');
     window.history.replaceState({}, '', '/call');
     showToast('통화가 종료되었습니다.', 'error');
@@ -127,7 +128,7 @@ export default function StandaloneGroupCallPage() {
     };
   }, [closePeer]);
 
-  // RTCPeerConnection 생성
+  // RTCPeerConnection 생성 (마이크 없어도 수신 전용 트랜시버로 상대 목소리 청취 가능)
   const getOrCreatePeer = useCallback(
     (targetUserId, myUserId) => {
       if (peersRef.current.has(targetUserId)) {
@@ -145,6 +146,9 @@ export default function StandaloneGroupCallPage() {
         localStreamRef.current.getTracks().forEach((track) => {
           pc.addTrack(track, localStreamRef.current);
         });
+      } else {
+        // 마이크가 없는 환경에서도 상대방 오디오는 받을 수 있도록 설정
+        pc.addTransceiver('audio', { direction: 'recvonly' });
       }
 
       pc.onicecandidate = (event) => {
@@ -221,21 +225,51 @@ export default function StandaloneGroupCallPage() {
   const enterCallRoom = async (targetRoomId, roomTitleText, inviteesToNotify = []) => {
     if (!currentUser || !targetRoomId.trim()) return;
 
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-        video: false,
-      });
-      localStreamRef.current = stream;
-    } catch (err) {
-      console.error('마이크 오류:', err);
-      showToast('마이크 권한을 허용해야 통화할 수 있습니다.', 'error');
-      return;
+    let micAvailable = false;
+
+    // HTTPS / 보안 컨텍스트 확인
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      showToast('보안 연결(HTTPS 또는 localhost)이 아니어서 듣기 전용으로 입장합니다.', 'error');
+    } else {
+      try {
+        // 1차 시도: 에코/노이즈 제거 옵션 포함
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+          video: false,
+        });
+        localStreamRef.current = stream;
+        micAvailable = true;
+      } catch (firstErr) {
+        console.warn('1차 마이크 요청 실패, 기본 설정으로 재시도:', firstErr);
+        try {
+          // 2차 시도: 기기 호환성을 위해 단순 기본 오디오로 재요청
+          const fallbackStream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+            video: false,
+          });
+          localStreamRef.current = fallbackStream;
+          micAvailable = true;
+        } catch (err) {
+          console.error('마이크 최종 오류:', err.name, err.message);
+          if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+            showToast('마이크 권한이 차단되어 듣기 전용으로 입장합니다.', 'error');
+          } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+            showToast('연결된 마이크가 없어 듣기 전용으로 입장합니다.', 'error');
+          } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+            showToast('다른 앱이 마이크를 사용 중이어서 듣기 전용으로 입장합니다.', 'error');
+          } else {
+            showToast(`마이크 연결 실패(${err.name}) - 듣기 전용으로 입장합니다.`, 'error');
+          }
+        }
+      }
     }
+
+    setHasMic(micAvailable);
+    setIsMuted(!micAvailable);
 
     const cleanRoomId = targetRoomId.trim();
     const finalTitle = roomTitleText.trim() || `통화방 #${cleanRoomId}`;
@@ -356,10 +390,9 @@ export default function StandaloneGroupCallPage() {
           await channel.track({
             user_id: currentUser.id,
             name: myName,
-            isMuted: false,
+            isMuted: !micAvailable,
           });
 
-          // 선택된 초대 대상자들에게 /api/push 푸시 알림 발송
           if (inviteesToNotify.length > 0) {
             await sendCallPushNotifications(cleanRoomId, finalTitle, inviteesToNotify);
             showToast(`${inviteesToNotify.length}명에게 통화 초대 알림을 보냈습니다!`);
@@ -385,7 +418,7 @@ export default function StandaloneGroupCallPage() {
     await enterCallRoom(joinCodeInput.trim().toUpperCase(), `통화방 #${joinCodeInput.trim().toUpperCase()}`);
   };
 
-  // 유저 검색 (초대할 대상 찾기)
+  // 유저 검색
   const handleSearchUsers = async (e) => {
     e.preventDefault();
     if (!searchQuery.trim() || !currentUser) return;
@@ -432,7 +465,10 @@ export default function StandaloneGroupCallPage() {
 
   // 음소거 토글
   const handleToggleMute = async () => {
-    if (!localStreamRef.current || !currentUser) return;
+    if (!hasMic || !localStreamRef.current || !currentUser) {
+      showToast('사용 가능한 마이크가 연결되어 있지 않습니다.', 'error');
+      return;
+    }
     const track = localStreamRef.current.getAudioTracks()[0];
     if (!track) return;
 
@@ -690,7 +726,7 @@ export default function StandaloneGroupCallPage() {
                         {p.name} {isMe && <span className="text-emerald-400">(나)</span>}
                       </div>
                       <div className="text-[10px] text-gray-400 mt-0.5">
-                        {p.isMuted ? '음소거됨' : '음성 연결됨'}
+                        {p.isMuted ? (isMe && !hasMic ? '듣기 전용' : '음소거됨') : '음성 연결됨'}
                       </div>
                     </div>
                   </div>
@@ -747,14 +783,15 @@ export default function StandaloneGroupCallPage() {
           <div className="flex items-center justify-center gap-4 pt-3 border-t border-white/10 shrink-0">
             <button
               onClick={handleToggleMute}
-              className={`px-6 py-3.5 rounded-2xl font-bold text-xs flex items-center gap-2 transition ${
+              disabled={!hasMic}
+              className={`px-6 py-3.5 rounded-2xl font-bold text-xs flex items-center gap-2 transition disabled:opacity-40 ${
                 isMuted
                   ? 'bg-amber-400 text-gray-900'
                   : 'bg-white/15 hover:bg-white/25 text-white'
               }`}
             >
               <span>{isMuted ? '🔇' : '🎙️'}</span>
-              <span>{isMuted ? '음소거 해제' : '마이크 끄기'}</span>
+              <span>{!hasMic ? '마이크 없음' : isMuted ? '음소거 해제' : '마이크 끄기'}</span>
             </button>
 
             <button
