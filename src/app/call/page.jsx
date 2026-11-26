@@ -41,25 +41,62 @@ export default function StandaloneGroupCallPage() {
     setTimeout(() => setToast({ type: '', text: '' }), 3500);
   };
 
-  // 1. 로그인 확인 및 URL 쿼리(?room=...) 자동 감지
+  // 1. 로그인 세션 안정적 확인 (onAuthStateChange + getSession 병행)
   useEffect(() => {
-    const init = async () => {
+    let isMounted = true;
+
+    const params = new URLSearchParams(window.location.search);
+    const roomParam = params.get('room');
+    if (roomParam) {
+      setJoinCodeInput(roomParam);
+    }
+
+    // 인증 상태 구독 (새로고침 시 세션 복구 완료 시점 포착)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!isMounted) return;
+      if (session?.user) {
+        setCurrentUser(session.user);
+        setLoading(false);
+      } else if (event === 'SIGNED_OUT') {
+        setCurrentUser(null);
+        setLoading(false);
+        router.replace('/');
+      }
+    });
+
+    // 초기 세션 확인 (약간의 지연 허용)
+    const checkSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
-      const user = session?.user || (await supabase.auth.getUser()).data?.user;
-      if (!user) {
-        router.push('/');
+      if (!isMounted) return;
+
+      if (session?.user) {
+        setCurrentUser(session.user);
+        setLoading(false);
         return;
       }
-      setCurrentUser(user);
 
-      const params = new URLSearchParams(window.location.search);
-      const roomParam = params.get('room');
-      if (roomParam) {
-        setJoinCodeInput(roomParam);
-      }
-      setLoading(false);
+      // 세션 복구 대기 후 최종 확인
+      setTimeout(async () => {
+        if (!isMounted) return;
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!isMounted) return;
+
+        if (user) {
+          setCurrentUser(user);
+          setLoading(false);
+        } else {
+          setLoading(false);
+          router.replace('/');
+        }
+      }, 600);
     };
-    init();
+
+    checkSession();
+
+    return () => {
+      isMounted = false;
+      subscription?.unsubscribe();
+    };
   }, [router]);
 
   // 통화 시간 타이머
@@ -128,7 +165,7 @@ export default function StandaloneGroupCallPage() {
     };
   }, [closePeer]);
 
-  // RTCPeerConnection 생성 (마이크 없어도 수신 전용 트랜시버로 상대 목소리 청취 가능)
+  // RTCPeerConnection 생성
   const getOrCreatePeer = useCallback(
     (targetUserId, myUserId) => {
       if (peersRef.current.has(targetUserId)) {
@@ -147,7 +184,6 @@ export default function StandaloneGroupCallPage() {
           pc.addTrack(track, localStreamRef.current);
         });
       } else {
-        // 마이크가 없는 환경에서도 상대방 오디오는 받을 수 있도록 설정
         pc.addTransceiver('audio', { direction: 'recvonly' });
       }
 
@@ -227,12 +263,10 @@ export default function StandaloneGroupCallPage() {
 
     let micAvailable = false;
 
-    // HTTPS / 보안 컨텍스트 확인
     if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       showToast('보안 연결(HTTPS 또는 localhost)이 아니어서 듣기 전용으로 입장합니다.', 'error');
     } else {
       try {
-        // 1차 시도: 에코/노이즈 제거 옵션 포함
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: {
             echoCancellation: true,
@@ -244,9 +278,7 @@ export default function StandaloneGroupCallPage() {
         localStreamRef.current = stream;
         micAvailable = true;
       } catch (firstErr) {
-        console.warn('1차 마이크 요청 실패, 기본 설정으로 재시도:', firstErr);
         try {
-          // 2차 시도: 기기 호환성을 위해 단순 기본 오디오로 재요청
           const fallbackStream = await navigator.mediaDevices.getUserMedia({
             audio: true,
             video: false,
@@ -254,7 +286,6 @@ export default function StandaloneGroupCallPage() {
           localStreamRef.current = fallbackStream;
           micAvailable = true;
         } catch (err) {
-          console.error('마이크 최종 오류:', err.name, err.message);
           if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
             showToast('마이크 권한이 차단되어 듣기 전용으로 입장합니다.', 'error');
           } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
