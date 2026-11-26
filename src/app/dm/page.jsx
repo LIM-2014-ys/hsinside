@@ -9,7 +9,7 @@ import { supabase } from '@/lib/supabaseClient';
 function ReplyIcon({ className = "w-3.5 h-3.5" }) {
   return (
     <svg className={className} fill="none" stroke="currentColor" strokeWidth={2.2} viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
     </svg>
   );
 }
@@ -23,7 +23,130 @@ function ClipIcon({ className = "w-4 h-4" }) {
   );
 }
 
-const PAGE_SIZE = 30; // 한 번에 불러올 메시지 수
+const PAGE_SIZE = 30;
+const MAX_COMPRESSED_SIZE_MB = 10; // 압축 후 최대 허용 용량 (10MB)
+
+// 🗜️ 파일 용량 포맷 헬퍼
+const formatBytes = (bytes) => {
+  if (bytes === 0) return '0B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + sizes[i];
+};
+
+// 🗜️ 클라이언트 사이드 파일 자동 압축 함수 (라이브러리 불필요)
+const compressFileBeforeUpload = async (file) => {
+  const originalSize = file.size;
+
+  // 1. 이미지 파일인 경우: Canvas 리사이징 + WebP/JPEG 압축
+  if (file.type.startsWith('image/') && file.type !== 'image/gif') {
+    return new Promise((resolve) => {
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(file);
+
+      img.onload = () => {
+        URL.revokeObjectURL(objectUrl);
+        const MAX_DIMENSION = 1280; // 최대 가로/세로 해상도
+        let { width, height } = img;
+
+        if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
+          if (width > height) {
+            height = Math.round((height * MAX_DIMENSION) / width);
+            width = MAX_DIMENSION;
+          } else {
+            width = Math.round((width * MAX_DIMENSION) / height);
+            height = MAX_DIMENSION;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+
+        // 투명 배경 유지가 필요한 PNG는 WebP로, 나머지는 JPEG로 압축
+        const outputMime = file.type === 'image/png' ? 'image/webp' : 'image/jpeg';
+        const outputExt = file.type === 'image/png' ? 'webp' : 'jpg';
+
+        canvas.toBlob(
+          (blob) => {
+            // 압축 결과가 원본보다 작을 때만 압축본 사용
+            if (blob && blob.size < originalSize) {
+              const baseName = file.name.replace(/\.[^/.]+$/, '');
+              const compressedFile = new File([blob], `${baseName}.${outputExt}`, {
+                type: outputMime,
+              });
+              resolve({
+                file: compressedFile,
+                originalSize,
+                finalSize: compressedFile.size,
+                isGzipped: false,
+                displayName: compressedFile.name,
+              });
+            } else {
+              resolve({
+                file,
+                originalSize,
+                finalSize: originalSize,
+                isGzipped: false,
+                displayName: file.name,
+              });
+            }
+          },
+          outputMime,
+          0.72 // 압축 품질 (0.72가 화질 대비 용량 효율 최적)
+        );
+      };
+
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        resolve({
+          file,
+          originalSize,
+          finalSize: originalSize,
+          isGzipped: false,
+          displayName: file.name,
+        });
+      };
+
+      img.src = objectUrl;
+    });
+  }
+
+  // 2. 일반 파일인 경우: 브라우저 내장 CompressionStream (GZIP) 압축
+  if (typeof window !== 'undefined' && 'CompressionStream' in window) {
+    try {
+      const stream = file.stream().pipeThrough(new CompressionStream('gzip'));
+      const compressedBlob = await new Response(stream).blob();
+
+      // 이미 압축된 파일(zip, mp4 등)은 오히려 커질 수 있으므로 최소 5% 이상 줄어들 때만 적용
+      if (compressedBlob.size < originalSize * 0.95) {
+        const gzippedFile = new File([compressedBlob], `${file.name}.gz`, {
+          type: 'application/gzip',
+        });
+        return {
+          file: gzippedFile,
+          originalSize,
+          finalSize: gzippedFile.size,
+          isGzipped: true,
+          displayName: file.name, // 다운로드 시 복원할 원본 이름
+        };
+      }
+    } catch (e) {
+      console.warn('GZIP 압축 건너뜀:', e);
+    }
+  }
+
+  return {
+    file,
+    originalSize,
+    finalSize: originalSize,
+    isGzipped: false,
+    displayName: file.name,
+  };
+};
 
 // 💾 로컬 스토리지 캐시 전량 삭제 헬퍼
 const clearAllDMCache = () => {
@@ -86,7 +209,6 @@ export default function DMPage() {
   const [sending, setSending] = useState(false);
   const [uploading, setUploading] = useState(false);
 
-  // 📜 과거 메시지 추가 로딩 관련 상태
   const [hasMoreMessages, setHasMoreMessages] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
 
@@ -126,7 +248,7 @@ export default function DMPage() {
 
   const showToast = (text, type = 'error') => {
     setToastMsg({ type, text });
-    setTimeout(() => setToastMsg({ type: '', text: '' }), 3000);
+    setTimeout(() => setToastMsg({ type: '', text: '' }), 3500);
   };
 
   const scrollToBottomIfNear = useCallback((force = false) => {
@@ -331,7 +453,7 @@ export default function DMPage() {
     };
   }, [activeRoom, currentUser, updateLastRead]);
 
-  // 5. 대화방 초기 로드 (최신 PAGE_SIZE 개 우선 로드)
+  // 5. 대화방 초기 로드
   const loadRoomDetails = useCallback(async (room, forceServer = false) => {
     setActiveRoom(room);
     setShowMobileSidebar(false);
@@ -346,7 +468,6 @@ export default function DMPage() {
     }
 
     try {
-      // ⚡ 서버에서 최신순으로 PAGE_SIZE 개만 스크랩
       const { data: serverMsgs, error } = await supabase
         .from('chat_messages')
         .select('*, profiles:sender_id(*)')
@@ -383,7 +504,7 @@ export default function DMPage() {
     setTimeout(() => scrollToBottomIfNear(true), 50);
   }, [updateLastRead, scrollToBottomIfNear]);
 
-  // 📜 6. 위로 스크랩(스크롤) 시 더 오래된 메시지 추가 페이징 로드
+  // 📜 6. 과거 메시지 추가 페이징 로드
   const fetchOlderMessages = useCallback(async () => {
     if (!activeRoom || loadingMore || !hasMoreMessages || messages.length === 0) return;
 
@@ -419,7 +540,6 @@ export default function DMPage() {
           setHasMoreMessages(false);
         }
 
-        // 스크롤 위치 유지 처리 (위로 올라가지 않도록 스크롤바 높이 차이 보정)
         requestAnimationFrame(() => {
           if (container) {
             const newScrollHeight = container.scrollHeight;
@@ -436,7 +556,6 @@ export default function DMPage() {
     }
   }, [activeRoom, loadingMore, hasMoreMessages, messages]);
 
-  // 📜 스크롤 최상단 감지 핸들러
   const handleScroll = () => {
     if (!chatContainerRef.current) return;
     if (chatContainerRef.current.scrollTop < 50 && hasMoreMessages && !loadingMore) {
@@ -566,7 +685,7 @@ export default function DMPage() {
     const cleanText = content
       .replace(/^↩️ \[.*?\]: ".*?"\n\n/, '')
       .replace(/^🖼️ \[IMAGE\]: .*$/, '[이미지]')
-      .replace(/^📎 \[FILE\]: (.*?)\|.*$/, '$1');
+      .replace(/^📎 \[FILE(?:-GZ)?\]: (.*?)\|.*$/, '$1');
 
     navigator.clipboard.writeText(cleanText)
       .then(() => showToast('메시지가 복사되었습니다.', 'success'))
@@ -574,22 +693,32 @@ export default function DMPage() {
     setActionMenuMsg(null);
   };
 
-  // 파일 업로드
+  // 🗜️ 파일 자동 압축 후 업로드
   const handleFileUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file || !activeRoom || !currentUser || uploading) return;
+    const rawFile = e.target.files?.[0];
+    if (!rawFile || !activeRoom || !currentUser || uploading) return;
 
     setUploading(true);
-    showToast('파일 업로드 중...', 'success');
+    showToast('파일 용량 압축 중...', 'success');
 
     try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
-      const filePath = `${activeRoom.id}/${fileName}`;
+      // 1. 클라이언트 측 자동 압축 실행
+      const { file: compressedFile, originalSize, finalSize, isGzipped, displayName } =
+        await compressFileBeforeUpload(rawFile);
+
+      // 압축 후에도 제한 용량(10MB) 초과 시 차단
+      if (finalSize > MAX_COMPRESSED_SIZE_MB * 1024 * 1024) {
+        showToast(`압축 후 용량(${formatBytes(finalSize)})이 ${MAX_COMPRESSED_SIZE_MB}MB를 초과합니다.`);
+        return;
+      }
+
+      const fileExt = compressedFile.name.split('.').pop();
+      const storageFileName = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
+      const filePath = `${activeRoom.id}/${storageFileName}`;
 
       const { error: uploadErr } = await supabase.storage
         .from('chat-attachments')
-        .upload(filePath, file);
+        .upload(filePath, compressedFile);
 
       if (uploadErr) throw uploadErr;
 
@@ -598,10 +727,17 @@ export default function DMPage() {
         .getPublicUrl(filePath);
 
       const publicUrl = urlData.publicUrl;
-      const isImage = file.type.startsWith('image/');
-      const contentStr = isImage
-        ? `🖼️ [IMAGE]: ${publicUrl}`
-        : `📎 [FILE]: ${file.name}|${publicUrl}`;
+      const isImage = compressedFile.type.startsWith('image/');
+
+      // GZIP 압축된 일반 파일은 [FILE-GZ] 태그로 구분하여 다운로드 시 자동 압축 해제
+      let contentStr = '';
+      if (isImage) {
+        contentStr = `🖼️ [IMAGE]: ${publicUrl}`;
+      } else if (isGzipped) {
+        contentStr = `📎 [FILE-GZ]: ${displayName}|${publicUrl}`;
+      } else {
+        contentStr = `📎 [FILE]: ${displayName}|${publicUrl}`;
+      }
 
       const { data, error } = await supabase
         .from('chat_messages')
@@ -619,7 +755,16 @@ export default function DMPage() {
         });
         updateLastRead(activeRoom.id);
         setTimeout(() => scrollToBottomIfNear(true), 50);
-        showToast('파일 업로드 완료', 'success');
+
+        if (finalSize < originalSize) {
+          const savedPercent = Math.round(((originalSize - finalSize) / originalSize) * 100);
+          showToast(
+            `압축 완료! (${formatBytes(originalSize)} → ${formatBytes(finalSize)}, ${savedPercent}% 절감)`,
+            'success'
+          );
+        } else {
+          showToast('파일 업로드 완료', 'success');
+        }
       }
     } catch (err) {
       console.error('파일 업로드 오류:', err);
@@ -627,6 +772,35 @@ export default function DMPage() {
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  // 🗜️ GZIP 압축 파일 다운로드 및 자동 해제 헬퍼
+  const handleDownloadGzippedFile = async (fileUrl, originalFileName) => {
+    try {
+      showToast('파일 압축 해제 및 다운로드 중...', 'success');
+      const response = await fetch(fileUrl);
+      if (!response.ok) throw new Error('다운로드 실패');
+
+      if ('DecompressionStream' in window && response.body) {
+        const decompressedStream = response.body.pipeThrough(new DecompressionStream('gzip'));
+        const decompressedBlob = await new Response(decompressedStream).blob();
+        const blobUrl = URL.createObjectURL(decompressedBlob);
+
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = originalFileName;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(blobUrl);
+      } else {
+        // DecompressionStream 미지원 구형 브라우저 폴백
+        window.open(fileUrl, '_blank');
+      }
+    } catch (err) {
+      console.error('압축 해제 다운로드 오류:', err);
+      window.open(fileUrl, '_blank');
     }
   };
 
@@ -898,6 +1072,23 @@ export default function DMPage() {
             onClick={() => window.open(imageUrl, '_blank')}
           />
         </div>
+      );
+    }
+
+    // 🗜️ GZIP 압축된 파일 렌더링 (클릭 시 브라우저에서 자동 압축 해제 후 다운로드)
+    if (content.startsWith('📎 [FILE-GZ]: ')) {
+      const fileData = content.replace('📎 [FILE-GZ]: ', '').trim();
+      const [fileName, fileUrl] = fileData.split('|');
+      return (
+        <button
+          type="button"
+          onClick={() => handleDownloadGzippedFile(fileUrl, fileName || 'download')}
+          className="p-2.5 bg-black/10 rounded-xl flex items-center gap-2 hover:bg-black/20 transition text-xs font-bold text-left max-w-full"
+        >
+          <ClipIcon className="w-4 h-4 shrink-0" />
+          <span className="truncate">{fileName || '다운로드 파일'}</span>
+          <span className="text-[9px] px-1.5 py-0.5 rounded bg-black/15 shrink-0">압축됨</span>
+        </button>
       );
     }
 
@@ -1320,13 +1511,12 @@ export default function DMPage() {
                 </div>
               </div>
 
-              {/* 메시지 영역 (위로 스크롤 시 과거 내역 자동 로드) */}
+              {/* 메시지 영역 */}
               <div
                 ref={chatContainerRef}
                 onScroll={handleScroll}
                 className="flex-1 p-4 overflow-y-auto space-y-3 bg-gray-50/40 touch-pan-y"
               >
-                {/* ⏳ 상단 로딩 표시줄 */}
                 {loadingMore && (
                   <div className="text-center py-2 text-[10px] text-emerald-600 font-bold animate-pulse">
                     ⏳ 이전 대화 내역 불러오는 중...
@@ -1481,8 +1671,12 @@ export default function DMPage() {
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
                     disabled={uploading}
-                    className="p-2 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-full transition shrink-0"
-                    title="사진/파일 첨부"
+                    className={`p-2 rounded-full transition shrink-0 ${
+                      uploading
+                        ? 'bg-emerald-100 text-emerald-700 animate-pulse'
+                        : 'bg-gray-100 hover:bg-gray-200 text-gray-600'
+                    }`}
+                    title="사진/파일 자동 압축 첨부"
                   >
                     <ClipIcon className="w-4 h-4" />
                   </button>
@@ -1491,7 +1685,9 @@ export default function DMPage() {
                     ref={inputRef}
                     type="text"
                     placeholder={
-                      editingMsg
+                      uploading
+                        ? "파일 압축 및 전송 중..."
+                        : editingMsg
                         ? "수정할 내용 입력..."
                         : isOwner
                         ? "메시지 입력... (@로 멘션, @all 가능)"
@@ -1500,11 +1696,12 @@ export default function DMPage() {
                     value={inputMessage}
                     onChange={handleInputChange}
                     onKeyDown={handleKeyDown}
+                    disabled={uploading}
                     className="flex-1 px-4 py-2.5 bg-gray-100 rounded-full focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-xs text-gray-800 select-text"
                   />
                   <button
                     type="submit"
-                    disabled={!inputMessage.trim() || sending}
+                    disabled={!inputMessage.trim() || sending || uploading}
                     className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-full text-xs disabled:opacity-30 transition shrink-0"
                   >
                     {editingMsg ? '수정' : '전송'}
