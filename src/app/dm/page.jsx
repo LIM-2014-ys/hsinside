@@ -9,7 +9,7 @@ import { supabase } from '@/lib/supabaseClient';
 function ReplyIcon({ className = "w-3.5 h-3.5" }) {
   return (
     <svg className={className} fill="none" stroke="currentColor" strokeWidth={2.2} viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
     </svg>
   );
 }
@@ -24,9 +24,8 @@ function ClipIcon({ className = "w-4 h-4" }) {
 }
 
 const PAGE_SIZE = 30;
-const MAX_COMPRESSED_SIZE_MB = 10; // 압축 후 최대 허용 용량 (10MB)
+const MAX_COMPRESSED_SIZE_MB = 10;
 
-// 🗜️ 파일 용량 포맷 헬퍼
 const formatBytes = (bytes) => {
   if (bytes === 0) return '0B';
   const k = 1024;
@@ -35,11 +34,10 @@ const formatBytes = (bytes) => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + sizes[i];
 };
 
-// 🗜️ 클라이언트 사이드 파일 자동 압축 함수 (라이브러리 불필요)
+// 🗜️ 클라이언트 사이드 파일 자동 압축 함수
 const compressFileBeforeUpload = async (file) => {
   const originalSize = file.size;
 
-  // 1. 이미지 파일인 경우: Canvas 리사이징 + WebP/JPEG 압축
   if (file.type.startsWith('image/') && file.type !== 'image/gif') {
     return new Promise((resolve) => {
       const img = new Image();
@@ -47,7 +45,7 @@ const compressFileBeforeUpload = async (file) => {
 
       img.onload = () => {
         URL.revokeObjectURL(objectUrl);
-        const MAX_DIMENSION = 1280; // 최대 가로/세로 해상도
+        const MAX_DIMENSION = 1280;
         let { width, height } = img;
 
         if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
@@ -66,13 +64,11 @@ const compressFileBeforeUpload = async (file) => {
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, width, height);
 
-        // 투명 배경 유지가 필요한 PNG는 WebP로, 나머지는 JPEG로 압축
         const outputMime = file.type === 'image/png' ? 'image/webp' : 'image/jpeg';
         const outputExt = file.type === 'image/png' ? 'webp' : 'jpg';
 
         canvas.toBlob(
           (blob) => {
-            // 압축 결과가 원본보다 작을 때만 압축본 사용
             if (blob && blob.size < originalSize) {
               const baseName = file.name.replace(/\.[^/.]+$/, '');
               const compressedFile = new File([blob], `${baseName}.${outputExt}`, {
@@ -86,42 +82,28 @@ const compressFileBeforeUpload = async (file) => {
                 displayName: compressedFile.name,
               });
             } else {
-              resolve({
-                file,
-                originalSize,
-                finalSize: originalSize,
-                isGzipped: false,
-                displayName: file.name,
-              });
+              resolve({ file, originalSize, finalSize: originalSize, isGzipped: false, displayName: file.name });
             }
           },
           outputMime,
-          0.72 // 압축 품질 (0.72가 화질 대비 용량 효율 최적)
+          0.72
         );
       };
 
       img.onerror = () => {
         URL.revokeObjectURL(objectUrl);
-        resolve({
-          file,
-          originalSize,
-          finalSize: originalSize,
-          isGzipped: false,
-          displayName: file.name,
-        });
+        resolve({ file, originalSize, finalSize: originalSize, isGzipped: false, displayName: file.name });
       };
 
       img.src = objectUrl;
     });
   }
 
-  // 2. 일반 파일인 경우: 브라우저 내장 CompressionStream (GZIP) 압축
   if (typeof window !== 'undefined' && 'CompressionStream' in window) {
     try {
       const stream = file.stream().pipeThrough(new CompressionStream('gzip'));
       const compressedBlob = await new Response(stream).blob();
 
-      // 이미 압축된 파일(zip, mp4 등)은 오히려 커질 수 있으므로 최소 5% 이상 줄어들 때만 적용
       if (compressedBlob.size < originalSize * 0.95) {
         const gzippedFile = new File([compressedBlob], `${file.name}.gz`, {
           type: 'application/gzip',
@@ -131,7 +113,7 @@ const compressFileBeforeUpload = async (file) => {
           originalSize,
           finalSize: gzippedFile.size,
           isGzipped: true,
-          displayName: file.name, // 다운로드 시 복원할 원본 이름
+          displayName: file.name,
         };
       }
     } catch (e) {
@@ -139,16 +121,10 @@ const compressFileBeforeUpload = async (file) => {
     }
   }
 
-  return {
-    file,
-    originalSize,
-    finalSize: originalSize,
-    isGzipped: false,
-    displayName: file.name,
-  };
+  return { file, originalSize, finalSize: originalSize, isGzipped: false, displayName: file.name };
 };
 
-// 💾 로컬 스토리지 캐시 전량 삭제 헬퍼
+// 💾 로컬 스토리지 캐시 헬퍼
 const clearAllDMCache = () => {
   try {
     localStorage.removeItem('dm_rooms_list');
@@ -157,9 +133,7 @@ const clearAllDMCache = () => {
         localStorage.removeItem(key);
       }
     });
-  } catch (e) {
-    console.error('캐시 삭제 실패:', e);
-  }
+  } catch (e) {}
 };
 
 const getLocalMessages = (roomId) => {
@@ -173,7 +147,7 @@ const getLocalMessages = (roomId) => {
 
 const setLocalMessages = (roomId, msgs) => {
   try {
-    const sliced = msgs.slice(-200);
+    const sliced = msgs.slice(-100); // 캐시 용량 및 파싱 속도 최적화 (최근 100개 유지)
     localStorage.setItem(`dm_msgs_${roomId}`, JSON.stringify(sliced));
   } catch (e) {}
 };
@@ -226,6 +200,7 @@ export default function DMPage() {
   const chatContainerRef = useRef(null);
   const inputRef = useRef(null);
   const fileInputRef = useRef(null);
+  const profileCacheRef = useRef(new Map()); // ⚡ 유저 프로필 메모리 캐시 (중복 DB 조회 차단)
 
   const [showMobileSidebar, setShowMobileSidebar] = useState(true);
   const [toastMsg, setToastMsg] = useState({ type: '', text: '' });
@@ -257,13 +232,38 @@ export default function DMPage() {
     const isNearBottom = scrollHeight - scrollTop - clientHeight < 150;
 
     if (force || isNearBottom) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      messagesEndRef.current?.scrollIntoView({ behavior: force ? 'auto' : 'smooth' });
     }
   }, []);
 
-  // 1. 유저 인증
+  // ⚡ 프로필 매핑 헬퍼 (메모리 캐시 우선 사용)
+  const attachProfilesToMessages = useCallback((rawMsgs, membersList = []) => {
+    membersList.forEach((m) => {
+      if (m.profiles) {
+        profileCacheRef.current.set(m.user_id, m.profiles);
+      }
+    });
+
+    return rawMsgs.map((msg) => {
+      if (msg.profiles) {
+        profileCacheRef.current.set(msg.sender_id, msg.profiles);
+        return msg;
+      }
+      return {
+        ...msg,
+        profiles: profileCacheRef.current.get(msg.sender_id) || null,
+      };
+    });
+  }, []);
+
+  // 1. 유저 인증 (getSession으로 로컬 토큰 우선 확인하여 속도 단축)
   useEffect(() => {
     const initUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        setCurrentUser(session.user);
+        return;
+      }
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         router.push('/');
@@ -274,15 +274,14 @@ export default function DMPage() {
     initUser();
   }, [router]);
 
-  // 2. 대화방 목록 로드
+  // ⚡ 2. 대화방 목록 경량 로드 (전체 메시지 긁어오기 제거 -> 방별 최신 메시지 1건만 조회)
   const fetchMyRooms = useCallback(async (forceServer = false) => {
     if (!currentUser) return;
 
     const cachedRooms = getLocalRooms();
-    if (!forceServer && cachedRooms.length > 0) {
+    if (cachedRooms.length > 0) {
       setRooms(cachedRooms);
-      setLoading(false);
-      return;
+      setLoading(false); // 캐시가 있으면 즉시 로딩 해제 (0ms 렌더링)
     }
 
     try {
@@ -299,33 +298,49 @@ export default function DMPage() {
       }
 
       const roomIds = myMemberships.map((m) => m.room_id);
+      const lastReadMap = new Map(
+        myMemberships.map((m) => [m.room_id, m.last_read_at ? new Date(m.last_read_at).getTime() : 0])
+      );
 
+      // 방 정보 + 멤버 정보 조회 (무거운 전체 메시지 조인 제외)
       const { data: roomData } = await supabase
         .from('chat_rooms')
-        .select(`
-          *,
-          members:chat_room_members(*, profiles:user_id(*)),
-          messages:chat_messages(id, content, created_at, sender_id)
-        `)
+        .select('*, members:chat_room_members(user_id, last_read_at, profiles:user_id(id, display_name, nickname, avatar_url, email))')
         .in('id', roomIds);
 
-      if (roomData) {
-        const processedRooms = roomData.map((room) => {
-          const sortedMsgs = (room.messages || []).sort(
-            (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-          );
-          const latestMsgObj = sortedMsgs[0];
+      if (!roomData) return;
 
-          const myMember = room.members?.find((m) => m.user_id === currentUser.id);
-          const lastReadTime = myMember?.last_read_at
-            ? new Date(myMember.last_read_at).getTime()
-            : 0;
+      // 멤버 프로필을 메모리 캐시에 저장
+      roomData.forEach((r) => {
+        r.members?.forEach((m) => {
+          if (m.profiles) profileCacheRef.current.set(m.user_id, m.profiles);
+        });
+      });
 
-          const unreadCount = sortedMsgs.filter(
-            (m) =>
-              m.sender_id !== currentUser.id &&
-              new Date(m.created_at).getTime() > lastReadTime + 500
-          ).length;
+      // 각 방별로 최신 메시지 1건 + 안 읽은 메시지 개수만 병렬로 가볍게 조회
+      const processedRooms = await Promise.all(
+        roomData.map(async (room) => {
+          const lastReadTime = lastReadMap.get(room.id) || 0;
+          const lastReadISO = new Date(lastReadTime + 500).toISOString();
+
+          const [latestRes, unreadRes] = await Promise.all([
+            supabase
+              .from('chat_messages')
+              .select('content, created_at')
+              .eq('room_id', room.id)
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle(),
+            supabase
+              .from('chat_messages')
+              .select('id', { count: 'exact', head: true })
+              .eq('room_id', room.id)
+              .neq('sender_id', currentUser.id)
+              .gt('created_at', lastReadISO),
+          ]);
+
+          const latestMsgObj = latestRes.data;
+          const unreadCount = unreadRes.count || 0;
 
           return {
             ...room,
@@ -333,15 +348,15 @@ export default function DMPage() {
             latestMsgTime: latestMsgObj?.created_at || room.created_at,
             unreadCount,
           };
-        });
+        })
+      );
 
-        processedRooms.sort(
-          (a, b) => new Date(b.latestMsgTime).getTime() - new Date(a.latestMsgTime).getTime()
-        );
+      processedRooms.sort(
+        (a, b) => new Date(b.latestMsgTime).getTime() - new Date(a.latestMsgTime).getTime()
+      );
 
-        setRooms(processedRooms);
-        setLocalRooms(processedRooms);
-      }
+      setRooms(processedRooms);
+      setLocalRooms(processedRooms);
     } catch (err) {
       console.error('대화방 로드 오류:', err);
     } finally {
@@ -453,7 +468,7 @@ export default function DMPage() {
     };
   }, [activeRoom, currentUser, updateLastRead]);
 
-  // 5. 대화방 초기 로드
+  // ⚡ 5. 대화방 초기 로드 (메시지와 멤버 병렬 조회 + 중복 프로필 조인 제거)
   const loadRoomDetails = useCallback(async (room, forceServer = false) => {
     setActiveRoom(room);
     setShowMobileSidebar(false);
@@ -461,24 +476,42 @@ export default function DMPage() {
     setEditingMsg(null);
     setHasMoreMessages(true);
 
+    // 이미 목록에서 가져온 멤버 정보가 있으면 즉시 세팅
+    if (room.members && room.members.length > 0) {
+      setRoomMembers(room.members);
+    }
+
     let cachedMsgs = forceServer ? [] : getLocalMessages(room.id);
     if (cachedMsgs.length > 0 && !forceServer) {
-      setMessages(cachedMsgs);
-      setTimeout(() => scrollToBottomIfNear(true), 10);
+      setMessages(attachProfilesToMessages(cachedMsgs, room.members));
+      setTimeout(() => scrollToBottomIfNear(true), 0);
+    } else {
+      setMessages([]);
     }
 
     try {
-      const { data: serverMsgs, error } = await supabase
-        .from('chat_messages')
-        .select('*, profiles:sender_id(*)')
-        .eq('room_id', room.id)
-        .order('created_at', { ascending: false })
-        .limit(PAGE_SIZE);
+      // 메시지와 최신 멤버 목록을 병렬(Promise.all)로 동시 요청
+      const [msgsRes, memRes] = await Promise.all([
+        supabase
+          .from('chat_messages')
+          .select('id, room_id, sender_id, content, created_at')
+          .eq('room_id', room.id)
+          .order('created_at', { ascending: false })
+          .limit(PAGE_SIZE),
+        supabase
+          .from('chat_room_members')
+          .select('user_id, last_read_at, profiles:user_id(id, display_name, nickname, avatar_url, email)')
+          .eq('room_id', room.id),
+      ]);
 
-      if (error) throw error;
+      if (msgsRes.error) throw msgsRes.error;
 
+      const latestMembers = memRes.data || room.members || [];
+      if (memRes.data) setRoomMembers(memRes.data);
+
+      const serverMsgs = msgsRes.data;
       if (serverMsgs && serverMsgs.length > 0) {
-        const chronological = [...serverMsgs].reverse();
+        const chronological = attachProfilesToMessages([...serverMsgs].reverse(), latestMembers);
         setMessages(chronological);
         setLocalMessages(room.id, chronological);
 
@@ -493,18 +526,11 @@ export default function DMPage() {
       console.error('메시지 불러오기 에러:', err);
     }
 
-    const { data: memData } = await supabase
-      .from('chat_room_members')
-      .select('*, profiles:user_id(*)')
-      .eq('room_id', room.id);
-
-    if (memData) setRoomMembers(memData);
-
     updateLastRead(room.id);
-    setTimeout(() => scrollToBottomIfNear(true), 50);
-  }, [updateLastRead, scrollToBottomIfNear]);
+    setTimeout(() => scrollToBottomIfNear(true), 30);
+  }, [updateLastRead, scrollToBottomIfNear, attachProfilesToMessages]);
 
-  // 📜 6. 과거 메시지 추가 페이징 로드
+  // 📜 6. 과거 메시지 추가 페이징 로드 (경량 쿼리)
   const fetchOlderMessages = useCallback(async () => {
     if (!activeRoom || loadingMore || !hasMoreMessages || messages.length === 0) return;
 
@@ -516,7 +542,7 @@ export default function DMPage() {
     try {
       const { data: olderMsgs, error } = await supabase
         .from('chat_messages')
-        .select('*, profiles:sender_id(*)')
+        .select('id, room_id, sender_id, content, created_at')
         .eq('room_id', activeRoom.id)
         .lt('created_at', oldestMsg.created_at)
         .order('created_at', { ascending: false })
@@ -525,15 +551,14 @@ export default function DMPage() {
       if (error) throw error;
 
       if (olderMsgs && olderMsgs.length > 0) {
-        const chronologicalOlder = [...olderMsgs].reverse();
+        const chronologicalOlder = attachProfilesToMessages([...olderMsgs].reverse(), roomMembers);
 
         setMessages((prev) => {
           const map = new Map();
           [...chronologicalOlder, ...prev].forEach((m) => map.set(m.id, m));
-          const merged = Array.from(map.values()).sort(
+          return Array.from(map.values()).sort(
             (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
           );
-          return merged;
         });
 
         if (olderMsgs.length < PAGE_SIZE) {
@@ -554,7 +579,7 @@ export default function DMPage() {
     } finally {
       setLoadingMore(false);
     }
-  }, [activeRoom, loadingMore, hasMoreMessages, messages]);
+  }, [activeRoom, loadingMore, hasMoreMessages, messages, roomMembers, attachProfilesToMessages]);
 
   const handleScroll = () => {
     if (!chatContainerRef.current) return;
@@ -575,11 +600,17 @@ export default function DMPage() {
         async (payload) => {
           const newMsg = payload.new;
 
-          const { data: senderProfile } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', newMsg.sender_id)
-            .single();
+          // 메모리 캐시에 프로필이 있으면 DB 조회 생략
+          let senderProfile = profileCacheRef.current.get(newMsg.sender_id);
+          if (!senderProfile) {
+            const { data } = await supabase
+              .from('profiles')
+              .select('id, display_name, nickname, avatar_url, email')
+              .eq('id', newMsg.sender_id)
+              .single();
+            senderProfile = data;
+            if (data) profileCacheRef.current.set(newMsg.sender_id, data);
+          }
 
           const fullMsg = { ...newMsg, profiles: senderProfile };
 
@@ -601,7 +632,22 @@ export default function DMPage() {
             }
           }
 
-          fetchMyRooms();
+          // 전체 DB 재조회 대신 좌측 방 목록 상태만 즉시 업데이트
+          setRooms((prev) => {
+            const updated = prev.map((r) => {
+              if (r.id !== newMsg.room_id) return r;
+              const isCurrentOpen = activeRoom?.id === newMsg.room_id;
+              return {
+                ...r,
+                latestMsg: newMsg.content,
+                latestMsgTime: newMsg.created_at,
+                unreadCount: isCurrentOpen || newMsg.sender_id === currentUser.id ? 0 : (r.unreadCount || 0) + 1,
+              };
+            });
+            updated.sort((a, b) => new Date(b.latestMsgTime).getTime() - new Date(a.latestMsgTime).getTime());
+            setLocalRooms(updated);
+            return updated;
+          });
         }
       )
       .on(
@@ -647,7 +693,7 @@ export default function DMPage() {
 
             const { data: memData } = await supabase
               .from('chat_room_members')
-              .select('*, profiles:user_id(*)')
+              .select('user_id, last_read_at, profiles:user_id(id, display_name, nickname, avatar_url, email)')
               .eq('room_id', activeRoom.id);
 
             if (memData) setRoomMembers(memData);
@@ -702,11 +748,9 @@ export default function DMPage() {
     showToast('파일 용량 압축 중...', 'success');
 
     try {
-      // 1. 클라이언트 측 자동 압축 실행
       const { file: compressedFile, originalSize, finalSize, isGzipped, displayName } =
         await compressFileBeforeUpload(rawFile);
 
-      // 압축 후에도 제한 용량(10MB) 초과 시 차단
       if (finalSize > MAX_COMPRESSED_SIZE_MB * 1024 * 1024) {
         showToast(`압축 후 용량(${formatBytes(finalSize)})이 ${MAX_COMPRESSED_SIZE_MB}MB를 초과합니다.`);
         return;
@@ -729,7 +773,6 @@ export default function DMPage() {
       const publicUrl = urlData.publicUrl;
       const isImage = compressedFile.type.startsWith('image/');
 
-      // GZIP 압축된 일반 파일은 [FILE-GZ] 태그로 구분하여 다운로드 시 자동 압축 해제
       let contentStr = '';
       if (isImage) {
         contentStr = `🖼️ [IMAGE]: ${publicUrl}`;
@@ -742,19 +785,20 @@ export default function DMPage() {
       const { data, error } = await supabase
         .from('chat_messages')
         .insert([{ room_id: activeRoom.id, sender_id: currentUser.id, content: contentStr }])
-        .select('*, profiles:sender_id(*)')
+        .select('id, room_id, sender_id, content, created_at')
         .single();
 
       if (error) throw error;
 
       if (data) {
+        const msgWithProfile = attachProfilesToMessages([data], roomMembers)[0];
         setMessages((prev) => {
-          const next = [...prev, data];
+          const next = [...prev, msgWithProfile];
           setLocalMessages(activeRoom.id, next);
           return next;
         });
         updateLastRead(activeRoom.id);
-        setTimeout(() => scrollToBottomIfNear(true), 50);
+        setTimeout(() => scrollToBottomIfNear(true), 30);
 
         if (finalSize < originalSize) {
           const savedPercent = Math.round(((originalSize - finalSize) / originalSize) * 100);
@@ -795,7 +839,6 @@ export default function DMPage() {
         a.remove();
         URL.revokeObjectURL(blobUrl);
       } else {
-        // DecompressionStream 미지원 구형 브라우저 폴백
         window.open(fileUrl, '_blank');
       }
     } catch (err) {
@@ -944,7 +987,7 @@ export default function DMPage() {
 
       const { data: updatedMem } = await supabase
         .from('chat_room_members')
-        .select('*, profiles:user_id(*)')
+        .select('user_id, last_read_at, profiles:user_id(id, display_name, nickname, avatar_url, email)')
         .eq('room_id', activeRoom.id);
       if (updatedMem) setRoomMembers(updatedMem);
 
@@ -1016,19 +1059,20 @@ export default function DMPage() {
       const { data, error } = await supabase
         .from('chat_messages')
         .insert([{ room_id: activeRoom.id, sender_id: currentUser.id, content: finalContent }])
-        .select('*, profiles:sender_id(*)')
+        .select('id, room_id, sender_id, content, created_at')
         .single();
 
       if (error) throw error;
 
       if (data) {
+        const msgWithProfile = attachProfilesToMessages([data], roomMembers)[0];
         setMessages((prev) => {
-          const next = [...prev, data];
+          const next = [...prev, msgWithProfile];
           setLocalMessages(activeRoom.id, next);
           return next;
         });
         updateLastRead(activeRoom.id);
-        setTimeout(() => scrollToBottomIfNear(true), 50);
+        setTimeout(() => scrollToBottomIfNear(true), 30);
 
         const otherMembers = roomMembers.filter((m) => m.user_id !== currentUser.id);
         const myName = currentUser.user_metadata?.display_name || '누군가';
@@ -1068,6 +1112,7 @@ export default function DMPage() {
           <img
             src={imageUrl}
             alt="첨부 이미지"
+            loading="lazy"
             className="max-w-xs max-h-60 rounded-xl object-cover cursor-pointer shadow-xs hover:opacity-95 transition"
             onClick={() => window.open(imageUrl, '_blank')}
           />
@@ -1075,7 +1120,6 @@ export default function DMPage() {
       );
     }
 
-    // 🗜️ GZIP 압축된 파일 렌더링 (클릭 시 브라우저에서 자동 압축 해제 후 다운로드)
     if (content.startsWith('📎 [FILE-GZ]: ')) {
       const fileData = content.replace('📎 [FILE-GZ]: ', '').trim();
       const [fileName, fileUrl] = fileData.split('|');
@@ -1465,7 +1509,6 @@ export default function DMPage() {
         >
           {activeRoom ? (
             <>
-              {/* 상단 헤더 바 */}
               <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between bg-white shrink-0">
                 <div className="flex items-center gap-2 min-w-0">
                   <button
@@ -1511,7 +1554,6 @@ export default function DMPage() {
                 </div>
               </div>
 
-              {/* 메시지 영역 */}
               <div
                 ref={chatContainerRef}
                 onScroll={handleScroll}
@@ -1575,7 +1617,6 @@ export default function DMPage() {
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* 하단 입력 폼 */}
               <div className="relative bg-white border-t border-gray-100">
                 {showMentionMenu && mentionOptions.length > 0 && (
                   <div className="absolute bottom-full left-3 right-3 mb-1 bg-white border border-gray-200 rounded-2xl shadow-xl max-h-40 overflow-y-auto p-1.5 z-20">
